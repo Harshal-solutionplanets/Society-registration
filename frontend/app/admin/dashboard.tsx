@@ -14,18 +14,26 @@ interface Unit {
   residentUID: string | null;
 }
 
+import { useRouter } from 'expo-router';
+
 export default function AdminDashboard() {
-  const { user } = useAuth();
+  const router = useRouter();
+  const { user, isLoading: authLoading } = useAuth();
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [societyData, setSocietyData] = useState<any>(null);
 
   useEffect(() => {
+    if (authLoading) return;
+
     if (user) {
       fetchData();
+    } else {
+      setLoading(false);
+      router.replace('/');
     }
-  }, [user]);
+  }, [user, authLoading]);
 
   const fetchData = async () => {
     if (!user) return;

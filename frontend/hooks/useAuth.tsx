@@ -1,10 +1,9 @@
-import { auth, db } from '@/configs/firebaseConfig';
-import { COLLECTIONS } from '@/constants/Config';
+import { appId, auth, db } from '@/configs/firebaseConfig';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 
-type AppState = 'loading' | 'admin_setup' | 'admin_dashboard' | 'resident_dashboard' | 'login';
+type AppState = 'loading' | 'admin_setup' | 'admin_dashboard' | 'resident_dashboard' | 'login' | 'auth';
 
 interface AuthContextType {
   user: User | null;
@@ -25,16 +24,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       if (currentUser) {
         try {
-          // 1. Check if user is a registered Society Admin
-          const societyDocRef = doc(db, COLLECTIONS.SOCIETIES, currentUser.uid);
+          // Check if this UID is registered in the public societies collection 
+          const societyDocRef = doc(db, `artifacts/${appId}/public/data/societies`, currentUser.uid);
           const societyDoc = await getDoc(societyDocRef);
 
           if (societyDoc.exists()) {
+            // User is a registered Admin 
             setAppState('admin_dashboard');
           } else {
+            // Check if it's a Resident
             if (currentUser.displayName === 'Resident') {
               setAppState('resident_dashboard');
             } else {
+              // User is logged in but hasn't "Digitized" their society yet 
+              // This covers both new Email/Password sign-ups and Google Sign-Ins
               if (currentUser.isAnonymous && !currentUser.displayName) {
                    setAppState('login');
               } else {
