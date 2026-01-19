@@ -1,7 +1,7 @@
 import { appId, db } from '@/configs/firebaseConfig';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'expo-router';
-import { collection, deleteDoc, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocs, setDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -82,9 +82,17 @@ export default function CommitteeMembers() {
   const fetchMembers = async () => {
     if (!user) return;
     try {
-      const membersRef = collection(db, `artifacts/${appId}/public/data/societies/${user.uid}/committee_members`);
-      const q = query(membersRef, where("level", "==", selectedLevel));
-      const snapshot = await getDocs(q);
+      let membersRef;
+      if (selectedLevel === 'society') {
+        membersRef = collection(db, `artifacts/${appId}/public/data/societies/${user.uid}/society_committee_members`);
+      } else {
+        const wing = wings.find(w => w.id === selectedLevel);
+        if (!wing) return;
+        const sanitizedWingName = wing.name.replace(/\s+/g, '');
+        membersRef = collection(db, `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members`);
+      }
+      
+      const snapshot = await getDocs(membersRef);
       const fetchedMembers = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -104,7 +112,7 @@ export default function CommitteeMembers() {
 
     setSaving(true);
     try {
-      const memberId = Date.now().toString();
+      const memberId = name; // Use name as identifying field
       const memberData: CommitteeMember = {
         id: memberId,
         name,
@@ -115,9 +123,22 @@ export default function CommitteeMembers() {
         level: selectedLevel
       };
 
-      await setDoc(doc(db, `artifacts/${appId}/public/data/societies/${user.uid}/committee_members`, memberId), memberData);
+      let memberPath = "";
+      if (selectedLevel === 'society') {
+        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/society_committee_members/${memberId}`;
+      } else {
+        const wing = wings.find(w => w.id === selectedLevel);
+        if (!wing) throw new Error("Wing not found");
+        const sanitizedWingName = wing.name.replace(/\s+/g, '');
+        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members/${memberId}`;
+      }
+
+      await setDoc(doc(db, memberPath), memberData);
       
-      setMembers(prev => [...prev, memberData]);
+      setMembers(prev => {
+        const filtered = prev.filter(m => m.id !== memberId);
+        return [...filtered, memberData];
+      });
       
       // Reset form
       setName('');
@@ -138,11 +159,11 @@ export default function CommitteeMembers() {
     }
   };
 
-  const handleDeleteMember = async (id: string) => {
+  const handleDeleteMember = async (member: CommitteeMember) => {
     if (!user) return;
     Alert.alert(
       "Delete Member",
-      "Are you sure you want to remove this committee member?",
+      `Are you sure you want to remove ${member.name}?`,
       [
         { text: "Cancel", style: "cancel" },
         { 
@@ -150,8 +171,18 @@ export default function CommitteeMembers() {
           style: "destructive",
           onPress: async () => {
             try {
-              await deleteDoc(doc(db, `artifacts/${appId}/public/data/societies/${user.uid}/committee_members`, id));
-              setMembers(prev => prev.filter(m => m.id !== id));
+              let memberPath = "";
+              if (selectedLevel === 'society') {
+                memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/society_committee_members/${member.id}`;
+              } else {
+                const wing = wings.find(w => w.id === selectedLevel);
+                if (!wing) throw new Error("Wing not found");
+                const sanitizedWingName = wing.name.replace(/\s+/g, '');
+                memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members/${member.id}`;
+              }
+
+              await deleteDoc(doc(db, memberPath));
+              setMembers(prev => prev.filter(m => m.id !== member.id));
               Toast.show({
                 type: 'info',
                 text1: 'Member Removed'
@@ -271,11 +302,11 @@ export default function CommitteeMembers() {
                 <View style={styles.memberInfo}>
                   <Text style={styles.memberName}>{member.name}</Text>
                   <Text style={styles.memberPost}>{member.post} • Flat {member.flatNo}</Text>
-                  <Text style={styles.memberContact}>{member.phone} • {member.email}</Text>
+                  <Text style={styles.memberContact}>{member.phone}</Text>
                 </View>
                 <TouchableOpacity 
                   style={styles.deleteBtn} 
-                  onPress={() => handleDeleteMember(member.id)}
+                  onPress={() => handleDeleteMember(member)}
                 >
                   <Text style={styles.deleteBtnText}>Remove</Text>
                 </TouchableOpacity>

@@ -189,11 +189,12 @@ export default function WingSetup() {
       const wingFolderId = await createDriveFolder(wingName, rootFolderId, token);
 
       // Import writeBatch for atomic operations
-      const { writeBatch } = await import('firebase/firestore');
+      const { writeBatch, deleteDoc } = await import('firebase/firestore');
       const batch = writeBatch(db);
       
       const updatedFloors = [...floors];
-      const wingPrefix = wingName.replace(/\s+/g, '').toUpperCase();
+      const sanitizedWingId = wingName.replace(/\s+/g, ''); // Use sanitized name as ID (e.g. WingA)
+      const wingPrefix = sanitizedWingId.toUpperCase();
       let unitsGenerated = 0;
 
       // 2. Iterate through Floors and Flats
@@ -220,13 +221,13 @@ export default function WingSetup() {
           
           // Unit document path
           const unitPath = `artifacts/${appId}/users/${user.uid}/units/${unitId}`;
-          const societyUnitPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floor.floorNumber}/${unitId}`;
+          const societyUnitPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingId}/${floor.floorNumber}/${unitId}`;
           
           const unitPayload = {
             id: unitId,
             unitName: unitName,
             displayName: `${wingName} - ${unitName}`,
-            wingId: wingId,
+            wingId: sanitizedWingId,
             wingName: wingName,
             floorNumber: floor.floorNumber,
             unitNumber: unitNumber,
@@ -248,13 +249,14 @@ export default function WingSetup() {
       }
 
       // 3. Save Wing Metadata (Blueprint) with updated floors (including folder IDs)
-      const wingPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}`;
+      const wingPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingId}`;
       const totalFlatsInWing = updatedFloors.reduce((sum, f) => sum + f.flatCount, 0);
 
       const wingRef = doc(db, wingPath);
       batch.set(wingRef, {
         name: wingName,
-        wingId: wingId,
+        wingId: sanitizedWingId,
+        wingIndex: parseInt(wingIndex as string),
         driveFolderId: wingFolderId,
         floorCount: parseInt(floorCount),
         totalFlats: totalFlatsInWing,
@@ -262,7 +264,13 @@ export default function WingSetup() {
         updatedAt: new Date().toISOString()
       }, { merge: true });
 
-      // 4. Commit all changes atomically
+      // 4. If the wingId has changed (e.g. from wing_0 to WingA), delete the old document
+      if (wingId && wingId !== sanitizedWingId) {
+        const oldWingPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}`;
+        batch.delete(doc(db, oldWingPath));
+      }
+
+      // 5. Commit all changes atomically
       await batch.commit();
 
       Toast.show({

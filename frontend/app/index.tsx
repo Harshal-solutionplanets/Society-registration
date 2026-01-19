@@ -25,11 +25,11 @@ export default function Index() {
   const { appState, isLoading, refreshUser } = useAuth();
   
   // Resident Login Fields
-  const [societyName, setSocietyName] = useState('Blue Sky');
-  const [wing, setWing] = useState('C');
-  const [unitNumber, setUnitNumber] = useState('101');
-  const [username, setUsername] = useState('WINGC101');
-  const [password, setPassword] = useState('z977ja');
+  const [societyName, setSocietyName] = useState('');
+  const [wing, setWing] = useState('');
+  const [unitNumber, setUnitNumber] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
