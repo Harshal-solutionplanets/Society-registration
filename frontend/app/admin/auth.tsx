@@ -1,4 +1,5 @@
 import { appId, auth, db } from '@/configs/firebaseConfig';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
@@ -12,52 +13,45 @@ export default function AdminAuth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleAuth = async () => {
     if (!email || !password) {
-    Toast.show({ type: 'error', text1: 'Error', text2: 'Missing fields' });
-    return;
-  }
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Missing fields' });
+      return;
+    }
 
-  setLoading(true);
+    setLoading(true);
     try {
       if (isLogin) {
-      // 1. SIGN IN
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const uid = userCredential.user.uid;
+        // 1. SIGN IN
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const uid = userCredential.user.uid;
 
-      // 2. CHECK AUTHORIZATION (Is this user in our Firestore?)
-      const societyDocRef = doc(db, `artifacts/${appId}/public/data/societies`, uid);
-      const societyDoc = await getDoc(societyDocRef);
+        // 2. CHECK AUTHORIZATION (Is this user in our Firestore?)
+        const societyDocRef = doc(db, `artifacts/${appId}/public/data/societies`, uid);
+        const societyDoc = await getDoc(societyDocRef);
 
-      if (!societyDoc.exists()) {
-        // User exists in Firebase Auth but NOT in our Society Database
-        await signOut(auth); // Kick them out
-        Toast.show({
-          type: 'info',
-          text1: 'Not Registered',
-          text2: 'Account not found. Please Sign-up first.'
-        });
-        setIsLogin(false); // Move them to Register tab automatically
-        return;
+        if (!societyDoc.exists()) {
+          // User exists in Firebase Auth but NOT in our Society Database
+          await signOut(auth); // Kick them out
+          Toast.show({
+            type: 'info',
+            text1: 'Not Registered',
+            text2: 'Account not found. Please Sign-up first.'
+          });
+          setIsLogin(false); // Move them to Register tab automatically
+          return;
+        }
+      } else {
+        // REGISTRATION FLOW
+        if (!email.toLowerCase().endsWith('@gmail.com')) {
+          Toast.show({ type: 'error', text1: 'Invalid Email', text2: 'Only @gmail.com accounts are allowed.' });
+          return;
+        }
+        await createUserWithEmailAndPassword(auth, email, password);
       }
-    } else {
-      // REGISTRATION FLOW
-      if (!email.toLowerCase().endsWith('@gmail.com')) {
-         // ... existing domain check ...
-         return;
-      }
-      await createUserWithEmailAndPassword(auth, email, password);
-      // useAuth will now see no document and redirect to admin/setup correctly
-    }
     } catch (error: any) {
-      let msg = error.message;
-      if (error.code === 'auth/invalid-email') msg = 'Invalid email address.';
-      if (error.code === 'auth/user-not-found') msg = 'No user found with this email.';
-      if (error.code === 'auth/wrong-password') msg = 'Incorrect password.';
-      if (error.code === 'auth/email-already-in-use') msg = 'Email is already registered.';
-      if (error.code === 'auth/weak-password') msg = 'Password should be at least 6 characters.';
-      
       Toast.show({
         type: 'error',
         text1: 'Authentication Failed',
@@ -70,15 +64,10 @@ export default function AdminAuth() {
 
   const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
-    // This triggers the "App wants to access your Drive" popup
     provider.addScope('https://www.googleapis.com/auth/drive.file');
 
-    console.log(isLogin ? "Attempting Google Login..." : "Attempting Google Registration...");
-    
     try {
       const result = await signInWithPopup(auth, provider);
-      
-      // Extract the Access Token
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const accessToken = credential?.accessToken;
 
@@ -86,21 +75,18 @@ export default function AdminAuth() {
         throw new Error("Failed to obtain Google Drive access token.");
       }
 
-      // Store the token for the Setup page
       if (typeof window !== 'undefined' && window.sessionStorage) {
         sessionStorage.setItem('driveToken', accessToken);
       }
 
       const user = result.user;
 
-      // Domain check
       if (user.email && !user.email.toLowerCase().endsWith('@gmail.com')) {
         await signOut(auth);
-        Toast.show({ type: 'error', text1: 'Invalid Domain' , text2: 'Only @gmail.com accounts are allowed.' });
+        Toast.show({ type: 'error', text1: 'Invalid Domain', text2: 'Only @gmail.com accounts are allowed.' });
         return;
       }
 
-      // Authorization Check
       const societyDocRef = doc(db, `artifacts/${appId}/public/data/societies`, user.uid);
       const societyDoc = await getDoc(societyDocRef);
 
@@ -121,7 +107,6 @@ export default function AdminAuth() {
         text2: 'Redirecting...'
       });
     } catch (error: any) {
-      console.error(error);
       Toast.show({
         type: 'error',
         text1: 'Login Failed',
@@ -135,9 +120,9 @@ export default function AdminAuth() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
+      <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Society Admin</Text>
-        <Text style={styles.subtitle}>{isLogin ? 'Login to Manage' : 'Register New Society'}</Text>
+        <Text style={styles.subtitle}>{isLogin ? 'Login to Manage your Society' : 'Register your Society'}</Text>
 
         <View style={styles.card}>
           <View style={styles.tabs}>
@@ -155,21 +140,42 @@ export default function AdminAuth() {
             </TouchableOpacity>
           </View>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Email Address"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Email Address</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="admin@example.com"
+              placeholderTextColor="#94A3B8"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Password</Text>
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="••••••••"
+                placeholderTextColor="#94A3B8"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+              />
+              <TouchableOpacity 
+                style={styles.eyeButton} 
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Ionicons 
+                  name={showPassword ? "eye-off-outline" : "eye-outline"} 
+                  size={20} 
+                  color="#64748B" 
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
 
           <TouchableOpacity 
             style={[styles.button, loading && styles.buttonDisabled]} 
@@ -184,13 +190,18 @@ export default function AdminAuth() {
           </TouchableOpacity>
 
           <View style={styles.divider}>
-          <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
           </View>
 
           <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn}>
-          <Text style={styles.buttonText}>
-            {isLogin ? 'Sign in with Google' : 'Sign up with Google'}
-          </Text>
+            <View style={styles.googleButtonContent}>
+              <Ionicons name="logo-google" size={20} color="#475569" style={styles.googleIcon} />
+              <Text style={styles.googleButtonText}>
+                {isLogin ? 'Sign in with Google' : 'Sign up with Google'}
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
         
@@ -205,102 +216,154 @@ export default function AdminAuth() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F8FAFC',
   },
   scrollContainer: {
     flexGrow: 1,
     justifyContent: 'center',
-    padding: 20,
+    padding: 24,
   },
   title: {
-    fontSize: 32,
-    fontWeight: 'bold',
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#0F172A',
     textAlign: 'center',
-    marginBottom: 10,
-    color: '#333',
+    marginBottom: 4,
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#64748B',
     textAlign: 'center',
-    marginBottom: 30,
-    color: '#666',
+    marginBottom: 32,
   },
   card: {
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 20,
+    elevation: 4,
   },
   tabs: {
     flexDirection: 'row',
-    marginBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    marginBottom: 24,
   },
   tab: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
   },
   activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#007AFF',
+    borderBottomColor: '#3B82F6',
   },
   tabText: {
-    fontSize: 16,
-    color: '#888',
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#94A3B8',
   },
   activeTabText: {
-    color: '#007AFF',
-    fontWeight: '600',
+    color: '#3B82F6',
+  },
+  inputGroup: {
+    marginBottom: 20,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 8,
+    marginLeft: 4,
+  },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
   },
   input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 15,
-    fontSize: 16,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    color: '#0F172A',
+  },
+  eyeButton: {
+    padding: 12,
   },
   button: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 8,
+    backgroundColor: '#3B82F6',
+    padding: 16,
+    borderRadius: 14,
     alignItems: 'center',
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+    marginTop: 8,
   },
   buttonDisabled: {
-    opacity: 0.7,
+    opacity: 0.6,
   },
   buttonText: {
-    color: 'white',
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
-  },
-  backButton: {
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  backButtonText: {
-    color: '#666',
-    fontSize: 16,
-  },
-  googleButton: {
-    backgroundColor: '#4285F4',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 10,
+    fontWeight: '700',
   },
   divider: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 15,
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E2E8F0',
   },
   dividerText: {
-    color: '#888',
-    fontWeight: '500',
+    marginHorizontal: 12,
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  googleButton: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  googleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  googleIcon: {
+    marginRight: 10,
+  },
+  googleButtonText: {
+    color: '#475569',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  backButton: {
+    marginTop: 32,
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#FEF2F2',
+  },
+  backButtonText: {
+    color: '#EF4444',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
