@@ -257,20 +257,30 @@ export default function CommitteeMembers() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scrollSelector}>
             <TouchableOpacity
               style={[styles.levelBtn, selectedLevel === 'society' && styles.levelBtnActive]}
-              onPress={() => setSelectedLevel('society')}
+              onPress={() => {
+                setSelectedLevel('society');
+                setWing('');
+                setFloor('');
+                setFlatNo('');
+                setFloorsList([]);
+                setFlatsList([]);
+              }}
             >
               <Text style={[styles.levelBtnText, selectedLevel === 'society' && styles.levelBtnTextActive]}>
                 Complete Society
               </Text>
             </TouchableOpacity>
-            {wings.map(wing => (
+            {wings.map((w: Wing) => (
               <TouchableOpacity
-                key={wing.id}
-                style={[styles.levelBtn, selectedLevel === wing.id && styles.levelBtnActive]}
-                onPress={() => setSelectedLevel(wing.id)}
+                key={w.id}
+                style={[styles.levelBtn, selectedLevel === w.id && styles.levelBtnActive]}
+                onPress={() => {
+                  setSelectedLevel(w.id);
+                  handleWingSelect(w);
+                }}
               >
-                <Text style={[styles.levelBtnText, selectedLevel === wing.id && styles.levelBtnTextActive]}>
-                  {wing.name}
+                <Text style={[styles.levelBtnText, selectedLevel === w.id && styles.levelBtnTextActive]}>
+                  {w.name}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -315,28 +325,30 @@ export default function CommitteeMembers() {
           </View>
 
           <View style={[styles.row, { zIndex: 900 }]}>
-            {/* Wing Dropdown */}
-            <View style={{ flex: 1, position: 'relative' }}>
-              <TouchableOpacity
-                style={[styles.dropdownButton, { marginBottom: 0 }]}
-                onPress={() => setShowWingDropdown(!showWingDropdown)}
-              >
-                <Text style={[styles.dropdownButtonText, { fontSize: 13 }, !wing && { color: '#94A3B8' }]} numberOfLines={1}>
-                  {wing || "Wing"}
-                </Text>
-              </TouchableOpacity>
-              {showWingDropdown && (
-                <View style={[styles.dropdownListContainer, { top: 48 }]}>
-                  <ScrollView style={styles.dropdownList} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
-                    {wings.map((w: Wing) => (
-                      <TouchableOpacity key={w.id} style={styles.dropdownItem} onPress={() => handleWingSelect(w)}>
-                        <Text style={styles.dropdownItemText}>{w.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-            </View>
+            {/* Wing Dropdown - Only shown if society level is selected */}
+            {selectedLevel === 'society' && (
+              <View style={{ flex: 1, position: 'relative' }}>
+                <TouchableOpacity
+                  style={[styles.dropdownButton, { marginBottom: 0 }]}
+                  onPress={() => setShowWingDropdown(!showWingDropdown)}
+                >
+                  <Text style={[styles.dropdownButtonText, { fontSize: 13 }, !wing && { color: '#94A3B8' }]} numberOfLines={1}>
+                    {wing || "Wing"}
+                  </Text>
+                </TouchableOpacity>
+                {showWingDropdown && (
+                  <View style={[styles.dropdownListContainer, { top: 48 }]}>
+                    <ScrollView style={styles.dropdownList} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                      {wings.map((w: Wing) => (
+                        <TouchableOpacity key={w.id} style={styles.dropdownItem} onPress={() => handleWingSelect(w)}>
+                          <Text style={styles.dropdownItemText}>{w.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            )}
 
             {/* Floor Dropdown */}
             <View style={{ flex: 1, position: 'relative' }}>
