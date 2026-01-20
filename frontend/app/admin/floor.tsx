@@ -256,6 +256,8 @@ export default function FloorDetail() {
 
       // Save to Firestore (Stable Hierarchical Path using unitId)
       // Using unitId as the document ID ensures we overwrite the same record even if unitName changes
+      const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
+
       const flatPayload = {
         id: unitId,
         societyName: societyName,
@@ -282,7 +284,6 @@ export default function FloorDetail() {
       };
 
       // Save to both locations for compatibility
-      const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
       const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${unitId}`;
 
       await setDoc(doc(db, societyPath), flatPayload, { merge: true });

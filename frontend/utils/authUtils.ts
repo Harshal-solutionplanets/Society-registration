@@ -4,11 +4,9 @@ import { updateProfile, User } from "firebase/auth";
 import {
   collection,
   collectionGroup,
-  doc,
   getDocs,
   query,
-  setDoc,
-  where,
+  where
 } from "firebase/firestore";
 
 /**
@@ -112,19 +110,4 @@ export const linkResidentToUser = async (
     JSON.stringify({ ...updatePayload, adminUID }),
   );
 
-  // 3. Update Firestore (Linking - Best effort)
-  try {
-    const unitId = unit.id;
-    const residentPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}`;
-    const societyWingPath = `artifacts/${appId}/public/data/societies/${adminUID}/wings/${unit.wingId}/${unit.floorNumber}/${unitId}`;
-
-    await setDoc(doc(db, residentPath), updatePayload, { merge: true });
-    await setDoc(doc(db, societyWingPath), updatePayload, { merge: true });
-  } catch (error) {
-    console.warn(
-      "Firestore linking failed (likely permissions), but local session is active:",
-      error,
-    );
-    // We don't throw here to allow the user to proceed to the dashboard
-  }
 };

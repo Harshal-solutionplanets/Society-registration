@@ -51,7 +51,7 @@ export default function Index() {
 
     setIsLoggingIn(true);
     try {
-      // 1. Sign in anonymously to get a UID if not already signed in
+      // 1. Sign in anonymously to get a UID
       let user = auth.currentUser;
       if (!user) {
         const userCredential = await signInAnonymously(auth);
@@ -61,7 +61,7 @@ export default function Index() {
       // 2. Find the unit and verify credentials
       const { unit, adminUID } = await mockResidentSignIn(username, password);
 
-      // 3. Link the authenticated resident to the current Firebase user and redirect
+      // 3. Link the authenticated resident to the current Firebase user
       await linkResidentToUser(user, unit, adminUID);
 
       // Force a refresh of the auth state (Triggers immediate redirect)
@@ -104,6 +104,16 @@ export default function Index() {
       style={styles.container}
     >
       <StatusBar barStyle="dark-content" />
+
+      <TouchableOpacity
+        style={styles.adminButton}
+        onPress={() => router.push("/admin/auth")}
+      >
+        <Text style={styles.adminButtonText}>
+          Register/Login as society admin
+        </Text>
+      </TouchableOpacity>
+
       <ScrollView
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
@@ -167,21 +177,6 @@ export default function Index() {
             )}
           </TouchableOpacity>
         </View>
-
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>OR</Text>
-          <View style={styles.dividerLine} />
-        </View>
-
-        <TouchableOpacity
-          style={styles.adminButton}
-          onPress={() => router.push("/admin/auth")}
-        >
-          <Text style={styles.adminButtonText}>
-            Register/Login as Society Admin
-          </Text>
-        </TouchableOpacity>
 
         <Text style={styles.footerText}>
           © 2026 Society Security. All rights reserved.
@@ -310,16 +305,25 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   adminButton: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 50 : 20,
+    right: 20,
     backgroundColor: "#FFFFFF",
-    padding: 16,
-    borderRadius: 14,
-    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: "#E2E8F0",
+    zIndex: 100,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
   },
   adminButtonText: {
-    color: "#475569",
-    fontSize: 15,
+    color: "#3B82F6",
+    fontSize: 13,
     fontWeight: "700",
   },
   footerText: {
