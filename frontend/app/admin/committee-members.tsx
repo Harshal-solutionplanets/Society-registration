@@ -9,6 +9,7 @@ import {
   getDocs,
   setDoc,
 } from "firebase/firestore";
+import * as React from "react";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -79,6 +80,11 @@ export default function CommitteeMembers() {
   const [floorsList, setFloorsList] = useState<string[]>([]);
   const [flatsList, setFlatsList] = useState<string[]>([]);
 
+  // Auto-fill logic state
+  const [lastSavedByPost, setLastSavedByPost] = useState<Record<string, any>>({});
+  const [showSuggestion, setShowSuggestion] = useState(false);
+  const [suggestedData, setSuggestedData] = useState<any>(null);
+
   useEffect(() => {
     if (user) {
       fetchInitialData();
@@ -90,6 +96,16 @@ export default function CommitteeMembers() {
       fetchMembers();
     }
   }, [user, selectedLevel]);
+
+  // Handle suggestion logic
+  useEffect(() => {
+    if (selectedLevel !== "society" && post && lastSavedByPost[post]) {
+      setSuggestedData(lastSavedByPost[post]);
+      setShowSuggestion(true);
+    } else {
+      setShowSuggestion(false);
+    }
+  }, [post, selectedLevel]);
 
   const fetchInitialData = async () => {
     if (!user) return;
@@ -238,6 +254,12 @@ export default function CommitteeMembers() {
       setFlatNo("");
       setFloor("");
 
+      // Save to auto-fill store
+      setLastSavedByPost((prev: Record<string, any>) => ({
+        ...prev,
+        [post]: { name, phone, email, floor, flatNo }
+      }));
+
       Toast.show({
         type: "success",
         text1: "Member Added",
@@ -315,7 +337,7 @@ export default function CommitteeMembers() {
         </View>
 
         <View style={styles.levelSelector}>
-          <Text style={styles.sectionLabel}>Select Level</Text>
+          <Text style={styles.sectionLabel}>Select committee</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -370,7 +392,41 @@ export default function CommitteeMembers() {
         </View>
 
         <View style={styles.formSection}>
+          <View style={styles.formContextBanner}>
+            <Text style={styles.formContextLabel}>committee:</Text>
+            <Text style={styles.formContextValue}>
+              {selectedLevel === "society" ? "Complete Society" : `Wing: ${wing || "Select Wing Below"}`}
+            </Text>
+          </View>
           <Text style={styles.sectionTitle}>Add New Member</Text>
+
+          {showSuggestion && (
+            <View style={styles.suggestionBanner}>
+              <View style={styles.suggestionInfo}>
+                <Text style={styles.suggestionTitle}>Use details from previous wing?</Text>
+                <Text style={styles.suggestionText}>We found previous details for {post}: {suggestedData?.name}</Text>
+              </View>
+              <View style={styles.suggestionActions}>
+                <TouchableOpacity
+                  style={styles.suggestionBtnYes}
+                  onPress={() => {
+                    setName(suggestedData.name);
+                    setPhone(suggestedData.phone);
+                    setEmail(suggestedData.email);
+                    setShowSuggestion(false);
+                  }}
+                >
+                  <Text style={styles.suggestionBtnTextYes}>Yes</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.suggestionBtnNo}
+                  onPress={() => setShowSuggestion(false)}
+                >
+                  <Text style={styles.suggestionBtnTextNo}>No</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
           <TextInput
             style={styles.input}
             placeholder="Name"
@@ -840,5 +896,79 @@ const styles = StyleSheet.create({
   dropdownItemTextSelected: {
     color: "#007AFF",
     fontWeight: "600",
+  },
+  suggestionBanner: {
+    backgroundColor: "#F0F9FF",
+    borderWidth: 1,
+    borderColor: "#BAE6FD",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  suggestionInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  suggestionTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0369A1",
+  },
+  suggestionText: {
+    fontSize: 11,
+    color: "#0C4A6E",
+    marginTop: 2,
+  },
+  suggestionActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  suggestionBtnYes: {
+    backgroundColor: "#0369A1",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  suggestionBtnNo: {
+    backgroundColor: "transparent",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#0369A1",
+  },
+  suggestionBtnTextYes: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  suggestionBtnTextNo: {
+    color: "#0369A1",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  formContextBanner: {
+    backgroundColor: "#F8FAFC",
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    marginBottom: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  formContextLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  formContextValue: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0F172A',
   },
 });

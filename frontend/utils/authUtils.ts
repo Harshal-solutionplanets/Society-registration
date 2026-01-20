@@ -1,5 +1,6 @@
 import { appId, db } from '@/configs/firebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { COLLECTIONS } from '@/constants/Config';
 import { updateProfile, User } from 'firebase/auth';
 import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
 

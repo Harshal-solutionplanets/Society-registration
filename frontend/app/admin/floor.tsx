@@ -264,10 +264,10 @@ export default function FloorDetail() {
       };
 
       // Save to both locations for compatibility
-      const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
       const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${unitId}`;
 
       await setDoc(doc(db, societyPath), flatPayload, { merge: true });
+      await setDoc(doc(db, residentPath), flatPayload, { merge: true });
 
       // Update local state
       setFlats(prev => prev.map(flat =>
@@ -297,7 +297,7 @@ export default function FloorDetail() {
   const handleCopyCredentials = () => {
     if (!selectedFlat) return;
 
-    const credentialsText = `Society Name: Blue Sky\nWing/Block: ${wingName}\nUnit Number/Name: ${selectedFlat.unitName}\nUsername: ${selectedFlat.username}\nPassword: ${selectedFlat.password}`;
+    const credentialsText = `Society Name: ${societyName}\nWing/Block: ${wingName}\nUnit Number/Name: ${selectedFlat.unitName}\nUsername: ${selectedFlat.username}\nPassword: ${selectedFlat.password}`;
 
     Clipboard.setString(credentialsText);
 
@@ -363,9 +363,10 @@ export default function FloorDetail() {
 
       // Update both locations (using unitId as stable doc ID)
       const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
+      const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${unitId}`;
 
-      await setDoc(doc(db, unitPath), updatePayload, { merge: true });
       await setDoc(doc(db, societyPath), updatePayload, { merge: true });
+      await setDoc(doc(db, residentPath), updatePayload, { merge: true });
 
       Toast.show({
         type: 'success',

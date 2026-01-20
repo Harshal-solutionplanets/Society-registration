@@ -1,9 +1,11 @@
-import { auth } from '@/configs/firebaseConfig';
+import { appId, auth, db } from '@/configs/firebaseConfig';
 import { useAuth } from '@/hooks/useAuth';
 import { linkResidentToUser, mockResidentSignIn } from '@/utils/authUtils';
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, useRouter } from 'expo-router';
-import { signInAnonymously } from 'firebase/auth';
+import { COLLECTIONS } from '@/constants/Config';
+import { signInAnonymously, updateProfile, User } from 'firebase/auth';
+import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -58,21 +60,6 @@ export default function Index() {
 
     setIsLoggingIn(true);
     try {
-      // 1. Construct the path to the resident document
-      // The user specified: /artifacts/dev-society-id/public/data/societies/uxOmRXXABoTUIV4P7UTnW68OLJx2/Residents
-      // We'll use a dynamic approach to find the admin UID based on society name if needed, 
-      // but for now let's assume we need to find the unit in the hierarchical path.
-
-      // Since we don't have the admin UID yet, we might still need to search or have a known admin UID.
-      // The user provided 'uxOmRXXABoTUIV4P7UTnW68OLJx2' as an example.
-      // In a real app, we'd search for the society first.
-
-      // For this specific task, I'll implement the logic to find the unit in the hierarchical path.
-      // We need to find which admin owns "Blue Sky".
-
-      // Let's use the existing mockResidentSignIn logic but updated for the new path if possible.
-      // Actually, the user wants the login on a specific path.
-
       // 1. Sign in anonymously to get a UID
       let user = auth.currentUser;
       if (!user) {
@@ -80,34 +67,41 @@ export default function Index() {
         user = userCredential.user;
       }
 
-      // 2. Find the unit and verify credentials
-      // We'll search for the society by name first to get the adminUID
-      const societiesPath = `artifacts/${appId}/public/data/societies`;
-      // This is a bit complex without a direct index, but let's assume we can find it.
-      // For now, I'll use a simplified version that matches the user's request for the path.
+      // 2. Find the Society Admin UID dynamically
+      const societiesRef = collection(db, `artifacts/${appId}/public/data/societies`);
+      const qSociety = query(societiesRef, where("societyName", "==", societyName));
+      const societySnapshot = await getDocs(qSociety);
 
-      // Let's assume the adminUID is known or we search for it.
-      // For the sake of this task, I'll implement a search through societies.
+      if (societySnapshot.empty) {
+        throw new Error(`Society '${societyName}' not found. Please check the spelling.`);
+      }
 
-      const adminUID = 'uxOmRXXABoTUIV4P7UTnW68OLJx2'; // Example from user
-      const wingPrefix = wing.replace(/\s+/g, '').toUpperCase();
-      const unitId = `${wingPrefix}-${unitNumber}`; // Or whatever format is used
+      const adminUID = societySnapshot.docs[0].id;
 
-      // The user mentioned a "Residents" collection parallel to wings data
-      const residentDocPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${username}`;
-      const residentDoc = await getDoc(doc(db, residentDocPath));
+      // 3. Find the unit and verify credentials
+      // Use a query on the Residents collection to find the unit by username
+      const residentsRef = collection(db, `artifacts/${appId}/public/data/societies/${adminUID}/Residents`);
+      const qResident = query(residentsRef, where("username", "==", username));
+      const residentSnapshot = await getDocs(qResident);
 
-      if (residentDoc.exists()) {
+      if (!residentSnapshot.empty) {
+        const residentDoc = residentSnapshot.docs[0];
         const data = residentDoc.data();
-        if (data.residentPassword === password) {
+        if (data.password === password) {
           // Link and redirect
           await linkResidentToUser(user, data, adminUID);
           await refreshUser();
+
+          Toast.show({
+            type: 'success',
+            text1: 'Login Successful',
+            text2: `Welcome ${data.residentName || username}`
+          });
           return;
         }
       }
 
-      throw new Error('Invalid Credentials or Society not found.');
+      throw new Error('Invalid Username or Password for this society.');
 
     } catch (error: any) {
       console.error('Login Error:', error);

@@ -1,8 +1,8 @@
 import { appId, db } from '@/configs/firebaseConfig';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'expo-router';
-import { doc, setDoc } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -20,6 +20,8 @@ export default function AdminSetup() {
   const router = useRouter();
   const { user, signOut } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [formData, setFormData] = useState({
     societyName: '',
     societyAddress: '',
@@ -31,17 +33,38 @@ export default function AdminSetup() {
     adminContact: ''
   });
 
+  const [societyRef, setSocietyRef] = useState<any>(null);
+
   useEffect(() => {
-    const token = typeof window !== 'undefined' ? sessionStorage.getItem('driveToken') : null;
-    if (!token && user) {
-      Toast.show({
-        type: 'error',
-        text1: 'Session Expired',
-        text2: 'Please log in again to link Google Drive.'
-      });
-      handleBackToLogin();
+    if (user) {
+      fetchSocietyData();
     }
   }, [user]);
+
+  const fetchSocietyData = async () => {
+    if (!user) return;
+    try {
+      const societyDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/societies`, user.uid));
+      if (societyDoc.exists()) {
+        const data = societyDoc.data();
+        setFormData({
+          societyName: data.societyName || '',
+          societyAddress: data.societyAddress || '',
+          registrationNo: data.registrationNo || '',
+          pincode: data.pincode || '',
+          googleLocation: data.googleLocation || '',
+          wingCount: data.wingCount?.toString() || '',
+          adminName: data.adminName || '',
+          adminContact: data.adminContact || ''
+        });
+        setIsEditMode(true);
+      }
+    } catch (error) {
+      console.error("Error fetching society data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleBackToLogin = async () => {
     await signOut();
@@ -54,13 +77,13 @@ export default function AdminSetup() {
 
   const handleSetup = async () => {
     const { societyName, wingCount, pincode, adminName } = formData;
-    
+
     // Validation for essential fields
     if (!societyName || !wingCount || !pincode || !adminName) {
-      Toast.show({ 
-        type: 'error', 
-        text1: 'Required Fields', 
-        text2: 'Please fill in all essential fields.' 
+      Toast.show({
+        type: 'error',
+        text1: 'Required Fields',
+        text2: 'Please fill in all essential fields.'
       });
       return;
     }
@@ -76,63 +99,71 @@ export default function AdminSetup() {
 
     const token = typeof window !== 'undefined' ? sessionStorage.getItem('driveToken') : null;
     if (!token) {
-      Toast.show({ 
-        type: 'error', 
-        text1: 'Session Expired', 
-        text2: 'Please log in again to link Google Drive.' 
+      Toast.show({
+        type: 'error',
+        text1: 'Session Expired',
+        text2: 'Please log in again to link Google Drive.'
       });
       return;
     }
 
     setIsSubmitting(true);
     try {
-      // 1. Create the physical folder in Google Drive
-      const driveResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: `${societyName.toUpperCase()}-DRIVE`,
-          mimeType: 'application/vnd.google-apps.folder',
-        }),
-      });
+      let realFolderId = null;
 
-      if (!driveResponse.ok) {
-        const errorData = await driveResponse.json();
-        throw new Error(errorData.error?.message || "Failed to create Google Drive folder");
+      if (!isEditMode) {
+        // 1. Create the physical folder in Google Drive only during initial setup
+        const driveResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: `${societyName.toUpperCase()}-DRIVE`,
+            mimeType: 'application/vnd.google-apps.folder',
+          }),
+        });
+
+        if (!driveResponse.ok) {
+          const errorData = await driveResponse.json();
+          throw new Error(errorData.error?.message || "Failed to create Google Drive folder");
+        }
+
+        const driveData = await driveResponse.json();
+        realFolderId = driveData.id;
       }
 
-      const driveData = await driveResponse.json();
-      const realFolderId = driveData.id;
-
       // 2. Save everything to Firestore
-      const newSocietyData = {
+      const updateData: any = {
         ...formData,
         wingCount: parseInt(wingCount),
         adminUserId: user.uid,
         adminEmail: user.email,
-        driveEmail: user.email,
-        driveFolderId: realFolderId,
-        role: 'ADMIN',
-        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
-      await setDoc(doc(db, `artifacts/${appId}/public/data/societies`, user.uid), newSocietyData);
-      
-      Toast.show({ 
-        type: 'success', 
-        text1: 'Setup Successful', 
-        text2: 'Society and Drive folder created!' 
+      if (!isEditMode) {
+        updateData.driveEmail = user.email;
+        updateData.driveFolderId = realFolderId;
+        updateData.role = 'ADMIN';
+        updateData.createdAt = new Date().toISOString();
+      }
+
+      await setDoc(doc(db, `artifacts/${appId}/public/data/societies`, user.uid), updateData, { merge: true });
+
+      Toast.show({
+        type: 'success',
+        text1: isEditMode ? 'Update Successful' : 'Setup Successful',
+        text2: isEditMode ? 'Profile updated!' : 'Society and Drive folder created!'
       });
       router.replace('/admin/dashboard');
     } catch (error: any) {
       console.error("Setup error:", error);
-      Toast.show({ 
-        type: 'error', 
-        text1: 'Setup Error', 
-        text2: error.message || 'Could not save society data.' 
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: error.message || 'Could not save society data.'
       });
     } finally {
       setIsSubmitting(false);
@@ -140,22 +171,24 @@ export default function AdminSetup() {
   };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.mainContainer}
     >
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.headerContainer}>
-          <Text style={styles.title}>Society Setup</Text>
+          <Text style={styles.title}>{isEditMode ? 'Society Profile' : 'Society Setup'}</Text>
           <Text style={styles.description}>
-            Register your society to start managing staff documentation.
+            {isEditMode
+              ? 'Update your society details and administration information.'
+              : 'Register your society to start managing staff documentation.'}
           </Text>
         </View>
 
         <View style={styles.card}>
           <Text style={styles.sectionHeader}>SOCIETY INFORMATION</Text>
-          
+
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Society Name *</Text>
             <TextInput
@@ -194,12 +227,13 @@ export default function AdminSetup() {
             <View style={styles.flex1}>
               <Text style={styles.label}>Wings/Blocks *</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, isEditMode && styles.inputDisabled]}
                 placeholder="e.g. 3"
                 placeholderTextColor="#94A3B8"
                 value={formData.wingCount}
                 onChangeText={(val) => handleInputChange('wingCount', val)}
                 keyboardType="numeric"
+                editable={!isEditMode}
               />
             </View>
           </View>
@@ -227,7 +261,7 @@ export default function AdminSetup() {
           </View>
 
           <View style={styles.divider} />
-          
+
           <Text style={styles.sectionHeader}>ADMIN DETAILS</Text>
 
           <View style={styles.inputGroup}>
@@ -253,23 +287,33 @@ export default function AdminSetup() {
             />
           </View>
 
-          <TouchableOpacity 
-            style={[styles.primaryButton, isSubmitting && styles.buttonDisabled]} 
+          <TouchableOpacity
+            style={[styles.primaryButton, isSubmitting && styles.buttonDisabled]}
             onPress={handleSetup}
             disabled={isSubmitting}
           >
             <Text style={styles.buttonText}>
-              {isSubmitting ? 'Registering...' : 'Complete Setup'}
+              {isSubmitting ? (isEditMode ? 'Updating...' : 'Registering...') : (isEditMode ? 'Update Profile' : 'Complete Setup')}
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.backButton} 
-            onPress={handleBackToLogin}
-            disabled={isSubmitting}
-          >
-            <Text style={styles.backButtonText}>Back to Login</Text>
-          </TouchableOpacity>
+          {isEditMode ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.back()}
+              disabled={isSubmitting}
+            >
+              <Text style={styles.backButtonText}>Cancel Updates</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={handleBackToLogin}
+              disabled={isSubmitting}
+            >
+              <Text style={styles.backButtonText}>Back to Login</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -343,6 +387,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     fontSize: 16,
     color: '#0F172A',
+  },
+  inputDisabled: {
+    backgroundColor: '#F1F5F9',
+    color: '#94A3B8',
   },
   textArea: {
     height: 100,
