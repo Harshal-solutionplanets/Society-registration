@@ -52,11 +52,11 @@ export default function AdminDashboard() {
     try {
       const societyPath = `artifacts/${appId}/public/data/societies`;
       const societyDoc = await getDoc(doc(db, societyPath, user.uid));
-      
+
       if (societyDoc.exists()) {
         const data = societyDoc.data();
         setSocietyData(data);
-        
+
         const wingsRef = collection(db, `${societyPath}/${user.uid}/wings`);
         const wingsSnapshot = await getDocs(wingsRef);
         const fetchedWings = wingsSnapshot.docs.map(doc => ({
@@ -89,8 +89,8 @@ export default function AdminDashboard() {
     const existingWing = wings.find(w => w.id === `wing_${wingIndex}`);
     router.push({
       pathname: '/admin/wing-setup',
-      params: { 
-        wingIndex, 
+      params: {
+        wingIndex,
         wingId: existingWing?.id || `wing_${wingIndex}`,
         wingName: existingWing?.name || `Wing ${String.fromCharCode(65 + wingIndex)}`
       }
@@ -107,7 +107,7 @@ export default function AdminDashboard() {
 
   const wingCount = societyData?.wingCount || 0;
   const wingBlocks = Array.from({ length: wingCount }, (_, i) => i);
-  
+
   // Calculate total units from all configured wings
   const totalCalculatedUnits = wings.reduce((total, wing) => {
     const wingFlats = wing.floors?.reduce((sum, floor) => sum + (floor.flatCount || 0), 0) || 0;
@@ -124,8 +124,8 @@ export default function AdminDashboard() {
             <Text style={styles.welcomeText}>Welcome Admin</Text>
           </View>
           <View style={styles.headerRight}>
-            <TouchableOpacity 
-              style={styles.committeeHeaderBtn} 
+            <TouchableOpacity
+              style={styles.committeeHeaderBtn}
               onPress={() => router.push('/admin/committee-members')}
             >
               <Text style={styles.committeeHeaderText}>Committee</Text>
@@ -152,20 +152,34 @@ export default function AdminDashboard() {
           {wingBlocks.map((index) => {
             const wingInfo = wings.find(w => w.id === `wing_${index}`);
             return (
-              <TouchableOpacity 
-                key={index} 
-                style={[styles.wingCard, wingInfo && styles.wingCardConfigured]}
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.wingCard,
+                  wingInfo ? styles.wingCardConfigured : styles.wingCardPending
+                ]}
                 onPress={() => handleWingPress(index)}
               >
                 <View style={styles.wingCardContent}>
-                  <Text style={styles.wingLetter}>
+                  <Text style={[
+                    styles.wingLetter,
+                    wingInfo ? styles.wingLetterConfigured : styles.wingLetterPending
+                  ]}>
                     {wingInfo?.name ? wingInfo.name.charAt(0).toUpperCase() : String.fromCharCode(65 + index)}
                   </Text>
-                  <Text style={styles.wingName}>
+                  <Text style={[
+                    styles.wingName,
+                    wingInfo ? styles.wingNameConfigured : styles.wingNamePending
+                  ]}>
                     {wingInfo?.name || `Wing ${String.fromCharCode(65 + index)}`}
                   </Text>
-                  <View style={[styles.badge, wingInfo ? styles.badgeSuccess : styles.badgeWarning]}>
-                    <Text style={styles.badgeText}>{wingInfo ? 'Configured' : 'Pending'}</Text>
+                  <View style={[styles.badge, wingInfo ? styles.badgeSuccess : styles.badgeInfo]}>
+                    <Text style={[
+                      styles.badgeText,
+                      wingInfo ? styles.badgeTextSuccess : styles.badgeTextInfo
+                    ]}>
+                      {wingInfo ? 'Configured' : 'Pending'}
+                    </Text>
                   </View>
                 </View>
               </TouchableOpacity>
@@ -207,17 +221,19 @@ const styles = StyleSheet.create({
   },
   headerCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: 24,
+    padding: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 5,
     marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   headerLeft: {
     flex: 1,
@@ -228,9 +244,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   societyName: {
-    fontSize: 20,
-    fontWeight: '800',
+    fontSize: 22,
+    fontWeight: '900',
     color: '#0F172A',
+    letterSpacing: -0.5,
+    textTransform: 'uppercase',
   },
   welcomeText: {
     fontSize: 13,
@@ -309,35 +327,49 @@ const styles = StyleSheet.create({
   wingCard: {
     width: '48%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 20,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    borderStyle: 'dashed',
   },
   wingCardConfigured: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#22C55E',
     borderStyle: 'solid',
-    borderLeftWidth: 6,
-    borderLeftColor: '#3B82F6',
-    shadowColor: '#0F172A',
+    shadowColor: '#22C55E',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 2,
+  },
+  wingCardPending: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#3B82F6',
+    borderStyle: 'dashed',
   },
   wingCardContent: {
     alignItems: 'center',
   },
   wingLetter: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#CBD5E1',
+    fontSize: 36,
+    fontWeight: '900',
+  },
+  wingLetterConfigured: {
+    color: '#16A34A',
+  },
+  wingLetterPending: {
+    color: '#3B82F6',
   },
   wingName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#475569',
+    fontSize: 18,
+    fontWeight: '800',
     marginTop: 4,
+  },
+  wingNameConfigured: {
+    color: '#166534',
+  },
+  wingNamePending: {
+    color: '#1E40AF',
   },
   badge: {
     marginTop: 12,
@@ -346,15 +378,23 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   badgeSuccess: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: '#10B981',
   },
-  badgeWarning: {
-    backgroundColor: '#FEF3C7',
+  badgeInfo: {
+    backgroundColor: '#3B82F6',
   },
   badgeText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '900',
     textTransform: 'uppercase',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  badgeTextSuccess: {
+    color: '#FFFFFF',
+  },
+  badgeTextInfo: {
+    color: '#FFFFFF',
   },
   infoBox: {
     backgroundColor: '#F8FAFC',

@@ -45,13 +45,13 @@ export default function FloorDetail() {
   const { wingId, wingName, floorNumber, flatCount } = useLocalSearchParams();
   const router = useRouter();
   const { user } = useAuth();
-  
+
   const [flats, setFlats] = useState<FlatData[]>(() => {
     // Generate flat numbers based on flatCount
     const numFlats = parseInt(flatCount as string) || 0;
     const floor = parseInt(floorNumber as string);
     const generatedFlats: FlatData[] = [];
-    
+
     for (let i = 1; i <= numFlats; i++) {
       const flatNum = floor * 100 + i;
       generatedFlats.push({
@@ -65,14 +65,14 @@ export default function FloorDetail() {
         familyMembers: ''
       });
     }
-    
+
     return generatedFlats;
   });
-  
+
   const [selectedFlat, setSelectedFlat] = useState<FlatData | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [generating, setGenerating] = useState<number | null>(null);
-  
+
   // Edit modal states
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingFlat, setEditingFlat] = useState<FlatData | null>(null);
@@ -125,7 +125,7 @@ export default function FloorDetail() {
     try {
       const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}`;
       const querySnapshot = await getDocs(collection(db, societyPath));
-      
+
       const dbFlatsMap: Record<number, any> = {};
       querySnapshot.forEach((doc) => {
         const data = doc.data();
@@ -174,18 +174,18 @@ export default function FloorDetail() {
 
   const handleGenerateCredentials = async (flatNumber: number) => {
     if (!user) return;
-    
+
     setGenerating(flatNumber);
-    
+
     try {
       const wingPrefix = (wingName as string).replace(/\s+/g, '').toUpperCase();
       const username = `${wingPrefix}${flatNumber}`.toUpperCase();
       const password = generatePassword(6);
-      
+
       // Create unit ID
       const floor = parseInt(floorNumber as string);
       const unitId = `${wingPrefix}-${floor}-${flatNumber}`;
-      
+
       // Get the flat data to access residence type
       const flatData = flats.find(f => f.flatNumber === flatNumber);
       const unitName = flatData?.unitName || flatNumber.toString();
@@ -193,7 +193,7 @@ export default function FloorDetail() {
       // 0. Ensure Flat Folder exists in Drive if not already set
       let flatFolderId = flatData?.driveFolderId;
       const token = typeof window !== 'undefined' ? sessionStorage.getItem('driveToken') : null;
-      
+
       if (!flatFolderId && floorFolderId && token) {
         try {
           const response = await fetch('https://www.googleapis.com/drive/v3/files', {
@@ -216,11 +216,11 @@ export default function FloorDetail() {
           console.error("Error creating flat folder on demand:", err);
         }
       }
-      
+
       // Save to Firestore (Stable Hierarchical Path using unitId)
       // Using unitId as the document ID ensures we overwrite the same record even if unitName changes
       const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
-      
+
       const flatPayload = {
         id: unitId,
         unitName: unitName, // Combined field
@@ -244,14 +244,14 @@ export default function FloorDetail() {
       const unitPath = `artifacts/${appId}/users/${user.uid}/units/${unitId}`;
       await setDoc(doc(db, unitPath), flatPayload, { merge: true });
       await setDoc(doc(db, societyPath), flatPayload, { merge: true });
-      
+
       // Update local state
-      setFlats(prev => prev.map(flat => 
-        flat.flatNumber === flatNumber 
+      setFlats(prev => prev.map(flat =>
+        flat.flatNumber === flatNumber
           ? { ...flat, hasCredentials: true, username, password }
           : flat
       ));
-      
+
       Toast.show({
         type: 'success',
         text1: 'Credentials Generated',
@@ -272,11 +272,11 @@ export default function FloorDetail() {
 
   const handleCopyCredentials = () => {
     if (!selectedFlat) return;
-    
+
     const credentialsText = `Society Name: Blue Sky\nWing/Block: ${wingName}\nUnit Number/Name: ${selectedFlat.unitName}\nUsername: ${selectedFlat.username}\nPassword: ${selectedFlat.password}`;
-    
+
     Clipboard.setString(credentialsText);
-    
+
     Toast.show({
       type: 'success',
       text1: 'Copied!',
@@ -297,28 +297,28 @@ export default function FloorDetail() {
 
   const handleSaveEdit = async () => {
     if (!editingFlat || !user) return;
-    
+
     // Update local state
     setFlats(prev => prev.map(flat =>
       flat.flatNumber === editingFlat.flatNumber
-        ? { 
-            ...flat, 
-            unitName: editUnitName, 
-            residenceType: editResidenceType, 
-            residentName: editResidentName, 
-            residentMobile: editResidentMobile,
-            status: editStatus,
-            familyMembers: editFamilyMembers
-          }
+        ? {
+          ...flat,
+          unitName: editUnitName,
+          residenceType: editResidenceType,
+          residentName: editResidentName,
+          residentMobile: editResidentMobile,
+          status: editStatus,
+          familyMembers: editFamilyMembers
+        }
         : flat
     ));
-    
+
     // Update Firestore
     try {
       const wingPrefix = (wingName as string).replace(/\s+/g, '').toUpperCase();
       const floor = parseInt(floorNumber as string);
       const unitId = `${wingPrefix}-${floor}-${editingFlat.flatNumber}`;
-      
+
       const updatePayload = {
         unitName: editUnitName,
         displayName: `${wingName} - ${editUnitName}`,
@@ -334,10 +334,10 @@ export default function FloorDetail() {
       // Update both locations (using unitId as stable doc ID)
       const unitPath = `artifacts/${appId}/users/${user.uid}/units/${unitId}`;
       const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
-      
+
       await setDoc(doc(db, unitPath), updatePayload, { merge: true });
       await setDoc(doc(db, societyPath), updatePayload, { merge: true });
-      
+
       Toast.show({
         type: 'success',
         text1: 'Updated',
@@ -347,7 +347,7 @@ export default function FloorDetail() {
       console.error('Error updating unit:', error);
       Alert.alert('Error', 'Failed to update unit details');
     }
-    
+
     setEditModalVisible(false);
     setEditingFlat(null);
   };
@@ -375,14 +375,14 @@ export default function FloorDetail() {
                 <View style={styles.flatHeader}>
                   <Text style={styles.flatNumber}>{flat.unitName}</Text>
                   <View style={styles.headerRight}>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.editIconBtn}
                       onPress={() => handleEditFlat(flat)}
                     >
                       <Text style={styles.editIcon}>✏️</Text>
                     </TouchableOpacity>
                     <View style={[
-                      styles.statusBadge, 
+                      styles.statusBadge,
                       flat.hasCredentials ? styles.statusGenerated : styles.statusPending
                     ]}>
                       <Text style={styles.statusText}>
@@ -391,12 +391,12 @@ export default function FloorDetail() {
                     </View>
                   </View>
                 </View>
-                
+
                 <View style={styles.residenceTypeContainer}>
                   <Text style={styles.residenceTypeLabel}>Type:</Text>
                   <Text style={styles.residenceTypeValue}>{flat.residenceType}</Text>
                   <View style={[
-                    styles.statusIndicator, 
+                    styles.statusIndicator,
                     flat.status === 'OCCUPIED' ? styles.statusOccupied : styles.statusVacant
                   ]}>
                     <Text style={styles.statusIndicatorText}>{flat.status}</Text>
@@ -410,14 +410,14 @@ export default function FloorDetail() {
                     <Text style={styles.familyMini}>👨‍👩‍👧‍👦 {flat.familyMembers} members</Text>
                   ) : null}
                 </View>
-                
+
                 {flat.hasCredentials ? (
                   <>
                     <View style={styles.credInfo}>
                       <Text style={styles.credLabel}>Username:</Text>
                       <Text style={styles.credValue}>{flat.username}</Text>
                     </View>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.viewBtn}
                       onPress={() => handleViewCredentials(flat)}
                     >
@@ -425,7 +425,7 @@ export default function FloorDetail() {
                     </TouchableOpacity>
                   </>
                 ) : (
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={[styles.generateBtn, generating === flat.flatNumber && styles.disabledBtn]}
                     onPress={() => handleGenerateCredentials(flat.flatNumber)}
                     disabled={generating === flat.flatNumber}
@@ -453,14 +453,14 @@ export default function FloorDetail() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Unit Credentials</Text>
-            
+
             {selectedFlat && (
               <View style={styles.credentialsContainer}>
                 <View style={styles.credentialRow}>
                   <Text style={styles.credentialLabel}>Unit Number</Text>
                   <Text style={styles.credentialValue}>{selectedFlat.unitName}</Text>
                 </View>
-                
+
                 <View style={styles.credentialRow}>
                   <Text style={styles.credentialLabel}>Residence Type</Text>
                   <Text style={styles.credentialValue}>{selectedFlat.residenceType}</Text>
@@ -479,7 +479,7 @@ export default function FloorDetail() {
                 <View style={styles.credentialRow}>
                   <Text style={styles.credentialLabel}>Residence Status</Text>
                   <Text style={[
-                    styles.credentialValue, 
+                    styles.credentialValue,
                     { color: selectedFlat.status === 'OCCUPIED' ? '#34C759' : '#FF9500' }
                   ]}>
                     {selectedFlat.status}
@@ -490,14 +490,14 @@ export default function FloorDetail() {
                   <Text style={styles.credentialLabel}>Family Members</Text>
                   <Text style={styles.credentialValue}>{selectedFlat.familyMembers || '0'}</Text>
                 </View>
-                
+
                 <View style={styles.credentialRow}>
                   <Text style={styles.credentialLabel}>Username</Text>
                   <View style={styles.credentialValueBox}>
                     <Text style={styles.credentialValue}>{selectedFlat.username}</Text>
                   </View>
                 </View>
-                
+
                 <View style={styles.credentialRow}>
                   <Text style={styles.credentialLabel}>Password</Text>
                   <View style={styles.credentialValueBox}>
@@ -506,17 +506,17 @@ export default function FloorDetail() {
                 </View>
               </View>
             )}
-            
+
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={styles.copyBtn} 
+              <TouchableOpacity
+                style={styles.copyBtn}
                 onPress={handleCopyCredentials}
               >
                 <Text style={styles.copyBtnText}>📋 Copy Credentials</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.closeBtn} 
+
+              <TouchableOpacity
+                style={styles.closeBtn}
                 onPress={() => setModalVisible(false)}
               >
                 <Text style={styles.closeBtnText}>Close</Text>
@@ -536,7 +536,7 @@ export default function FloorDetail() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Edit Unit Details</Text>
-            
+
             <View style={styles.editForm}>
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Unit Number / Name</Text>
@@ -547,7 +547,7 @@ export default function FloorDetail() {
                   placeholder="e.g. 101, A1, Shop-1"
                 />
               </View>
-              
+
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Residence Type</Text>
                 <TouchableOpacity
@@ -557,8 +557,8 @@ export default function FloorDetail() {
                   <Text style={styles.dropdownButtonText}>{editResidenceType}</Text>
                   <Text style={styles.dropdownArrow}>{showResidenceDropdown ? '▲' : '▼'}</Text>
                 </TouchableOpacity>
-                
-                 {showResidenceDropdown && (
+
+                {showResidenceDropdown && (
                   <ScrollView style={styles.dropdownList} nestedScrollEnabled={true}>
                     {RESIDENCE_TYPES.map((type) => (
                       <TouchableOpacity
@@ -608,9 +608,9 @@ export default function FloorDetail() {
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Residence Status</Text>
                 <View style={styles.statusToggleRow}>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={[
-                      styles.statusToggleBtn, 
+                      styles.statusToggleBtn,
                       editStatus === 'VACANT' && styles.statusToggleBtnActive
                     ]}
                     onPress={() => setEditStatus('VACANT')}
@@ -620,9 +620,9 @@ export default function FloorDetail() {
                       editStatus === 'VACANT' && styles.statusToggleTextActive
                     ]}>Vacant</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={[
-                      styles.statusToggleBtn, 
+                      styles.statusToggleBtn,
                       editStatus === 'OCCUPIED' && styles.statusToggleBtnActive
                     ]}
                     onPress={() => setEditStatus('OCCUPIED')}
@@ -646,10 +646,10 @@ export default function FloorDetail() {
                 />
               </View>
             </View>
-            
+
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={styles.closeBtn} 
+              <TouchableOpacity
+                style={styles.closeBtn}
                 onPress={() => {
                   setEditModalVisible(false);
                   setShowResidenceDropdown(false);
@@ -657,9 +657,9 @@ export default function FloorDetail() {
               >
                 <Text style={styles.closeBtnText}>Cancel</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.copyBtn} 
+
+              <TouchableOpacity
+                style={styles.copyBtn}
                 onPress={handleSaveEdit}
               >
                 <Text style={styles.copyBtnText}>Save Changes</Text>

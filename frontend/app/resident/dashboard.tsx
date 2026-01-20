@@ -12,23 +12,23 @@ export default function ResidentDashboard() {
   const [staffName, setStaffName] = useState('');
   const [staffType, setStaffType] = useState('Maid');
   const [contact, setContact] = useState('');
-  
+
   const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [idCard, setIdCard] = useState<ImagePicker.ImagePickerAsset | null>(null);
-  
+
   const [isUploading, setIsUploading] = useState(false);
   const [staffList, setStaffList] = useState<any[]>([]);
 
   useEffect(() => {
     if (!user) return;
-    
+
     const q = query(
-        collection(db, `users/${user.uid}/${COLLECTIONS.STAFF}`), 
-        orderBy('uploadedAt', 'desc')
+      collection(db, `users/${user.uid}/${COLLECTIONS.STAFF}`),
+      orderBy('uploadedAt', 'desc')
     );
-    
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
-        setStaffList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setStaffList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
     return unsubscribe;
@@ -56,112 +56,112 @@ export default function ResidentDashboard() {
 
     setIsUploading(true);
     try {
-        // Mock Uploads
-        // In a real app, we would fetch the Society's Drive Folder ID first.
-        // For now, we just mock it.
-        const photoUploadResult = await uploadFileToGoogleDrive(
-            { name: 'photo.jpg', uri: photo.uri }, 
-            { type: 'photo', parentFolderId: 'MOCK_FOLDER_ID' }
-        );
+      // Mock Uploads
+      // In a real app, we would fetch the Society's Drive Folder ID first.
+      // For now, we just mock it.
+      const photoUploadResult = await uploadFileToGoogleDrive(
+        { name: 'photo.jpg', uri: photo.uri },
+        { type: 'photo', parentFolderId: 'MOCK_FOLDER_ID' }
+      );
 
-        const idCardUploadResult = await uploadFileToGoogleDrive(
-            { name: 'id_card.jpg', uri: idCard.uri }, 
-            { type: 'id_card', parentFolderId: 'MOCK_FOLDER_ID' }
-        );
+      const idCardUploadResult = await uploadFileToGoogleDrive(
+        { name: 'id_card.jpg', uri: idCard.uri },
+        { type: 'id_card', parentFolderId: 'MOCK_FOLDER_ID' }
+      );
 
-        // Save Metadata
-        await addDoc(collection(db, `users/${user.uid}/${COLLECTIONS.STAFF}`), {
-            staffName,
-            staffType,
-            contact,
-            photoFileId: photoUploadResult.fileId,
-            idCardFileId: idCardUploadResult.fileId,
-            uploadedBy: user.uid,
-            uploadedAt: new Date().toISOString(),
-        });
+      // Save Metadata
+      await addDoc(collection(db, `users/${user.uid}/${COLLECTIONS.STAFF}`), {
+        staffName,
+        staffType,
+        contact,
+        photoFileId: photoUploadResult.fileId,
+        idCardFileId: idCardUploadResult.fileId,
+        uploadedBy: user.uid,
+        uploadedAt: new Date().toISOString(),
+      });
 
-        Alert.alert('Success', 'Staff registered successfully!');
-        setStaffName('');
-        setContact('');
-        setPhoto(null);
-        setIdCard(null);
+      Alert.alert('Success', 'Staff registered successfully!');
+      setStaffName('');
+      setContact('');
+      setPhoto(null);
+      setIdCard(null);
 
     } catch (error: any) {
-        Alert.alert('Error', error.message);
+      Alert.alert('Error', error.message);
     } finally {
-        setIsUploading(false);
+      setIsUploading(false);
     }
   };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>My Unit Staff</Text>
-      
+
       <View style={styles.form}>
         <Text style={styles.sectionTitle}>Add New Staff</Text>
-        
+
         <TextInput
-            style={styles.input}
-            placeholder="Staff Name"
-            value={staffName}
-            onChangeText={setStaffName}
+          style={styles.input}
+          placeholder="Staff Name"
+          value={staffName}
+          onChangeText={setStaffName}
         />
-        
+
         <View style={styles.row}>
-            {['Maid', 'Driver', 'Cook', 'Other'].map(type => (
-                <TouchableOpacity 
-                    key={type} 
-                    style={[styles.typeChip, staffType === type && styles.activeChip]}
-                    onPress={() => setStaffType(type)}
-                >
-                    <Text style={[styles.chipText, staffType === type && styles.activeChipText]}>{type}</Text>
-                </TouchableOpacity>
-            ))}
+          {['Maid', 'Driver', 'Cook', 'Other'].map(type => (
+            <TouchableOpacity
+              key={type}
+              style={[styles.typeChip, staffType === type && styles.activeChip]}
+              onPress={() => setStaffType(type)}
+            >
+              <Text style={[styles.chipText, staffType === type && styles.activeChipText]}>{type}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         <TextInput
-            style={styles.input}
-            placeholder="Contact Number"
-            value={contact}
-            onChangeText={setContact}
-            keyboardType="phone-pad"
+          style={styles.input}
+          placeholder="Contact Number"
+          value={contact}
+          onChangeText={setContact}
+          keyboardType="phone-pad"
         />
 
         <View style={styles.uploadRow}>
-            <TouchableOpacity style={styles.uploadBtn} onPress={() => pickImage(setPhoto)}>
-                <Text style={styles.uploadText}>{photo ? 'Change Photo' : 'Upload Photo'}</Text>
-            </TouchableOpacity>
-            {photo && <Image source={{ uri: photo.uri }} style={styles.preview} />}
+          <TouchableOpacity style={styles.uploadBtn} onPress={() => pickImage(setPhoto)}>
+            <Text style={styles.uploadText}>{photo ? 'Change Photo' : 'Upload Photo'}</Text>
+          </TouchableOpacity>
+          {photo && <Image source={{ uri: photo.uri }} style={styles.preview} />}
         </View>
 
         <View style={styles.uploadRow}>
-            <TouchableOpacity style={styles.uploadBtn} onPress={() => pickImage(setIdCard)}>
-                <Text style={styles.uploadText}>{idCard ? 'Change ID' : 'Upload ID Card'}</Text>
-            </TouchableOpacity>
-            {idCard && <Image source={{ uri: idCard.uri }} style={styles.preview} />}
+          <TouchableOpacity style={styles.uploadBtn} onPress={() => pickImage(setIdCard)}>
+            <Text style={styles.uploadText}>{idCard ? 'Change ID' : 'Upload ID Card'}</Text>
+          </TouchableOpacity>
+          {idCard && <Image source={{ uri: idCard.uri }} style={styles.preview} />}
         </View>
 
-        <TouchableOpacity 
-            style={[styles.submitBtn, isUploading && styles.disabledBtn]} 
-            onPress={handleSubmit}
-            disabled={isUploading}
+        <TouchableOpacity
+          style={[styles.submitBtn, isUploading && styles.disabledBtn]}
+          onPress={handleSubmit}
+          disabled={isUploading}
         >
-            <Text style={styles.submitText}>{isUploading ? 'Uploading...' : 'Register Staff'}</Text>
+          <Text style={styles.submitText}>{isUploading ? 'Uploading...' : 'Register Staff'}</Text>
         </TouchableOpacity>
       </View>
 
       <Text style={styles.sectionTitle}>Registered Staff</Text>
       {staffList.map(staff => (
         <View key={staff.id} style={styles.card}>
-            <Text style={styles.staffName}>{staff.staffName} ({staff.staffType})</Text>
-            <Text>Contact: {staff.contact}</Text>
-            <Text style={styles.fileId}>Photo ID: {staff.photoFileId}</Text>
-            <Text style={styles.fileId}>Doc ID: {staff.idCardFileId}</Text>
+          <Text style={styles.staffName}>{staff.staffName} ({staff.staffType})</Text>
+          <Text>Contact: {staff.contact}</Text>
+          <Text style={styles.fileId}>Photo ID: {staff.photoFileId}</Text>
+          <Text style={styles.fileId}>Doc ID: {staff.idCardFileId}</Text>
         </View>
       ))}
 
       <TouchableOpacity style={styles.signOutButton} onPress={useAuth().signOut}>
-          <Text style={styles.signOutText}>Sign Out</Text>
+        <Text style={styles.signOutText}>Sign Out</Text>
       </TouchableOpacity>
     </ScrollView>
   );
