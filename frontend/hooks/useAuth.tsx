@@ -1,4 +1,5 @@
 import { appId, auth, db } from '@/configs/firebaseConfig';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
@@ -71,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     await auth.signOut();
+    await AsyncStorage.removeItem('resident_session');
     setAppState('login');
   };
 

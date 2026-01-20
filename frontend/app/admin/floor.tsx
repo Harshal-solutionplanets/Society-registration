@@ -26,6 +26,7 @@ interface FlatData {
   residentMobile: string;
   status: 'VACANT' | 'OCCUPIED';
   familyMembers: string;
+  staffMembers: string;
   username?: string;
   password?: string;
   driveFolderId?: string;
@@ -62,7 +63,8 @@ export default function FloorDetail() {
         residentName: '',
         residentMobile: '',
         status: 'VACANT',
-        familyMembers: ''
+        familyMembers: '',
+        staffMembers: ''
       });
     }
 
@@ -82,9 +84,11 @@ export default function FloorDetail() {
   const [editResidentMobile, setEditResidentMobile] = useState('');
   const [editStatus, setEditStatus] = useState<'VACANT' | 'OCCUPIED'>('VACANT');
   const [editFamilyMembers, setEditFamilyMembers] = useState('');
+  const [editStaffMembers, setEditStaffMembers] = useState('');
   const [showResidenceDropdown, setShowResidenceDropdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [floorFolderId, setFloorFolderId] = useState<string | null>(null);
+  const [societyName, setSocietyName] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -95,11 +99,23 @@ export default function FloorDetail() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      await Promise.all([fetchFlats(), fetchFloorFolderId()]);
+      await Promise.all([fetchFlats(), fetchFloorFolderId(), fetchSocietyName()]);
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchSocietyName = async () => {
+    if (!user) return;
+    try {
+      const societyDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/societies`, user.uid));
+      if (societyDoc.exists()) {
+        setSocietyName(societyDoc.data().societyName || '');
+      }
+    } catch (error) {
+      console.error("Error fetching society name:", error);
     }
   };
 
@@ -146,11 +162,12 @@ export default function FloorDetail() {
             residenceType: dbFlat.residenceType || flat.residenceType,
             residentName: dbFlat.residentName || '',
             residentMobile: dbFlat.residentMobile || '',
-            status: dbFlat.status || 'VACANT',
-            familyMembers: dbFlat.familyMembers || '',
-            hasCredentials: !!dbFlat.residentUsername,
-            username: dbFlat.residentUsername,
-            password: dbFlat.residentPassword,
+            status: dbFlat.residenceStatus || dbFlat.status || 'VACANT',
+            familyMembers: dbFlat.familyMembers?.toString() || '',
+            staffMembers: dbFlat.staffMembers?.toString() || '',
+            hasCredentials: !!(dbFlat.username || dbFlat.residentUsername),
+            username: dbFlat.username || dbFlat.residentUsername,
+            password: dbFlat.password || dbFlat.residentPassword,
             driveFolderId: dbFlat.driveFolderId || ''
           };
         }
@@ -223,16 +240,22 @@ export default function FloorDetail() {
 
       const flatPayload = {
         id: unitId,
-        unitName: unitName, // Combined field
-        displayName: `${wingName} - ${unitName}`,
-        wingId: wingId,
+        societyName: societyName,
         wingName: wingName,
-        floorNumber: floor,
+        unitName: unitName,
         residenceType: flatData?.residenceType || 'Residence',
         residentName: flatData?.residentName || '',
         residentMobile: flatData?.residentMobile || '',
+        residenceStatus: flatData?.status || 'VACANT',
+        familyMembers: parseInt(flatData?.familyMembers || '0'),
+        staffMembers: parseInt(flatData?.staffMembers || '0'),
+        username: username,
+        password: password,
+        // Keep internal fields for logic/compatibility
+        displayName: `${wingName} - ${unitName}`,
+        wingId: wingId,
+        floorNumber: floor,
         status: flatData?.status || 'VACANT',
-        familyMembers: flatData?.familyMembers || '',
         residentUsername: username,
         residentPassword: password,
         driveFolderId: flatFolderId || '',
@@ -241,8 +264,9 @@ export default function FloorDetail() {
       };
 
       // Save to both locations for compatibility
-      const unitPath = `artifacts/${appId}/users/${user.uid}/units/${unitId}`;
-      await setDoc(doc(db, unitPath), flatPayload, { merge: true });
+      const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
+      const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${unitId}`;
+
       await setDoc(doc(db, societyPath), flatPayload, { merge: true });
 
       // Update local state
@@ -292,6 +316,7 @@ export default function FloorDetail() {
     setEditResidentMobile(flat.residentMobile);
     setEditStatus(flat.status);
     setEditFamilyMembers(flat.familyMembers);
+    setEditStaffMembers(flat.staffMembers || '');
     setEditModalVisible(true);
   };
 
@@ -325,14 +350,18 @@ export default function FloorDetail() {
         residenceType: editResidenceType,
         residentName: editResidentName,
         residentMobile: editResidentMobile,
-        status: editStatus,
-        familyMembers: editFamilyMembers,
+        residenceStatus: editStatus,
+        familyMembers: parseInt(editFamilyMembers || '0'),
+        staffMembers: parseInt(editStaffMembers || '0'),
+        societyName: societyName,
+        wingName: wingName,
+        username: editingFlat.username, // Preserve credentials
+        password: editingFlat.password,
         driveFolderId: editingFlat.driveFolderId || '',
         updatedAt: new Date().toISOString()
       };
 
       // Update both locations (using unitId as stable doc ID)
-      const unitPath = `artifacts/${appId}/users/${user.uid}/units/${unitId}`;
       const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
 
       await setDoc(doc(db, unitPath), updatePayload, { merge: true });
@@ -408,6 +437,9 @@ export default function FloorDetail() {
                   <Text style={styles.residentMobileMini}>{flat.residentMobile || 'No Mobile Set'}</Text>
                   {flat.familyMembers ? (
                     <Text style={styles.familyMini}>👨‍👩‍👧‍👦 {flat.familyMembers} members</Text>
+                  ) : null}
+                  {flat.staffMembers ? (
+                    <Text style={styles.familyMini}>👮 {flat.staffMembers} staff</Text>
                   ) : null}
                 </View>
 
@@ -642,6 +674,17 @@ export default function FloorDetail() {
                   value={editFamilyMembers}
                   onChangeText={setEditFamilyMembers}
                   placeholder="e.g. 4"
+                  keyboardType="numeric"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Number of Staff Members</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={editStaffMembers}
+                  onChangeText={setEditStaffMembers}
+                  placeholder="e.g. 1"
                   keyboardType="numeric"
                 />
               </View>

@@ -22,6 +22,7 @@ import {
 interface Wing {
   id: string;
   name: string;
+  wingIndex?: number;
   floorCount: number;
   floors: any[];
   driveFolderId?: string;
@@ -86,7 +87,7 @@ export default function AdminDashboard() {
   );
 
   const handleWingPress = (wingIndex: number) => {
-    const existingWing = wings.find(w => w.id === `wing_${wingIndex}`);
+    const existingWing = wings.find(w => w.wingIndex === wingIndex || w.id === `wing_${wingIndex}`);
     router.push({
       pathname: '/admin/wing-setup',
       params: {
@@ -150,7 +151,7 @@ export default function AdminDashboard() {
         <Text style={styles.sectionTitle}>Configure Wings</Text>
         <View style={styles.wingsGrid}>
           {wingBlocks.map((index) => {
-            const wingInfo = wings.find(w => w.id === `wing_${index}`);
+            const wingInfo = wings.find(w => w.wingIndex === index || w.id === `wing_${index}`);
             return (
               <TouchableOpacity
                 key={index}

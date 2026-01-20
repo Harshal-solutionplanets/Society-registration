@@ -1,14 +1,12 @@
-import { appId, auth, db } from '@/configs/firebaseConfig';
+import { auth } from '@/configs/firebaseConfig';
 import { useAuth } from '@/hooks/useAuth';
-import { linkResidentToUser } from '@/utils/authUtils';
+import { linkResidentToUser, mockResidentSignIn } from '@/utils/authUtils';
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, useRouter } from 'expo-router';
 import { signInAnonymously } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -19,6 +17,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import Toast from 'react-native-toast-message';
 
 export default function Index() {
   const router = useRouter();
@@ -35,8 +34,25 @@ export default function Index() {
   const [showPassword, setShowPassword] = useState(false);
 
   const handleResidentLogin = async () => {
-    if (!username || !password || !societyName || !wing || !unitNumber) {
-      Alert.alert('Error', 'Please fill all fields.');
+    // Validation with Toast pop-ups
+    if (!societyName) {
+      Toast.show({ type: 'error', text1: 'Missing Field', text2: 'Please enter the Society Name' });
+      return;
+    }
+    if (!wing) {
+      Toast.show({ type: 'error', text1: 'Missing Field', text2: 'Please enter the Wing/Block' });
+      return;
+    }
+    if (!unitNumber) {
+      Toast.show({ type: 'error', text1: 'Missing Field', text2: 'Please enter the Unit Number' });
+      return;
+    }
+    if (!username) {
+      Toast.show({ type: 'error', text1: 'Missing Field', text2: 'Please enter your Username' });
+      return;
+    }
+    if (!password) {
+      Toast.show({ type: 'error', text1: 'Missing Field', text2: 'Please enter your Password' });
       return;
     }
 
@@ -94,7 +110,12 @@ export default function Index() {
       throw new Error('Invalid Credentials or Society not found.');
 
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message);
+      console.error('Login Error:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Login Failed',
+        text2: error.message || 'Invalid credentials or connection issue'
+      });
     } finally {
       setIsLoggingIn(false);
     }
