@@ -220,18 +220,27 @@ export default function WingSetup() {
           const residentPassword = generatePassword(6);
           
           // Unit document path
-          const unitPath = `artifacts/${appId}/users/${user.uid}/units/${unitId}`;
           const societyUnitPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingId}/${floor.floorNumber}/${unitId}`;
+          const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${unitId}`;
           
           const unitPayload = {
             id: unitId,
+            societyName: societyData?.societyName || '',
+            wingName: wingName,
             unitName: unitName,
+            residenceType: 'Residence',
+            residentName: '',
+            residentMobile: '',
+            residenceStatus: 'VACANT',
+            familyMembers: 0,
+            staffMembers: 0,
+            username: residentUsername,
+            password: residentPassword,
+            // Keep internal fields for logic/compatibility
             displayName: `${wingName} - ${unitName}`,
             wingId: sanitizedWingId,
-            wingName: wingName,
             floorNumber: floor.floorNumber,
             unitNumber: unitNumber,
-            residentName: '',
             residentUsername: residentUsername,
             residentPassword: residentPassword,
             residentUID: null,
@@ -241,8 +250,8 @@ export default function WingSetup() {
             updatedAt: new Date().toISOString()
           };
 
-          batch.set(doc(db, unitPath), unitPayload, { merge: true });
           batch.set(doc(db, societyUnitPath), unitPayload, { merge: true });
+          batch.set(doc(db, residentPath), unitPayload, { merge: true });
           
           unitsGenerated++;
         }
