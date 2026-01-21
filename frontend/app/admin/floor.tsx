@@ -319,7 +319,7 @@ export default function FloorDetail() {
   const handleCopyCredentials = () => {
     if (!selectedFlat) return;
 
-    const credentialsText = `Hello, I am the Admin of ${societyName}. Here are the login credentials for your unit (${selectedFlat.unitName}):\n\nUsername: ${selectedFlat.username}\nPassword: ${selectedFlat.password}`;
+    const credentialsText = `Hello, I am the Admin of ${societyName}. Here are the login credentials for your unit ${selectedFlat.unitName} of floor number ${floorNumber} of ${wingName} :\n\nUsername: ${selectedFlat.username}\nPassword: ${selectedFlat.password}`;
 
     Clipboard.setString(credentialsText);
 

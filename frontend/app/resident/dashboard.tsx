@@ -1,282 +1,345 @@
-import { db } from '@/configs/firebaseConfig';
-import { COLLECTIONS } from '@/constants/Config';
-import { useAuth } from '@/hooks/useAuth';
-import { uploadFileToGoogleDrive } from '@/utils/driveUtils';
-import * as ImagePicker from 'expo-image-picker';
-import { addDoc, collection, onSnapshot, orderBy, query } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import { Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useAuth } from "@/hooks/useAuth";
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 export default function ResidentDashboard() {
-  const { user } = useAuth();
-  const [staffName, setStaffName] = useState('');
-  const [staffType, setStaffType] = useState('Maid');
-  const [contact, setContact] = useState('');
-
-  const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
-  const [idCard, setIdCard] = useState<ImagePicker.ImagePickerAsset | null>(null);
-
-  const [isUploading, setIsUploading] = useState(false);
-  const [staffList, setStaffList] = useState<any[]>([]);
+  const router = useRouter();
+  const { user, signOut } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [residentData, setResidentData] = useState<any>(null);
 
   useEffect(() => {
-    if (!user) return;
+    fetchResidentData();
+  }, []);
 
-    const q = query(
-      collection(db, `users/${user.uid}/${COLLECTIONS.STAFF}`),
-      orderBy('uploadedAt', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setStaffList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
-    return unsubscribe;
-  }, [user]);
-
-  const pickImage = async (setImage: any) => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.5,
-    });
-
-    if (!result.canceled) {
-      setImage(result.assets[0]);
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (!staffName || !contact || !photo || !idCard) {
-      Alert.alert('Error', 'Please fill all fields and upload both Photo and ID Card.');
-      return;
-    }
-
-    if (!user) return;
-
-    setIsUploading(true);
+  const fetchResidentData = async () => {
     try {
-      // Mock Uploads
-      // In a real app, we would fetch the Society's Drive Folder ID first.
-      // For now, we just mock it.
-      const photoUploadResult = await uploadFileToGoogleDrive(
-        { name: 'photo.jpg', uri: photo.uri },
-        { type: 'photo', parentFolderId: 'MOCK_FOLDER_ID' }
-      );
-
-      const idCardUploadResult = await uploadFileToGoogleDrive(
-        { name: 'id_card.jpg', uri: idCard.uri },
-        { type: 'id_card', parentFolderId: 'MOCK_FOLDER_ID' }
-      );
-
-      // Save Metadata
-      await addDoc(collection(db, `users/${user.uid}/${COLLECTIONS.STAFF}`), {
-        staffName,
-        staffType,
-        contact,
-        photoFileId: photoUploadResult.fileId,
-        idCardFileId: idCardUploadResult.fileId,
-        uploadedBy: user.uid,
-        uploadedAt: new Date().toISOString(),
-      });
-
-      Alert.alert('Success', 'Staff registered successfully!');
-      setStaffName('');
-      setContact('');
-      setPhoto(null);
-      setIdCard(null);
-
-    } catch (error: any) {
-      Alert.alert('Error', error.message);
+      const session = await AsyncStorage.getItem("resident_session");
+      if (session) {
+        setResidentData(JSON.parse(session));
+      }
+    } catch (error) {
+      console.error("Error fetching resident data:", error);
     } finally {
-      setIsUploading(false);
+      setLoading(false);
     }
   };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+      </View>
+    );
+  }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>My Unit Staff</Text>
-
-      <View style={styles.form}>
-        <Text style={styles.sectionTitle}>Add New Staff</Text>
-
-        <TextInput
-          style={styles.input}
-          placeholder="Staff Name"
-          value={staffName}
-          onChangeText={setStaffName}
-        />
-
-        <View style={styles.row}>
-          {['Maid', 'Driver', 'Cook', 'Other'].map(type => (
+    <View style={styles.mainContainer}>
+      <StatusBar barStyle="dark-content" />
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header Card - Same style as Admin Dashboard */}
+        <View style={styles.headerCard}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.societyName}>
+              {residentData?.societyName || "Society Hub"}
+            </Text>
+            <Text style={styles.welcomeText}>
+              Welcome, {residentData?.residentName || "Resident"}
+            </Text>
+          </View>
+          <View style={styles.headerRight}>
             <TouchableOpacity
-              key={type}
-              style={[styles.typeChip, staffType === type && styles.activeChip]}
-              onPress={() => setStaffType(type)}
+              style={styles.headerBtn}
+              onPress={() => router.push("/resident/staff")}
             >
-              <Text style={[styles.chipText, staffType === type && styles.activeChipText]}>{type}</Text>
+              <Text style={styles.headerBtnText}>Manage Staff</Text>
             </TouchableOpacity>
-          ))}
+            <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
+              <Text style={styles.logoutText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <TextInput
-          style={styles.input}
-          placeholder="Contact Number"
-          value={contact}
-          onChangeText={setContact}
-          keyboardType="phone-pad"
-        />
+        {/* Welcome Section */}
+        <View style={styles.welcomeSection}>
+          <View style={styles.iconContainer}>
+            <Ionicons name="home" size={40} color="#3B82F6" />
+          </View>
+          <Text style={styles.greeting}>
+            Welcome to {residentData?.societyName || "your society"}
+          </Text>
+          <Text style={styles.unitInfo}>
+            Unit {residentData?.unitName} | {residentData?.wingName}
+          </Text>
+        </View>
 
-        <View style={styles.uploadRow}>
-          <TouchableOpacity style={styles.uploadBtn} onPress={() => pickImage(setPhoto)}>
-            <Text style={styles.uploadText}>{photo ? 'Change Photo' : 'Upload Photo'}</Text>
+        {/* Stats/Quick Info */}
+        <View style={styles.statsContainer}>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>
+              {residentData?.familyMembers || "0"}
+            </Text>
+            <Text style={styles.statLabel}>Family Members</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>
+              {residentData?.staffMembers || "0"}
+            </Text>
+            <Text style={styles.statLabel}>Unit Staff</Text>
+          </View>
+        </View>
+
+        {/* Quick Actions */}
+        <Text style={styles.sectionTitle}>Quick Actions</Text>
+        <View style={styles.actionsGrid}>
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() => router.push("/resident/staff")}
+          >
+            <View style={[styles.actionIcon, { backgroundColor: "#EFF6FF" }]}>
+              <Ionicons name="people" size={24} color="#3B82F6" />
+            </View>
+            <Text style={styles.actionLabel}>Manage Staff</Text>
+            <Text style={styles.actionSub}>Register & track staff</Text>
           </TouchableOpacity>
-          {photo && <Image source={{ uri: photo.uri }} style={styles.preview} />}
-        </View>
 
-        <View style={styles.uploadRow}>
-          <TouchableOpacity style={styles.uploadBtn} onPress={() => pickImage(setIdCard)}>
-            <Text style={styles.uploadText}>{idCard ? 'Change ID' : 'Upload ID Card'}</Text>
+          <TouchableOpacity style={styles.actionCard} disabled>
+            <View style={[styles.actionIcon, { backgroundColor: "#F0FDF4" }]}>
+              <Ionicons name="notifications" size={24} color="#22C55E" />
+            </View>
+            <Text style={styles.actionLabel}>Notices</Text>
+            <Text style={styles.actionSub}>Coming Soon</Text>
           </TouchableOpacity>
-          {idCard && <Image source={{ uri: idCard.uri }} style={styles.preview} />}
         </View>
 
-        <TouchableOpacity
-          style={[styles.submitBtn, isUploading && styles.disabledBtn]}
-          onPress={handleSubmit}
-          disabled={isUploading}
-        >
-          <Text style={styles.submitText}>{isUploading ? 'Uploading...' : 'Register Staff'}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.sectionTitle}>Registered Staff</Text>
-      {staffList.map(staff => (
-        <View key={staff.id} style={styles.card}>
-          <Text style={styles.staffName}>{staff.staffName} ({staff.staffType})</Text>
-          <Text>Contact: {staff.contact}</Text>
-          <Text style={styles.fileId}>Photo ID: {staff.photoFileId}</Text>
-          <Text style={styles.fileId}>Doc ID: {staff.idCardFileId}</Text>
+        <View style={styles.infoBox}>
+          <Text style={styles.infoTitle}>Resident Portal</Text>
+          <Text style={styles.infoText}>
+            • Use "Manage Staff" to register your domestic help.{"\n"}• Ensure
+            your unit details are up to date.{"\n"}• Contact society admin for
+            any grievances.
+          </Text>
         </View>
-      ))}
-
-      <TouchableOpacity style={styles.signOutButton} onPress={useAuth().signOut}>
-        <Text style={styles.signOutText}>Sign Out</Text>
-      </TouchableOpacity>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    backgroundColor: '#f5f5f5',
-    flexGrow: 1,
+  mainContainer: {
+    flex: 1,
+    backgroundColor: "#F8FAFC",
   },
-  title: {
+  container: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 20,
+    paddingTop: 60,
+    paddingBottom: 40,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+  },
+  headerCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    shadowColor: "#3B82F6",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 5,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  societyName: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#0F172A",
+    letterSpacing: -0.5,
+    textTransform: "uppercase",
+  },
+  welcomeText: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  headerBtn: {
+    backgroundColor: "#F0F7FF",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E0E7FF",
+  },
+  headerBtnText: {
+    color: "#3B82F6",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  logoutBtn: {
+    backgroundColor: "#FEF2F2",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  logoutText: {
+    color: "#EF4444",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  welcomeSection: {
+    alignItems: "center",
+    marginBottom: 32,
+    backgroundColor: "#FFFFFF",
+    padding: 24,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#F1F5F9",
+  },
+  iconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#EFF6FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  greeting: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+  unitInfo: {
+    fontSize: 14,
+    color: "#64748B",
+    marginTop: 4,
+    fontWeight: "600",
+  },
+  statsContainer: {
+    flexDirection: "row",
+    gap: 16,
+    marginBottom: 32,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    padding: 20,
+    borderRadius: 20,
+    alignItems: "center",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#F1F5F9",
+  },
+  statValue: {
     fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
+    fontWeight: "800",
+    color: "#3B82F6",
+  },
+  statLabel: {
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "600",
+    marginTop: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 10,
-    marginTop: 10,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginBottom: 16,
+    marginLeft: 4,
   },
-  form: {
-    backgroundColor: 'white',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 20,
+  actionsGrid: {
+    flexDirection: "row",
+    gap: 16,
+    marginBottom: 32,
   },
-  input: {
+  actionCard: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    padding: 20,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 10,
+    borderColor: "#F1F5F9",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
   },
-  row: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 15,
+  actionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
   },
-  typeChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: '#eee',
+  actionLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#0F172A",
+    marginBottom: 4,
   },
-  activeChip: {
-    backgroundColor: '#007AFF',
-  },
-  chipText: {
-    color: '#333',
-  },
-  activeChipText: {
-    color: 'white',
-  },
-  uploadRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-    gap: 10,
-  },
-  uploadBtn: {
-    backgroundColor: '#e1e1e1',
-    padding: 10,
-    borderRadius: 6,
-  },
-  uploadText: {
-    color: '#333',
-  },
-  preview: {
-    width: 40,
-    height: 40,
-    borderRadius: 4,
-  },
-  submitBtn: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  disabledBtn: {
-    opacity: 0.7,
-  },
-  submitText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  card: {
-    backgroundColor: 'white',
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  staffName: {
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  fileId: {
+  actionSub: {
     fontSize: 12,
-    color: '#888',
-    marginTop: 2,
+    color: "#94A3B8",
   },
-  signOutButton: {
-    marginTop: 20,
-    padding: 15,
-    backgroundColor: '#ff4444',
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 20,
+  infoBox: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
   },
-  signOutText: {
-    color: 'white',
-    fontWeight: 'bold',
+  infoTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#475569",
+    marginBottom: 10,
+  },
+  infoText: {
+    fontSize: 13,
+    color: "#64748B",
+    lineHeight: 20,
   },
 });

@@ -19,7 +19,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 
 interface Wing {
@@ -213,7 +213,7 @@ export default function AdminDashboard() {
         <View style={styles.statsContainer}>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{wingCount}</Text>
-            <Text style={styles.statLabel}>Wings/Blocks</Text>
+            <Text style={styles.statLabel}>Wings</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{totalCalculatedUnits}</Text>
