@@ -7,6 +7,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  setDoc,
   updateDoc,
 } from "firebase/firestore";
 import * as React from "react";
@@ -14,6 +15,7 @@ import {
   ActivityIndicator,
   Alert,
   GestureResponderEvent,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -50,10 +52,49 @@ export default function AdminDashboard() {
 
         const wingsRef = collection(db, `${societyPath}/${user.uid}/wings`);
         const wingsSnapshot = await getDocs(wingsRef);
-        const fetchedWings = wingsSnapshot.docs.map((doc) => ({
+        let fetchedWings = wingsSnapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         })) as Wing[];
+
+        // Migration: If wingCount > fetchedWings.length, create missing docs
+        // This ensures the "Delete" button works for all slots
+        if (data.wingCount > fetchedWings.length) {
+          const { writeBatch } = await import("firebase/firestore");
+          const batch = writeBatch(db);
+          let added = false;
+
+          for (let i = 0; i < data.wingCount; i++) {
+            const exists = fetchedWings.some((w) => w.wingIndex === i);
+            if (!exists) {
+              const wingName = `Wing ${String.fromCharCode(65 + i)}`;
+              const wingId = wingName.replace(/\s+/g, "_");
+              const wingRef = doc(
+                db,
+                `${societyPath}/${user.uid}/wings`,
+                wingId,
+              );
+              batch.set(wingRef, {
+                id: wingId,
+                name: wingName,
+                wingIndex: i,
+                floorCount: 0,
+                floors: [],
+                updatedAt: new Date().toISOString(),
+              });
+              added = true;
+            }
+          }
+
+          if (added) {
+            await batch.commit();
+            const updatedSnapshot = await getDocs(wingsRef);
+            fetchedWings = updatedSnapshot.docs.map((doc) => ({
+              id: doc.id,
+              ...doc.data(),
+            })) as Wing[];
+          }
+        }
         setWings(fetchedWings);
       } else {
         router.replace("/admin/setup");
@@ -79,11 +120,32 @@ export default function AdminDashboard() {
   const handleAddWing = async () => {
     if (!user || !societyData) return;
     try {
-      const newWingCount = (societyData.wingCount || 0) + 1;
+      // Find the next available index and letter
+      const nextIndex =
+        wings.length > 0
+          ? Math.max(...wings.map((w) => w.wingIndex || 0)) + 1
+          : 0;
+      const nextLetter = String.fromCharCode(65 + nextIndex);
+      const wingName = `Wing ${nextLetter}`;
+      const wingId = wingName.replace(/\s+/g, "_");
+
       const societyPath = `artifacts/${appId}/public/data/societies`;
+      const wingRef = doc(db, `${societyPath}/${user.uid}/wings`, wingId);
+
+      await setDoc(wingRef, {
+        id: wingId,
+        name: wingName,
+        wingIndex: nextIndex,
+        floorCount: 0,
+        floors: [],
+        updatedAt: new Date().toISOString(),
+      });
+
+      const newWingCount = (societyData.wingCount || 0) + 1;
       await updateDoc(doc(db, societyPath, user.uid), {
         wingCount: newWingCount,
       });
+
       setSocietyData({ ...societyData, wingCount: newWingCount });
       fetchData(); // Refresh list
     } catch (error) {
@@ -92,62 +154,57 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDeleteWing = async (index: number) => {
+  const performDelete = async (wingId: string) => {
     if (!user || !societyData) return;
+    try {
+      const societyPath = `artifacts/${appId}/public/data/societies`;
+      const wingDocRef = doc(db, `${societyPath}/${user.uid}/wings`, wingId);
+      await deleteDoc(wingDocRef);
 
-    Alert.alert(
-      "Delete Wing",
-      "Are you sure you want to delete this wing? This will decrease the total wing count.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const newWingCount = Math.max(0, societyData.wingCount - 1);
-              const societyPath = `artifacts/${appId}/public/data/societies`;
+      const newWingCount = Math.max(0, (societyData.wingCount || 0) - 1);
+      await updateDoc(doc(db, societyPath, user.uid), {
+        wingCount: newWingCount,
+      });
 
-              // Find and delete the wing document if it exists
-              const wingInfo = wings.find(
-                (w: Wing) => w.wingIndex === index || w.id === `wing_${index}`,
-              );
-              if (wingInfo) {
-                const wingDocRef = doc(
-                  db,
-                  `${societyPath}/${user.uid}/wings`,
-                  wingInfo.id,
-                );
-                await deleteDoc(wingDocRef);
-              }
-
-              await updateDoc(doc(db, societyPath, user.uid), {
-                wingCount: newWingCount,
-              });
-
-              setSocietyData({ ...societyData, wingCount: newWingCount });
-              fetchData(); // Refresh wings list
-            } catch (error) {
-              console.error(error);
-              Alert.alert("Error", "Failed to delete wing");
-            }
-          },
-        },
-      ],
-    );
+      setSocietyData({ ...societyData, wingCount: newWingCount });
+      fetchData(); // Refresh wings list
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Error", "Failed to delete wing");
+    }
   };
 
-  const handleWingPress = (wingIndex: number) => {
-    const existingWing = wings.find(
-      (w: Wing) => w.wingIndex === wingIndex || w.id === `wing_${wingIndex}`,
-    );
+  const handleDeleteWing = async (wingId: string) => {
+    if (Platform.OS === "web") {
+      const confirmed = window.confirm(
+        "Are you sure you want to delete this wing? All its configuration will be removed.",
+      );
+      if (confirmed) {
+        await performDelete(wingId);
+      }
+    } else {
+      Alert.alert(
+        "Delete Wing",
+        "Are you sure you want to delete this wing? All its configuration will be removed.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: () => performDelete(wingId),
+          },
+        ],
+      );
+    }
+  };
+
+  const handleWingPress = (wing: Wing) => {
     router.push({
       pathname: "/admin/wing-setup",
       params: {
-        wingIndex,
-        wingId: existingWing?.id || `wing_${wingIndex}`,
-        wingName:
-          existingWing?.name || `Wing ${String.fromCharCode(65 + wingIndex)}`,
+        wingIndex: wing.wingIndex ?? 0,
+        wingId: wing.id,
+        wingName: wing.name,
       },
     });
   };
@@ -161,7 +218,10 @@ export default function AdminDashboard() {
   }
 
   const wingCount = societyData?.wingCount || 0;
-  const wingBlocks = Array.from({ length: wingCount }, (_, i) => i);
+  // Sort wings by index for display
+  const sortedWings = [...wings].sort(
+    (a, b) => (a.wingIndex ?? 0) - (b.wingIndex ?? 0),
+  );
 
   // Calculate total units from all configured wings
   const totalCalculatedUnits = wings.reduce((total, wing) => {
@@ -228,23 +288,23 @@ export default function AdminDashboard() {
           </TouchableOpacity>
         </View>
         <View style={styles.wingsGrid}>
-          {wingBlocks.map((index) => {
-            const wingInfo = wings.find(
-              (w: Wing) => w.wingIndex === index || w.id === `wing_${index}`,
-            );
+          {sortedWings.map((wingInfo) => {
+            const isConfigured = (wingInfo.floorCount || 0) > 0;
             return (
               <TouchableOpacity
-                key={index}
+                key={wingInfo.id}
                 style={[
                   styles.wingCard,
-                  wingInfo ? styles.wingCardConfigured : styles.wingCardPending,
+                  isConfigured
+                    ? styles.wingCardConfigured
+                    : styles.wingCardPending,
                 ]}
-                onPress={() => handleWingPress(index)}
+                onPress={() => handleWingPress(wingInfo)}
               >
                 <View
                   style={[
                     styles.towerTop,
-                    wingInfo
+                    isConfigured
                       ? styles.towerTopConfigured
                       : styles.towerTopPending,
                   ]}
@@ -279,41 +339,38 @@ export default function AdminDashboard() {
                   <Text
                     style={[
                       styles.wingLetter,
-                      wingInfo
+                      isConfigured
                         ? styles.wingLetterConfigured
                         : styles.wingLetterPending,
                     ]}
                   >
-                    {wingInfo?.name
-                      ? wingInfo.name.charAt(0).toUpperCase()
-                      : String.fromCharCode(65 + index)}
+                    {wingInfo.name.charAt(0).toUpperCase()}
                   </Text>
                   <Text
                     style={[
                       styles.wingName,
-                      wingInfo
+                      isConfigured
                         ? styles.wingNameConfigured
                         : styles.wingNamePending,
                     ]}
                   >
-                    {wingInfo?.name ||
-                      `Wing ${String.fromCharCode(65 + index)}`}
+                    {wingInfo.name}
                   </Text>
                   <View
                     style={[
                       styles.badge,
-                      wingInfo ? styles.badgeSuccess : styles.badgeInfo,
+                      isConfigured ? styles.badgeSuccess : styles.badgeInfo,
                     ]}
                   >
                     <Text
                       style={[
                         styles.badgeText,
-                        wingInfo
+                        isConfigured
                           ? styles.badgeTextSuccess
                           : styles.badgeTextInfo,
                       ]}
                     >
-                      {wingInfo ? "Configured" : "Pending"}
+                      {isConfigured ? "Configured" : "Pending"}
                     </Text>
                   </View>
                 </View>
@@ -321,7 +378,7 @@ export default function AdminDashboard() {
                   style={styles.deleteWingIcon}
                   onPress={(e: GestureResponderEvent) => {
                     e.stopPropagation();
-                    handleDeleteWing(index);
+                    handleDeleteWing(wingInfo.id);
                   }}
                 >
                   <Text style={styles.deleteWingIconText}>×</Text>

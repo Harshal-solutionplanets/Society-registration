@@ -1,8 +1,8 @@
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -19,9 +19,11 @@ export default function ResidentDashboard() {
   const [loading, setLoading] = useState(true);
   const [residentData, setResidentData] = useState<any>(null);
 
-  useEffect(() => {
-    fetchResidentData();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchResidentData();
+    }, []),
+  );
 
   const fetchResidentData = async () => {
     try {
@@ -88,6 +90,26 @@ export default function ResidentDashboard() {
           </Text>
         </View>
 
+        {/* Profile Completion Banner */}
+        {(!residentData?.residentMobile ||
+          residentData?.residentName === "Resident") && (
+          <TouchableOpacity
+            style={styles.profileBanner}
+            onPress={() => router.push("/resident/residentform")}
+          >
+            <View style={styles.bannerContent}>
+              <Ionicons name="alert-circle" size={24} color="#F59E0B" />
+              <View style={styles.bannerTextContainer}>
+                <Text style={styles.bannerTitle}>Complete Your Profile</Text>
+                <Text style={styles.bannerSub}>
+                  Add your contact details and family info
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
+            </View>
+          </TouchableOpacity>
+        )}
+
         {/* Stats/Quick Info */}
         <View style={styles.statsContainer}>
           <View style={styles.statCard}>
@@ -118,12 +140,15 @@ export default function ResidentDashboard() {
             <Text style={styles.actionSub}>Register & track staff</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionCard} disabled>
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() => router.push("/resident/residentform")}
+          >
             <View style={[styles.actionIcon, { backgroundColor: "#F0FDF4" }]}>
-              <Ionicons name="notifications" size={24} color="#22C55E" />
+              <Ionicons name="person" size={24} color="#22C55E" />
             </View>
-            <Text style={styles.actionLabel}>Notices</Text>
-            <Text style={styles.actionSub}>Coming Soon</Text>
+            <Text style={styles.actionLabel}>My Profile</Text>
+            <Text style={styles.actionSub}>Update your details</Text>
           </TouchableOpacity>
         </View>
 
@@ -290,8 +315,35 @@ const styles = StyleSheet.create({
   },
   actionsGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 16,
     marginBottom: 32,
+  },
+  profileBanner: {
+    backgroundColor: "#FFFBEB",
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "#FEF3C7",
+  },
+  bannerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  bannerTextContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  bannerTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#92400E",
+  },
+  bannerSub: {
+    fontSize: 12,
+    color: "#B45309",
+    marginTop: 2,
   },
   actionCard: {
     flex: 1,
