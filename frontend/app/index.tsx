@@ -1,4 +1,4 @@
-import { auth } from "@/configs/firebaseConfig";
+import { appId, auth, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { linkResidentToUser, mockResidentSignIn } from "@/utils/authUtils";
 import { Ionicons } from "@expo/vector-icons";

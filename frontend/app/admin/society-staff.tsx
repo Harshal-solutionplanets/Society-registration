@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
+    Image,
     KeyboardAvoidingView,
     Platform,
     ScrollView,
@@ -21,6 +22,7 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import * as ImagePicker from 'expo-image-picker';
 import Toast from "react-native-toast-message";
 
 interface StaffMember {
@@ -31,6 +33,9 @@ interface StaffMember {
     email: string;
     shift: string; // Day/Night
     joinedDate: string;
+    photo?: string;
+    idCard?: string;
+    addressProof?: string;
 }
 
 const STAFF_POSITIONS = [
@@ -44,6 +49,7 @@ const STAFF_POSITIONS = [
     "Manager",
     "Lift Operator",
     "Sweeper",
+    "Other",
 ];
 
 const SHIFTS = ["Day", "Night", "General"];
@@ -65,6 +71,12 @@ export default function SocietyStaff() {
     const [showPositionDropdown, setShowPositionDropdown] = useState(false);
     const [showShiftDropdown, setShowShiftDropdown] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
+    const [otherPosition, setOtherPosition] = useState("");
+
+    // Document states (base64)
+    const [photo, setPhoto] = useState<string | null>(null);
+    const [idCard, setIdCard] = useState<string | null>(null);
+    const [addressProof, setAddressProof] = useState<string | null>(null);
 
     useEffect(() => {
         if (user) {
@@ -92,6 +104,31 @@ export default function SocietyStaff() {
         }
     };
 
+    const handlePickImage = async (type: 'photo' | 'idCard' | 'addressProof') => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: true,
+            quality: 0.5,
+            base64: true,
+        });
+
+        if (!result.canceled) {
+            const asset = result.assets[0];
+
+            // Checking size (rough estimate from base64)
+            // 500KB = ~682666 characters in base64.
+            if (asset.base64 && asset.base64.length > 682666) {
+                Alert.alert("Error", "File size too large. Maximum limit is 500KB.");
+                return;
+            }
+
+            const base64Image = `data:image/jpeg;base64,${asset.base64}`;
+            if (type === 'photo') setPhoto(base64Image);
+            else if (type === 'idCard') setIdCard(base64Image);
+            else if (type === 'addressProof') setAddressProof(base64Image);
+        }
+    };
+
     const handleAddOrUpdateStaff = async () => {
         if (!user) return;
         if (!name || !position || !phone) {
@@ -99,17 +136,26 @@ export default function SocietyStaff() {
             return;
         }
 
+        if (position === "Other" && !otherPosition) {
+            Alert.alert("Error", "Please specify the position.");
+            return;
+        }
+
         setSaving(true);
         try {
             const staffId = editingId || `staff_${Date.now()}`;
+            const finalPosition = position === "Other" ? otherPosition : position;
             const staffData: StaffMember = {
                 id: staffId,
                 name,
-                position,
+                position: finalPosition,
                 phone,
                 email,
                 shift,
                 joinedDate: new Date().toISOString().split('T')[0],
+                photo: photo || "",
+                idCard: idCard || "",
+                addressProof: addressProof || "",
             };
 
             const staffPath = `artifacts/${appId}/public/data/societies/${user.uid}/Staff/${staffId}`;
@@ -128,6 +174,10 @@ export default function SocietyStaff() {
             setPhone("");
             setEmail("");
             setShift("Day");
+            setOtherPosition("");
+            setPhoto(null);
+            setIdCard(null);
+            setAddressProof(null);
 
             Toast.show({
                 type: "success",
@@ -169,10 +219,17 @@ export default function SocietyStaff() {
     const handleEditStaff = (member: StaffMember) => {
         setEditingId(member.id);
         setName(member.name);
-        setPosition(member.position);
+
+        const isOther = !STAFF_POSITIONS.includes(member.position) && member.position !== "Other";
+        setPosition(isOther ? "Other" : member.position);
+        setOtherPosition(isOther ? member.position : "");
+
         setPhone(member.phone);
         setEmail(member.email);
         setShift(member.shift);
+        setPhoto(member.photo || null);
+        setIdCard(member.idCard || null);
+        setAddressProof(member.addressProof || null);
         // Scroll to top or just focus? For mobile, users will see the form.
     };
 
@@ -273,6 +330,18 @@ export default function SocietyStaff() {
                         </View>
                     </View>
 
+                    {position === "Other" && (
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Specify Position</Text>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="e.g. Supervisor, CCTV Expert"
+                                value={otherPosition}
+                                onChangeText={setOtherPosition}
+                            />
+                        </View>
+                    )}
+
                     <View style={styles.inputGroup}>
                         <Text style={styles.label}>Phone Number</Text>
                         <TextInput
@@ -294,6 +363,44 @@ export default function SocietyStaff() {
                             keyboardType="email-address"
                             autoCapitalize="none"
                         />
+                    </View>
+
+                    <View style={styles.uploadSection}>
+                        <Text style={styles.label}>Required Documents (Max 500KB)</Text>
+                        <View style={styles.uploadRow}>
+                            <TouchableOpacity style={styles.uploadBox} onPress={() => handlePickImage('photo')}>
+                                {photo ? (
+                                    <Image source={{ uri: photo }} style={styles.previewImage} />
+                                ) : (
+                                    <View style={styles.uploadPlaceholder}>
+                                        <Text style={styles.uploadIcon}>👤</Text>
+                                        <Text style={styles.uploadLabel}>Photo</Text>
+                                    </View>
+                                )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.uploadBox} onPress={() => handlePickImage('idCard')}>
+                                {idCard ? (
+                                    <Image source={{ uri: idCard }} style={styles.previewImage} />
+                                ) : (
+                                    <View style={styles.uploadPlaceholder}>
+                                        <Text style={styles.uploadIcon}>💳</Text>
+                                        <Text style={styles.uploadLabel}>Photo ID card</Text>
+                                    </View>
+                                )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.uploadBox} onPress={() => handlePickImage('addressProof')}>
+                                {addressProof ? (
+                                    <Image source={{ uri: addressProof }} style={styles.previewImage} />
+                                ) : (
+                                    <View style={styles.uploadPlaceholder}>
+                                        <Text style={styles.uploadIcon}>🏠</Text>
+                                        <Text style={styles.uploadLabel}>Address Proof</Text>
+                                    </View>
+                                )}
+                            </TouchableOpacity>
+                        </View>
                     </View>
 
                     <View style={styles.formButtons}>
@@ -319,6 +426,10 @@ export default function SocietyStaff() {
                                     setPhone("");
                                     setEmail("");
                                     setShift("Day");
+                                    setOtherPosition("");
+                                    setPhoto(null);
+                                    setIdCard(null);
+                                    setAddressProof(null);
                                 }}
                             >
                                 <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -336,12 +447,21 @@ export default function SocietyStaff() {
                     ) : (
                         members.map((member: StaffMember) => (
                             <View key={member.id} style={styles.memberCard}>
-                                <View style={styles.memberInfo}>
-                                    <Text style={styles.memberName}>{member.name}</Text>
-                                    <Text style={styles.memberMeta}>
-                                        {member.position} • {member.shift} Shift
-                                    </Text>
-                                    <Text style={styles.memberContact}>{member.phone}</Text>
+                                <View style={styles.memberHeader}>
+                                    {member.photo ? (
+                                        <Image source={{ uri: member.photo }} style={styles.memberAvatar} />
+                                    ) : (
+                                        <View style={[styles.memberAvatar, styles.placeholderAvatar]}>
+                                            <Text style={styles.avatarText}>{member.name.charAt(0).toUpperCase()}</Text>
+                                        </View>
+                                    )}
+                                    <View style={styles.memberInfo}>
+                                        <Text style={styles.memberName}>{member.name}</Text>
+                                        <Text style={styles.memberMeta}>
+                                            {member.position} • {member.shift} Shift
+                                        </Text>
+                                        <Text style={styles.memberContact}>{member.phone}</Text>
+                                    </View>
                                 </View>
                                 <View style={styles.memberActions}>
                                     <TouchableOpacity onPress={() => handleEditStaff(member)} style={styles.editBtn}>
@@ -397,4 +517,26 @@ const styles = StyleSheet.create({
     deleteBtnText: { color: "#EF4444", fontWeight: "700" },
     emptyState: { padding: 40, alignItems: "center" },
     emptyText: { color: "#94A3B8", fontSize: 14 },
+    uploadSection: { marginBottom: 20 },
+    uploadRow: { flexDirection: 'row', gap: 12, marginTop: 10 },
+    uploadBox: {
+        flex: 1,
+        height: 100,
+        backgroundColor: '#F8FAFC',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderStyle: 'dashed',
+        borderColor: '#CBD5E1',
+        overflow: 'hidden',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    uploadPlaceholder: { alignItems: 'center' },
+    uploadIcon: { fontSize: 24, marginBottom: 4 },
+    uploadLabel: { fontSize: 11, fontWeight: '600', color: '#64748B' },
+    previewImage: { width: '100%', height: '100%', resizeMode: 'cover' },
+    memberHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+    memberAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#F1F5F9' },
+    placeholderAvatar: { justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#E2E8F0' },
+    avatarText: { fontSize: 20, fontWeight: '800', color: '#64748B' },
 });

@@ -15,7 +15,7 @@ import {
 
 export default function ResidentDashboard() {
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { signOut } = useAuth();
   const [loading, setLoading] = useState(true);
   const [residentData, setResidentData] = useState<any>(null);
 
@@ -54,7 +54,7 @@ export default function ResidentDashboard() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header Card - Same style as Admin Dashboard */}
+        {/* Header Card */}
         <View style={styles.headerCard}>
           <View style={styles.headerLeft}>
             <Text style={styles.societyName}>
@@ -66,10 +66,10 @@ export default function ResidentDashboard() {
           </View>
           <View style={styles.headerRight}>
             <TouchableOpacity
-              style={styles.headerBtn}
-              onPress={() => router.push("/resident/staff")}
+              style={styles.profileHeaderBtn}
+              onPress={() => router.push("/resident/residentform")}
             >
-              <Text style={styles.headerBtnText}>Manage Staff</Text>
+              <Text style={styles.profileHeaderText}>My Profile</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
               <Text style={styles.logoutText}>Logout</Text>
@@ -93,31 +93,25 @@ export default function ResidentDashboard() {
         {/* Profile Completion Banner */}
         {(!residentData?.residentMobile ||
           residentData?.residentName === "Resident") && (
-          <TouchableOpacity
-            style={styles.profileBanner}
-            onPress={() => router.push("/resident/residentform")}
-          >
-            <View style={styles.bannerContent}>
-              <Ionicons name="alert-circle" size={24} color="#F59E0B" />
-              <View style={styles.bannerTextContainer}>
-                <Text style={styles.bannerTitle}>Complete Your Profile</Text>
-                <Text style={styles.bannerSub}>
-                  Add your contact details and family info
-                </Text>
+            <TouchableOpacity
+              style={styles.profileBanner}
+              onPress={() => router.push("/resident/residentform")}
+            >
+              <View style={styles.bannerContent}>
+                <Ionicons name="alert-circle" size={24} color="#F59E0B" />
+                <View style={styles.bannerTextContainer}>
+                  <Text style={styles.bannerTitle}>Complete Your Profile</Text>
+                  <Text style={styles.bannerSub}>
+                    Add your contact details and family info
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
-            </View>
-          </TouchableOpacity>
-        )}
+            </TouchableOpacity>
+          )}
 
-        {/* Stats/Quick Info */}
+        {/* Stats Section */}
         <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>
-              {residentData?.familyMembers || "0"}
-            </Text>
-            <Text style={styles.statLabel}>Family Members</Text>
-          </View>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>
               {residentData?.staffMembers || "0"}
@@ -137,18 +131,18 @@ export default function ResidentDashboard() {
               <Ionicons name="people" size={24} color="#3B82F6" />
             </View>
             <Text style={styles.actionLabel}>Manage Staff</Text>
-            <Text style={styles.actionSub}>Register & track staff</Text>
+            <Text style={styles.actionSub}>Help & Helpers</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.actionCard}
-            onPress={() => router.push("/resident/residentform")}
+            style={[styles.actionCard, { opacity: 0.8 }]}
+            disabled={true}
           >
-            <View style={[styles.actionIcon, { backgroundColor: "#F0FDF4" }]}>
-              <Ionicons name="person" size={24} color="#22C55E" />
+            <View style={[styles.actionIcon, { backgroundColor: "#FDF2F8" }]}>
+              <Ionicons name="notifications" size={24} color="#DB2777" />
             </View>
-            <Text style={styles.actionLabel}>My Profile</Text>
-            <Text style={styles.actionSub}>Update your details</Text>
+            <Text style={styles.actionLabel}>Notice Board</Text>
+            <Text style={[styles.actionSub, { color: "#DB2777", fontWeight: "700" }]}>Coming Soon</Text>
           </TouchableOpacity>
         </View>
 
@@ -175,7 +169,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
-    paddingTop: 60,
+    paddingTop: 50,
     paddingBottom: 40,
   },
   loadingContainer: {
@@ -187,18 +181,18 @@ const styles = StyleSheet.create({
   headerCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
-    padding: 20,
+    padding: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    shadowColor: "#3B82F6",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 5,
+    shadowColor: "#6366F1",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 15,
+    elevation: 4,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "rgba(99, 102, 241, 0.1)",
   },
   headerLeft: {
     flex: 1,
@@ -206,118 +200,145 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
   },
   societyName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "900",
-    color: "#0F172A",
-    letterSpacing: -0.5,
+    color: "#4338CA",
+    letterSpacing: -0.3,
     textTransform: "uppercase",
   },
   welcomeText: {
     fontSize: 12,
     color: "#64748B",
     marginTop: 2,
+    fontWeight: "600",
   },
-  headerBtn: {
-    backgroundColor: "#F0F7FF",
-    paddingHorizontal: 10,
+  profileHeaderBtn: {
+    backgroundColor: "#EEF2FF",
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E0E7FF",
+    borderColor: "#C7D2FE",
   },
-  headerBtnText: {
-    color: "#3B82F6",
+  profileHeaderText: {
+    color: "#4338CA",
     fontWeight: "700",
     fontSize: 12,
   },
   logoutBtn: {
-    backgroundColor: "#FEF2F2",
+    backgroundColor: "#FFF1F2",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FFE4E6",
   },
   logoutText: {
-    color: "#EF4444",
+    color: "#E11D48",
     fontWeight: "700",
     fontSize: 12,
   },
   welcomeSection: {
     alignItems: "center",
-    marginBottom: 32,
-    backgroundColor: "#FFFFFF",
-    padding: 24,
-    borderRadius: 24,
+    marginBottom: 24,
+    backgroundColor: "#EEF2FF",
+    paddingVertical: 30,
+    paddingHorizontal: 20,
+    borderRadius: 32,
     borderWidth: 1,
-    borderColor: "#F1F5F9",
+    borderColor: "#C7D2FE",
+    shadowColor: "#4F46E5",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 20,
+    elevation: 3,
   },
   iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#EFF6FF",
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E0E7FF",
+    shadowColor: "#4F46E5",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
   },
   greeting: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "800",
-    color: "#0F172A",
+    color: "#1E293B",
     textAlign: "center",
+    lineHeight: 28,
   },
   unitInfo: {
-    fontSize: 14,
-    color: "#64748B",
-    marginTop: 4,
-    fontWeight: "600",
+    fontSize: 13,
+    color: "#4338CA",
+    marginTop: 8,
+    fontWeight: "800",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#C7D2FE",
   },
   statsContainer: {
     flexDirection: "row",
     gap: 16,
-    marginBottom: 32,
+    marginBottom: 24,
   },
   statCard: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-    padding: 20,
+    backgroundColor: "#E0F2FE",
+    padding: 16,
     borderRadius: 20,
     alignItems: "center",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 4 },
+    shadowColor: "#0EA5E9",
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 12,
+    shadowRadius: 10,
     elevation: 2,
     borderWidth: 1,
-    borderColor: "#F1F5F9",
+    borderColor: "#BAE6FD",
   },
   statValue: {
     fontSize: 24,
-    fontWeight: "800",
-    color: "#3B82F6",
+    fontWeight: "900",
+    color: "#0369A1",
   },
   statLabel: {
-    fontSize: 12,
-    color: "#64748B",
-    fontWeight: "600",
-    marginTop: 4,
+    fontSize: 11,
+    color: "#075985",
+    fontWeight: "800",
+    marginTop: 2,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 1,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "800",
-    color: "#0F172A",
+    color: "#1E293B",
     marginBottom: 16,
     marginLeft: 4,
+    borderLeftWidth: 4,
+    borderLeftColor: "#6366F1",
+    paddingLeft: 10,
   },
   actionsGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 16,
-    marginBottom: 32,
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 24,
   },
   profileBanner: {
     backgroundColor: "#FFFBEB",
@@ -325,7 +346,11 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: "#FEF3C7",
+    borderColor: "#FCD34D",
+    shadowColor: "#F59E0B",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
   },
   bannerContent: {
     flexDirection: "row",
@@ -336,62 +361,71 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   bannerTitle: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "800",
     color: "#92400E",
   },
   bannerSub: {
     fontSize: 12,
     color: "#B45309",
     marginTop: 2,
+    fontWeight: "600",
   },
   actionCard: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    padding: 20,
+    padding: 16,
     borderRadius: 24,
     borderWidth: 1,
     borderColor: "#F1F5F9",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.06,
     shadowRadius: 12,
-    elevation: 2,
+    elevation: 3,
   },
   actionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   actionLabel: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#0F172A",
-    marginBottom: 4,
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#1E293B",
+    marginBottom: 2,
   },
   actionSub: {
-    fontSize: 12,
-    color: "#94A3B8",
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "600",
   },
   infoBox: {
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F1F5F9",
     borderRadius: 20,
-    padding: 20,
+    padding: 16,
     borderWidth: 1,
     borderColor: "#E2E8F0",
+    marginTop: 8,
   },
   infoTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "800",
     color: "#475569",
-    marginBottom: 10,
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   infoText: {
-    fontSize: 13,
+    fontSize: 12,
     color: "#64748B",
-    lineHeight: 20,
+    lineHeight: 18,
+    fontWeight: "600",
   },
 });
