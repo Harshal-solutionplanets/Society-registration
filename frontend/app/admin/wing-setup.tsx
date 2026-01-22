@@ -29,6 +29,7 @@ interface FloorData {
   floorNumber: number;
   flatCount: number;
   driveFolderId?: string;
+  floorName?: string;
 }
 
 export default function WingSetup() {
@@ -50,6 +51,7 @@ export default function WingSetup() {
 
   const [selectedFloor, setSelectedFloor] = useState<number | null>(null);
   const [flatInput, setFlatInput] = useState("");
+  const [floorNameInput, setFloorNameInput] = useState("");
   const [modalVisible, setModalVisible] = useState(false);
 
   useEffect(() => {
@@ -107,6 +109,7 @@ export default function WingSetup() {
       newFloors.push({
         floorNumber: i,
         flatCount: 0,
+        floorName: i === 0 ? "Ground Floor" : `Floor ${i}`,
       });
     }
     setFloors(newFloors);
@@ -123,9 +126,10 @@ export default function WingSetup() {
     const maxFloor =
       floors.length > 0 ? Math.max(...floors.map((f) => f.floorNumber)) : -1;
     const newFloorNumber = maxFloor + 1;
+    const newFloorName = `Floor ${newFloorNumber}`;
 
     setFloors((prev) => [
-      { floorNumber: newFloorNumber, flatCount: 0 },
+      { floorNumber: newFloorNumber, flatCount: 0, floorName: newFloorName },
       ...prev,
     ]);
     setFloorCount((floors.length + 1).toString());
@@ -133,7 +137,7 @@ export default function WingSetup() {
     Toast.show({
       type: "success",
       text1: "Floor Added",
-      text2: `Floor ${newFloorNumber} added to the structure.`,
+      text2: `${newFloorName} added to the structure.`,
     });
   };
 
@@ -184,6 +188,10 @@ export default function WingSetup() {
     const floor = floors.find((f) => f.floorNumber === floorNumber);
     setSelectedFloor(floorNumber);
     setFlatInput(floor?.flatCount.toString() || "0");
+    setFloorNameInput(
+      floor?.floorName ||
+        (floorNumber === 0 ? "Ground Floor" : `Floor ${floorNumber}`),
+    );
     setModalVisible(true);
   };
 
@@ -191,9 +199,38 @@ export default function WingSetup() {
     if (selectedFloor === null) return;
     const numFlats = parseInt(flatInput) || 0;
     const allFloorsEmpty = floors.every((f) => f.flatCount === 0);
+    const trimmedName = floorNameInput.trim();
+
+    // Validate unique floor name
+    const isDuplicate = floors.some(
+      (f) =>
+        f.floorNumber !== selectedFloor &&
+        (f.floorName ||
+          (f.floorNumber === 0 ? "Ground Floor" : `Floor ${f.floorNumber}`)) ===
+          trimmedName,
+    );
+
+    if (isDuplicate) {
+      Toast.show({
+        type: "error",
+        text1: "Duplicate Name",
+        text2:
+          "Another floor already has this name. Please choose a unique name.",
+      });
+      return;
+    }
 
     if (isInitialFlatSetup && allFloorsEmpty) {
-      setFloors((prev) => prev.map((f) => ({ ...f, flatCount: numFlats })));
+      setFloors((prev) =>
+        prev.map((f) => ({
+          ...f,
+          flatCount: numFlats,
+          floorName:
+            f.floorNumber === selectedFloor
+              ? trimmedName || f.floorName
+              : f.floorName,
+        })),
+      );
       setIsInitialFlatSetup(false);
       Toast.show({
         type: "success",
@@ -203,17 +240,35 @@ export default function WingSetup() {
     } else {
       setFloors((prev) =>
         prev.map((f) =>
-          f.floorNumber === selectedFloor ? { ...f, flatCount: numFlats } : f,
+          f.floorNumber === selectedFloor
+            ? { ...f, flatCount: numFlats, floorName: trimmedName }
+            : f,
         ),
       );
       Toast.show({
         type: "success",
         text1: "Floor Updated",
-        text2: `Floor ${selectedFloor} set to ${numFlats} flats`,
+        text2: `${trimmedName || `Floor ${selectedFloor}`} set to ${numFlats} flats`,
       });
     }
     setModalVisible(false);
     setSelectedFloor(null);
+  };
+
+  const moveFloor = (index: number, direction: "up" | "down") => {
+    if (direction === "up" && index === 0) return;
+    if (direction === "down" && index === floors.length - 1) return;
+
+    const newFloors = [...floors];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+
+    // Swap elements
+    [newFloors[index], newFloors[targetIndex]] = [
+      newFloors[targetIndex],
+      newFloors[index],
+    ];
+
+    setFloors(newFloors);
   };
 
   const createDriveFolder = async (
@@ -313,9 +368,10 @@ export default function WingSetup() {
       for (let i = 0; i < updatedFloors.length; i++) {
         const floor = updatedFloors[i];
         const floorName =
-          floor.floorNumber === 0
+          floor.floorName ||
+          (floor.floorNumber === 0
             ? "Ground Floor"
-            : `Floor ${floor.floorNumber}`;
+            : `Floor ${floor.floorNumber}`);
 
         let floorFolderId = floor.driveFolderId;
         if (!floorFolderId) {
@@ -523,7 +579,7 @@ export default function WingSetup() {
 
             <View style={styles.buildingContainer}>
               <View style={styles.roof} />
-              {floors.map((floor) => (
+              {floors.map((floor, index) => (
                 <View
                   key={floor.floorNumber}
                   style={[
@@ -531,14 +587,46 @@ export default function WingSetup() {
                     floor.flatCount > 0 && styles.floorBlockConfigured,
                   ]}
                 >
+                  <View style={styles.moveActions}>
+                    <TouchableOpacity
+                      onPress={() => moveFloor(index, "up")}
+                      disabled={index === 0}
+                      style={[
+                        styles.moveBtn,
+                        index === 0 && styles.disabledMoveBtn,
+                      ]}
+                    >
+                      <Ionicons
+                        name="chevron-up"
+                        size={20}
+                        color={index === 0 ? "#CCC" : "#666"}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => moveFloor(index, "down")}
+                      disabled={index === floors.length - 1}
+                      style={[
+                        styles.moveBtn,
+                        index === floors.length - 1 && styles.disabledMoveBtn,
+                      ]}
+                    >
+                      <Ionicons
+                        name="chevron-down"
+                        size={20}
+                        color={index === floors.length - 1 ? "#CCC" : "#666"}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
                   <TouchableOpacity
                     style={styles.floorMainArea}
                     onPress={() => openFloorModal(floor.floorNumber)}
                   >
                     <Text style={styles.floorNumberText}>
-                      {floor.floorNumber === 0
-                        ? "Ground Floor"
-                        : `Floor ${floor.floorNumber}`}
+                      {floor.floorName ||
+                        (floor.floorNumber === 0
+                          ? "Ground Floor"
+                          : `Floor ${floor.floorNumber}`)}
                     </Text>
                     <View style={styles.flatTag}>
                       <Text style={styles.flatTagText}>
@@ -611,6 +699,15 @@ export default function WingSetup() {
             <Text style={styles.modalTitle}>
               {selectedFloor === 0 ? "Ground Floor" : `Floor ${selectedFloor}`}
             </Text>
+
+            <Text style={styles.label}>Floor Name (Optional)</Text>
+            <TextInput
+              style={[styles.modalInput, { marginBottom: 16 }]}
+              value={floorNameInput}
+              onChangeText={setFloorNameInput}
+              placeholder="e.g. Gym Floor"
+            />
+
             <Text style={styles.modalSubtitle}>
               How many flats on this floor?
             </Text>
@@ -619,7 +716,6 @@ export default function WingSetup() {
               value={flatInput}
               onChangeText={setFlatInput}
               keyboardType="numeric"
-              autoFocus
               selectTextOnFocus
             />
             <View style={styles.modalButtons}>
@@ -770,6 +866,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginHorizontal: 10,
+  },
+  moveActions: {
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 4,
+    marginRight: 5,
+  },
+  moveBtn: {
+    padding: 2,
+    backgroundColor: "#F8F9FA",
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#DEE2E6",
+  },
+  disabledMoveBtn: {
+    backgroundColor: "#F1F3F5",
+    borderColor: "#E9ECEF",
   },
   floorNumberText: {
     fontSize: 16,

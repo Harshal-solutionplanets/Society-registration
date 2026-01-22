@@ -158,9 +158,54 @@ export default function AdminDashboard() {
     if (!user || !societyData) return;
     try {
       const societyPath = `artifacts/${appId}/public/data/societies`;
+
+      // 1. Find all residents that belong to this wing and delete them
+      const residentsRef = collection(
+        db,
+        `${societyPath}/${user.uid}/Residents`,
+      );
+      const residentsSnapshot = await getDocs(residentsRef);
+
+      const deletePromises: Promise<void>[] = [];
+
+      residentsSnapshot.forEach((residentDoc) => {
+        const data = residentDoc.data();
+        // Check if this resident belongs to the wing being deleted
+        if (data.wingId === wingId) {
+          deletePromises.push(deleteDoc(residentDoc.ref));
+        }
+      });
+
+      // 2. Delete all floor/unit documents under this wing
       const wingDocRef = doc(db, `${societyPath}/${user.uid}/wings`, wingId);
+      const wingDoc = await getDoc(wingDocRef);
+
+      if (wingDoc.exists()) {
+        const wingData = wingDoc.data();
+        const floors = wingData.floors || [];
+
+        // Delete all unit documents from each floor
+        for (const floor of floors) {
+          const floorNumber = floor.floorNumber;
+          const floorUnitsRef = collection(
+            db,
+            `${societyPath}/${user.uid}/wings/${wingId}/${floorNumber}`,
+          );
+          const unitsSnapshot = await getDocs(floorUnitsRef);
+
+          unitsSnapshot.forEach((unitDoc) => {
+            deletePromises.push(deleteDoc(unitDoc.ref));
+          });
+        }
+      }
+
+      // Wait for all resident and unit deletions
+      await Promise.all(deletePromises);
+
+      // 3. Delete the wing document itself
       await deleteDoc(wingDocRef);
 
+      // 4. Update wing count
       const newWingCount = Math.max(0, (societyData.wingCount || 0) - 1);
       await updateDoc(doc(db, societyPath, user.uid), {
         wingCount: newWingCount,

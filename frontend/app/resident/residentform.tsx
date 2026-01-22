@@ -5,16 +5,16 @@ import { useRouter } from "expo-router";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -123,7 +123,17 @@ export default function ResidentForm() {
 
     setIsSubmitting(true);
     try {
-      const residentPath = `artifacts/${appId}/public/data/societies/${sessionData.adminUID}/Residents/${sessionData.id}`;
+      // Build paths for both locations
+      const adminUID = sessionData.adminUID;
+      const unitId = sessionData.id;
+      const wingId = sessionData.wingId;
+      const floorNumber = sessionData.floorNumber;
+
+      // Path 1: Residents collection (for authentication)
+      const residentPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}`;
+
+      // Path 2: Wings hierarchy (for admin floor.tsx view)
+      const wingsPath = `artifacts/${appId}/public/data/societies/${adminUID}/wings/${wingId}/${floorNumber}/${unitId}`;
 
       const updateData = {
         ...formData,
@@ -131,10 +141,11 @@ export default function ResidentForm() {
         updatedAt: new Date().toISOString(),
       };
 
-      // 1. Save to Firestore
+      // Save to BOTH Firestore locations
       await setDoc(doc(db, residentPath), updateData, { merge: true });
+      await setDoc(doc(db, wingsPath), updateData, { merge: true });
 
-      // 2. Update local session
+      // Update local session
       const newSession = { ...sessionData, ...updateData };
       await AsyncStorage.setItem(
         "resident_session",

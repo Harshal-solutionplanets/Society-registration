@@ -24,7 +24,9 @@ interface FlatData {
   residenceType: string;
   residentName: string;
   residentMobile: string;
+  alternateMobile?: string;
   status: "VACANT" | "OCCUPIED";
+  ownership?: "SELF_OWNED" | "RENTAL";
   familyMembers: string;
   staffMembers: string;
   username?: string;
@@ -62,7 +64,9 @@ export default function FloorDetail() {
         residenceType: "Residence",
         residentName: "",
         residentMobile: "",
+        alternateMobile: "",
         status: "VACANT",
+        ownership: "SELF_OWNED",
         familyMembers: "",
         staffMembers: "",
       });
@@ -171,7 +175,9 @@ export default function FloorDetail() {
               residenceType: dbFlat.residenceType || flat.residenceType,
               residentName: dbFlat.residentName || "",
               residentMobile: dbFlat.residentMobile || "",
+              alternateMobile: dbFlat.alternateMobile || "",
               status: dbFlat.residenceStatus || dbFlat.status || "VACANT",
+              ownership: dbFlat.ownership || "SELF_OWNED",
               familyMembers: dbFlat.familyMembers?.toString() || "",
               staffMembers: dbFlat.staffMembers?.toString() || "",
               hasCredentials: !!(dbFlat.username || dbFlat.residentUsername),
@@ -492,6 +498,22 @@ export default function FloorDetail() {
                       👮 {flat.staffMembers} staff
                     </Text>
                   ) : null}
+                  {flat.ownership && (
+                    <View
+                      style={[
+                        styles.ownershipBadge,
+                        flat.ownership === "RENTAL"
+                          ? styles.rentalBadge
+                          : styles.selfOwnedBadge,
+                      ]}
+                    >
+                      <Text style={styles.ownershipText}>
+                        {flat.ownership === "RENTAL"
+                          ? "🏠 Rental"
+                          : "🔑 Self Owned"}
+                      </Text>
+                    </View>
+                  )}
                 </View>
 
                 {flat.hasCredentials ? (
@@ -1183,5 +1205,27 @@ const styles = StyleSheet.create({
   },
   statusToggleTextActive: {
     color: "#fff",
+  },
+  ownershipBadge: {
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignSelf: "flex-start",
+  },
+  rentalBadge: {
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+  },
+  selfOwnedBadge: {
+    backgroundColor: "#DBEAFE",
+    borderWidth: 1,
+    borderColor: "#3B82F6",
+  },
+  ownershipText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#374151",
   },
 });
