@@ -1,20 +1,20 @@
-import { appId, db } from '@/configs/firebaseConfig';
-import { useAuth } from '@/hooks/useAuth';
-import { useRouter } from 'expo-router';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import { appId, db } from "@/configs/firebaseConfig";
+import { useAuth } from "@/hooks/useAuth";
+import { useRouter } from "expo-router";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import React, { useEffect, useState } from "react";
 import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
-} from 'react-native';
-import Toast from 'react-native-toast-message';
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import Toast from "react-native-toast-message";
 
 export default function AdminSetup() {
   const router = useRouter();
@@ -23,14 +23,14 @@ export default function AdminSetup() {
   const [loading, setLoading] = useState(true);
   const [isEditMode, setIsEditMode] = useState(false);
   const [formData, setFormData] = useState({
-    societyName: '',
-    societyAddress: '',
-    registrationNo: '',
-    pincode: '',
-    googleLocation: '',
-    wingCount: '',
-    adminName: '',
-    adminContact: ''
+    societyName: "",
+    societyAddress: "",
+    registrationNo: "",
+    pincode: "",
+    googleLocation: "",
+    wingCount: "",
+    adminName: "",
+    adminContact: "",
   });
 
   const [societyRef, setSocietyRef] = useState<any>(null);
@@ -44,18 +44,20 @@ export default function AdminSetup() {
   const fetchSocietyData = async () => {
     if (!user) return;
     try {
-      const societyDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/societies`, user.uid));
+      const societyDoc = await getDoc(
+        doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+      );
       if (societyDoc.exists()) {
         const data = societyDoc.data();
         setFormData({
-          societyName: data.societyName || '',
-          societyAddress: data.societyAddress || '',
-          registrationNo: data.registrationNo || '',
-          pincode: data.pincode || '',
-          googleLocation: data.googleLocation || '',
-          wingCount: data.wingCount?.toString() || '',
-          adminName: data.adminName || '',
-          adminContact: data.adminContact || ''
+          societyName: data.societyName || "",
+          societyAddress: data.societyAddress || "",
+          registrationNo: data.registrationNo || "",
+          pincode: data.pincode || "",
+          googleLocation: data.googleLocation || "",
+          wingCount: data.wingCount?.toString() || "",
+          adminName: data.adminName || "",
+          adminContact: data.adminContact || "",
         });
         setIsEditMode(true);
       }
@@ -68,11 +70,11 @@ export default function AdminSetup() {
 
   const handleBackToLogin = async () => {
     await signOut();
-    router.replace('/admin/auth');
+    router.replace("/admin/auth");
   };
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleSetup = async () => {
@@ -81,28 +83,31 @@ export default function AdminSetup() {
     // Validation for essential fields
     if (!societyName || !wingCount || !pincode || !adminName) {
       Toast.show({
-        type: 'error',
-        text1: 'Required Fields',
-        text2: 'Please fill in all essential fields.'
+        type: "error",
+        text1: "Required Fields",
+        text2: "Please fill in all essential fields.",
       });
       return;
     }
 
     if (!user || !user.email) {
       Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'User authentication failed. Please log in again.'
+        type: "error",
+        text1: "Error",
+        text2: "User authentication failed. Please log in again.",
       });
       return;
     }
 
-    const token = typeof window !== 'undefined' ? sessionStorage.getItem('driveToken') : null;
+    const token =
+      typeof window !== "undefined"
+        ? sessionStorage.getItem("driveToken")
+        : null;
     if (!token) {
       Toast.show({
-        type: 'error',
-        text1: 'Session Expired',
-        text2: 'Please log in again to link Google Drive.'
+        type: "error",
+        text1: "Session Expired",
+        text2: "Please log in again to link Google Drive.",
       });
       return;
     }
@@ -113,21 +118,26 @@ export default function AdminSetup() {
 
       if (!isEditMode) {
         // 1. Create the physical folder in Google Drive only during initial setup
-        const driveResponse = await fetch('https://www.googleapis.com/drive/v3/files', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
+        const driveResponse = await fetch(
+          "https://www.googleapis.com/drive/v3/files",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              name: `${societyName.toUpperCase()}-DRIVE`,
+              mimeType: "application/vnd.google-apps.folder",
+            }),
           },
-          body: JSON.stringify({
-            name: `${societyName.toUpperCase()}-DRIVE`,
-            mimeType: 'application/vnd.google-apps.folder',
-          }),
-        });
+        );
 
         if (!driveResponse.ok) {
           const errorData = await driveResponse.json();
-          throw new Error(errorData.error?.message || "Failed to create Google Drive folder");
+          throw new Error(
+            errorData.error?.message || "Failed to create Google Drive folder",
+          );
         }
 
         const driveData = await driveResponse.json();
@@ -146,24 +156,31 @@ export default function AdminSetup() {
       if (!isEditMode) {
         updateData.driveEmail = user.email;
         updateData.driveFolderId = realFolderId;
-        updateData.role = 'ADMIN';
+        updateData.driveAccessToken = token; // Store Drive token for persistence
+        updateData.role = "ADMIN";
         updateData.createdAt = new Date().toISOString();
       }
 
-      await setDoc(doc(db, `artifacts/${appId}/public/data/societies`, user.uid), updateData, { merge: true });
+      await setDoc(
+        doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+        updateData,
+        { merge: true },
+      );
 
       Toast.show({
-        type: 'success',
-        text1: isEditMode ? 'Update Successful' : 'Setup Successful',
-        text2: isEditMode ? 'Profile updated!' : 'Society and Drive folder created!'
+        type: "success",
+        text1: isEditMode ? "Update Successful" : "Setup Successful",
+        text2: isEditMode
+          ? "Profile updated!"
+          : "Society and Drive folder created!",
       });
-      router.replace('/admin/dashboard');
+      router.replace("/admin/dashboard");
     } catch (error: any) {
       console.error("Setup error:", error);
       Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: error.message || 'Could not save society data.'
+        type: "error",
+        text1: "Error",
+        text2: error.message || "Could not save society data.",
       });
     } finally {
       setIsSubmitting(false);
@@ -172,17 +189,22 @@ export default function AdminSetup() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={styles.mainContainer}
     >
       <StatusBar barStyle="dark-content" />
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.headerContainer}>
-          <Text style={styles.title}>{isEditMode ? 'Society Profile' : 'Society Setup'}</Text>
+          <Text style={styles.title}>
+            {isEditMode ? "Society Profile" : "Society Setup"}
+          </Text>
           <Text style={styles.description}>
             {isEditMode
-              ? 'Update your society details and administration information.'
-              : 'Register your society to start managing staff documentation.'}
+              ? "Update your society details and administration information."
+              : "Register your society to start managing staff documentation."}
           </Text>
         </View>
 
@@ -196,7 +218,7 @@ export default function AdminSetup() {
               placeholder="e.g. Blue Ridge Society"
               placeholderTextColor="#94A3B8"
               value={formData.societyName}
-              onChangeText={(val) => handleInputChange('societyName', val)}
+              onChangeText={(val) => handleInputChange("societyName", val)}
             />
           </View>
 
@@ -207,7 +229,7 @@ export default function AdminSetup() {
               placeholder="e.g. 123 Street, Pune, India"
               placeholderTextColor="#94A3B8"
               value={formData.societyAddress}
-              onChangeText={(val) => handleInputChange('societyAddress', val)}
+              onChangeText={(val) => handleInputChange("societyAddress", val)}
               multiline
             />
           </View>
@@ -220,7 +242,7 @@ export default function AdminSetup() {
                 placeholder="411057"
                 placeholderTextColor="#94A3B8"
                 value={formData.pincode}
-                onChangeText={(val) => handleInputChange('pincode', val)}
+                onChangeText={(val) => handleInputChange("pincode", val)}
                 keyboardType="numeric"
               />
             </View>
@@ -231,7 +253,7 @@ export default function AdminSetup() {
                 placeholder="e.g. 3"
                 placeholderTextColor="#94A3B8"
                 value={formData.wingCount}
-                onChangeText={(val) => handleInputChange('wingCount', val)}
+                onChangeText={(val) => handleInputChange("wingCount", val)}
                 keyboardType="numeric"
                 editable={!isEditMode}
               />
@@ -245,7 +267,7 @@ export default function AdminSetup() {
               placeholder="e.g. SR/12345/2026"
               placeholderTextColor="#94A3B8"
               value={formData.registrationNo}
-              onChangeText={(val) => handleInputChange('registrationNo', val)}
+              onChangeText={(val) => handleInputChange("registrationNo", val)}
             />
           </View>
 
@@ -256,7 +278,7 @@ export default function AdminSetup() {
               placeholder="https://goo.gl/maps/..."
               placeholderTextColor="#94A3B8"
               value={formData.googleLocation}
-              onChangeText={(val) => handleInputChange('googleLocation', val)}
+              onChangeText={(val) => handleInputChange("googleLocation", val)}
             />
           </View>
 
@@ -271,7 +293,7 @@ export default function AdminSetup() {
               placeholder="e.g. Harshal Patil"
               placeholderTextColor="#94A3B8"
               value={formData.adminName}
-              onChangeText={(val) => handleInputChange('adminName', val)}
+              onChangeText={(val) => handleInputChange("adminName", val)}
             />
           </View>
 
@@ -282,18 +304,27 @@ export default function AdminSetup() {
               placeholder="e.g. 9876543210"
               placeholderTextColor="#94A3B8"
               value={formData.adminContact}
-              onChangeText={(val) => handleInputChange('adminContact', val)}
+              onChangeText={(val) => handleInputChange("adminContact", val)}
               keyboardType="phone-pad"
             />
           </View>
 
           <TouchableOpacity
-            style={[styles.primaryButton, isSubmitting && styles.buttonDisabled]}
+            style={[
+              styles.primaryButton,
+              isSubmitting && styles.buttonDisabled,
+            ]}
             onPress={handleSetup}
             disabled={isSubmitting}
           >
             <Text style={styles.buttonText}>
-              {isSubmitting ? (isEditMode ? 'Updating...' : 'Registering...') : (isEditMode ? 'Update Profile' : 'Complete Setup')}
+              {isSubmitting
+                ? isEditMode
+                  ? "Updating..."
+                  : "Registering..."
+                : isEditMode
+                  ? "Update Profile"
+                  : "Complete Setup"}
             </Text>
           </TouchableOpacity>
 
@@ -323,7 +354,7 @@ export default function AdminSetup() {
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: "#F1F5F9",
   },
   scrollContent: {
     flexGrow: 1,
@@ -333,38 +364,38 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     marginBottom: 32,
-    alignItems: 'center',
+    alignItems: "center",
   },
   title: {
     fontSize: 32,
-    fontWeight: '800',
-    color: '#0F172A',
+    fontWeight: "800",
+    color: "#0F172A",
     marginBottom: 8,
     letterSpacing: -0.5,
   },
   description: {
     fontSize: 16,
-    color: '#64748B',
-    textAlign: 'center',
+    color: "#64748B",
+    textAlign: "center",
     lineHeight: 24,
     paddingHorizontal: 20,
   },
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 24,
-    shadowColor: '#0F172A',
+    shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.05,
     shadowRadius: 20,
     elevation: 5,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: "#E2E8F0",
   },
   sectionHeader: {
     fontSize: 12,
-    fontWeight: '800',
-    color: '#3B82F6',
+    fontWeight: "800",
+    color: "#3B82F6",
     letterSpacing: 1.5,
     marginBottom: 20,
     marginTop: 8,
@@ -374,30 +405,30 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#475569',
+    fontWeight: "600",
+    color: "#475569",
     marginBottom: 8,
     marginLeft: 4,
   },
   input: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: "#F8FAFC",
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    borderColor: "#E2E8F0",
     padding: 16,
     borderRadius: 12,
     fontSize: 16,
-    color: '#0F172A',
+    color: "#0F172A",
   },
   inputDisabled: {
-    backgroundColor: '#F1F5F9',
-    color: '#94A3B8',
+    backgroundColor: "#F1F5F9",
+    color: "#94A3B8",
   },
   textArea: {
     height: 100,
-    textAlignVertical: 'top',
+    textAlignVertical: "top",
   },
   row: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 16,
     marginBottom: 20,
   },
@@ -406,16 +437,16 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: "#F1F5F9",
     marginVertical: 24,
   },
   primaryButton: {
-    backgroundColor: '#0F172A',
+    backgroundColor: "#0F172A",
     padding: 20,
     borderRadius: 16,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 12,
-    shadowColor: '#0F172A',
+    shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
@@ -425,19 +456,19 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   buttonText: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   backButton: {
     marginTop: 20,
     padding: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   backButtonText: {
-    color: '#64748B',
+    color: "#64748B",
     fontSize: 15,
-    fontWeight: '600',
-    textDecorationLine: 'underline',
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
 });

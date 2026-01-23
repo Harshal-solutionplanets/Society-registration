@@ -2,24 +2,24 @@ import { appId, auth, db } from "@/configs/firebaseConfig";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
-  createUserWithEmailAndPassword,
-  GoogleAuthProvider,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signOut,
+    createUserWithEmailAndPassword,
+    GoogleAuthProvider,
+    signInWithEmailAndPassword,
+    signInWithPopup,
+    signOut,
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useState } from "react";
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -76,6 +76,15 @@ export default function AdminAuth() {
           });
           setIsLogin(false); // Move them to Register tab automatically
           return;
+        }
+
+        // 3. RESTORE DRIVE TOKEN (if previously stored in Firestore)
+        const societyData = societyDoc.data();
+        if (societyData?.driveAccessToken && typeof window !== "undefined") {
+          sessionStorage.setItem("driveToken", societyData.driveAccessToken);
+          console.log("DEBUG: Drive token restored from Firestore");
+        } else {
+          console.warn("DEBUG: No stored Drive token found for this admin");
         }
       } else {
         // REGISTRATION FLOW - Email already validated above
