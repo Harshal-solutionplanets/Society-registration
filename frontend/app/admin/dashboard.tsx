@@ -1,28 +1,28 @@
-import { appId, db } from '@/configs/firebaseConfig';
-import { useAuth } from '@/hooks/useAuth';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { appId, db } from "@/configs/firebaseConfig";
+import { useAuth } from "@/hooks/useAuth";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-  updateDoc,
-  deleteDoc
-} from 'firebase/firestore';
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    setDoc,
+    updateDoc,
+} from "firebase/firestore";
+import * as React from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  GestureResponderEvent,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
-} from 'react-native';
-import * as React from 'react';
+    ActivityIndicator,
+    Alert,
+    GestureResponderEvent,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 interface Wing {
   id: string;
@@ -67,7 +67,7 @@ export default function AdminDashboard() {
         const wingsSnapshot = await getDocs(wingsRef);
         let fetchedWings = wingsSnapshot.docs.map((doc) => ({
           id: doc.id,
-          ...doc.data()
+          ...doc.data(),
         })) as Wing[];
 
         // Migration: If wingCount > fetchedWings.length, create missing docs
@@ -109,11 +109,11 @@ export default function AdminDashboard() {
         }
         setWings(fetchedWings);
       } else {
-        router.replace('/admin/setup');
+        router.replace("/admin/setup");
       }
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'Failed to fetch data');
+      Alert.alert("Error", "Failed to fetch data");
     } finally {
       setLoading(false);
     }
@@ -124,10 +124,37 @@ export default function AdminDashboard() {
       if (!authLoading && user) {
         fetchData();
       } else if (!authLoading && !user) {
-        router.replace('/admin/auth');
+        router.replace("/admin/auth");
       }
-    }, [user, authLoading, fetchData])
+    }, [user, authLoading, fetchData]),
   );
+
+  const handleLinkDrive = async () => {
+    if (!user) return;
+    try {
+      const backendUrl =
+        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const res = await fetch(
+        `${backendUrl}/api/auth/google/url?adminUID=${user.uid}&appId=${appId}`,
+      );
+      const { url } = await res.json();
+      if (url) {
+        // Open the Google Auth URL in a new window/tab
+        if (Platform.OS === "web") {
+          window.open(url, "_blank", "width=600,height=700");
+        } else {
+          // For mobile, you would use Linking or WebBrowser
+          Alert.alert(
+            "Notice",
+            "Drive Linking is currently supported on Web only.",
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Link Drive Error:", error);
+      Alert.alert("Error", "Could not connect to backend server.");
+    }
+  };
 
   const handleAddWing = async () => {
     if (!user || !societyData) return;
@@ -154,14 +181,14 @@ export default function AdminDashboard() {
 
       const newWingCount = (societyData.wingCount || 0) + 1;
       await updateDoc(doc(db, societyPath, user.uid), {
-        wingCount: newWingCount
+        wingCount: newWingCount,
       });
 
       setSocietyData({ ...societyData, wingCount: newWingCount });
       fetchData();
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'Failed to add wing');
+      Alert.alert("Error", "Failed to add wing");
     }
   };
 
@@ -256,7 +283,7 @@ export default function AdminDashboard() {
 
   const handleWingPress = (wing: Wing) => {
     router.push({
-      pathname: '/admin/wing-setup',
+      pathname: "/admin/wing-setup",
       params: {
         wingIndex: wing.wingIndex ?? 0,
         wingId: wing.id,
@@ -279,35 +306,53 @@ export default function AdminDashboard() {
   );
 
   const totalCalculatedUnits = wings.reduce((total, wing) => {
-    const wingFlats = wing.floors?.reduce((sum, floor) => sum + (floor.flatCount || 0), 0) || 0;
+    const wingFlats =
+      wing.floors?.reduce((sum, floor) => sum + (floor.flatCount || 0), 0) || 0;
     return total + wingFlats;
   }, 0);
 
   return (
     <View style={styles.mainContainer}>
       <StatusBar barStyle="dark-content" />
-      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.headerCard}>
           <View style={styles.headerLeft}>
-            <Text style={styles.societyName}>{societyData?.societyName || 'Admin Hub'}</Text>
+            <Text style={styles.societyName}>
+              {societyData?.societyName || "Admin Hub"}
+            </Text>
             <Text style={styles.welcomeText}>Welcome Admin</Text>
           </View>
           <View style={styles.headerRight}>
             <TouchableOpacity
+              style={[
+                styles.headerBtn,
+                { backgroundColor: "#F0FDF4", borderColor: "#22C55E" },
+              ]}
+              onPress={handleLinkDrive}
+            >
+              <Text style={[styles.headerBtnText, { color: "#166534" }]}>
+                Link Drive
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               style={styles.headerBtn}
-              onPress={() => router.push('/admin/setup')}
+              onPress={() => router.push("/admin/setup")}
             >
               <Text style={styles.headerBtnText}>Profile</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.headerBtn}
-              onPress={() => router.push('/admin/committee-members')}
+              onPress={() => router.push("/admin/committee-members")}
             >
               <Text style={styles.headerBtnText}>Committee</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.headerBtn}
-              onPress={() => router.push('/admin/society-staff')}
+              onPress={() => router.push("/admin/society-staff")}
             >
               <Text style={styles.headerBtnText}>Staff</Text>
             </TouchableOpacity>
@@ -358,12 +403,30 @@ export default function AdminDashboard() {
                 />
                 <View style={styles.wingCardContent}>
                   <View style={styles.windowGrid}>
-                    <View style={styles.windowRow}><View style={styles.window} /><View style={styles.window} /></View>
-                    <View style={styles.windowRow}><View style={styles.window} /><View style={styles.window} /></View>
-                    <View style={styles.windowRow}><View style={styles.window} /><View style={styles.window} /></View>
-                    <View style={styles.windowRow}><View style={styles.window} /><View style={styles.window} /></View>
-                    <View style={styles.windowRow}><View style={styles.window} /><View style={styles.window} /></View>
-                    <View style={styles.windowRow}><View style={styles.window} /><View style={styles.window} /></View>
+                    <View style={styles.windowRow}>
+                      <View style={styles.window} />
+                      <View style={styles.window} />
+                    </View>
+                    <View style={styles.windowRow}>
+                      <View style={styles.window} />
+                      <View style={styles.window} />
+                    </View>
+                    <View style={styles.windowRow}>
+                      <View style={styles.window} />
+                      <View style={styles.window} />
+                    </View>
+                    <View style={styles.windowRow}>
+                      <View style={styles.window} />
+                      <View style={styles.window} />
+                    </View>
+                    <View style={styles.windowRow}>
+                      <View style={styles.window} />
+                      <View style={styles.window} />
+                    </View>
+                    <View style={styles.windowRow}>
+                      <View style={styles.window} />
+                      <View style={styles.window} />
+                    </View>
                   </View>
                   <Text
                     style={[
@@ -420,9 +483,9 @@ export default function AdminDashboard() {
         <View style={styles.infoBox}>
           <Text style={styles.infoTitle}>Quick Guide</Text>
           <Text style={styles.infoText}>
-            • Click on a wing to set up its floors and flats.{"\n"}
-            • Once configured, you can manage individual floor details.{"\n"}
-            • Use the Committee button to manage society members.
+            • Click on a wing to set up its floors and flats.{"\n"}• Once
+            configured, you can manage individual floor details.{"\n"}• Use the
+            Committee button to manage society members.
           </Text>
         </View>
       </ScrollView>
@@ -433,7 +496,7 @@ export default function AdminDashboard() {
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: "#F8FAFC",
   },
   container: {
     flex: 1,
@@ -445,171 +508,171 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
   },
   headerCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    shadowColor: '#3B82F6',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 20,
     elevation: 5,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: "#E2E8F0",
   },
   headerLeft: {
     flex: 1,
   },
   headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   societyName: {
     fontSize: 22,
-    fontWeight: '900',
-    color: '#0F172A',
+    fontWeight: "900",
+    color: "#0F172A",
     letterSpacing: -0.5,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   welcomeText: {
     fontSize: 13,
-    color: '#64748B',
+    color: "#64748B",
     marginTop: 2,
   },
   headerBtn: {
-    backgroundColor: '#F0F7FF',
+    backgroundColor: "#F0F7FF",
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E0E7FF',
+    borderColor: "#E0E7FF",
   },
   headerBtnText: {
-    color: '#3B82F6',
-    fontWeight: '700',
+    color: "#3B82F6",
+    fontWeight: "700",
     fontSize: 12,
   },
   logoutBtn: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: "#FEF2F2",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
   },
   logoutText: {
-    color: '#EF4444',
-    fontWeight: '700',
+    color: "#EF4444",
+    fontWeight: "700",
     fontSize: 13,
   },
   statsContainer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 16,
     marginBottom: 24,
   },
   statCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     padding: 20,
     borderRadius: 20,
-    alignItems: 'center',
-    shadowColor: '#0F172A',
+    alignItems: "center",
+    shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 12,
     elevation: 2,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: "#F1F5F9",
   },
   statValue: {
     fontSize: 24,
-    fontWeight: '800',
-    color: '#3B82F6',
+    fontWeight: "800",
+    color: "#3B82F6",
   },
   statLabel: {
     fontSize: 12,
-    color: '#64748B',
-    fontWeight: '600',
+    color: "#64748B",
+    fontWeight: "600",
     marginTop: 4,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '800',
-    color: '#0F172A',
+    fontWeight: "800",
+    color: "#0F172A",
     marginBottom: 16,
     marginLeft: 4,
   },
   wingsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
     marginBottom: 24,
   },
   wingCard: {
-    width: '31.3%',
-    backgroundColor: '#FFFFFF',
+    width: "31.3%",
+    backgroundColor: "#FFFFFF",
     borderRadius: 10,
     padding: 10,
     paddingTop: 30,
     borderWidth: 2,
-    borderColor: '#E2E8F0',
+    borderColor: "#E2E8F0",
     minHeight: 200,
-    position: 'relative',
-    overflow: 'hidden',
-    shadowColor: '#64748B',
+    position: "relative",
+    overflow: "hidden",
+    shadowColor: "#64748B",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 15,
     elevation: 4,
   },
   wingCardConfigured: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#22C55E',
-    borderStyle: 'solid',
-    shadowColor: '#22C55E',
+    backgroundColor: "#F0FDF4",
+    borderColor: "#22C55E",
+    borderStyle: "solid",
+    shadowColor: "#22C55E",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 2,
   },
   wingCardPending: {
-    backgroundColor: '#EFF6FF',
-    borderColor: '#3B82F6',
-    borderStyle: 'dashed',
+    backgroundColor: "#EFF6FF",
+    borderColor: "#3B82F6",
+    borderStyle: "dashed",
   },
   wingCardContent: {
-    alignItems: 'center',
+    alignItems: "center",
   },
   wingLetter: {
     fontSize: 28,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   wingLetterConfigured: {
-    color: '#16A34A',
+    color: "#16A34A",
   },
   wingLetterPending: {
-    color: '#3B82F6',
+    color: "#3B82F6",
   },
   wingName: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: "800",
     marginTop: 4,
-    textAlign: 'center',
+    textAlign: "center",
   },
   wingNameConfigured: {
-    color: '#166534',
+    color: "#166534",
   },
   wingNamePending: {
-    color: '#1E40AF',
+    color: "#1E40AF",
   },
   badge: {
     marginTop: 12,
@@ -618,45 +681,45 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   badgeSuccess: {
-    backgroundColor: '#10B981',
+    backgroundColor: "#10B981",
   },
   badgeInfo: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: "#3B82F6",
   },
   badgeText: {
     fontSize: 10,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-    color: '#FFFFFF',
+    fontWeight: "900",
+    textTransform: "uppercase",
+    color: "#FFFFFF",
     letterSpacing: 0.5,
   },
   badgeTextSuccess: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
   },
   badgeTextInfo: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
   },
   infoBox: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: "#F8FAFC",
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: "#E2E8F0",
     marginTop: 8,
   },
   infoTitle: {
     fontSize: 15,
-    fontWeight: '800',
-    color: '#475569',
+    fontWeight: "800",
+    color: "#475569",
     marginBottom: 10,
   },
   infoText: {
     fontSize: 13,
-    color: '#64748B',
+    color: "#64748B",
     lineHeight: 20,
   },
   towerTop: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     left: 0,
     right: 0,
@@ -665,66 +728,66 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 10,
   },
   towerTopConfigured: {
-    backgroundColor: '#22C55E',
+    backgroundColor: "#22C55E",
   },
   towerTopPending: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: "#3B82F6",
   },
   windowGrid: {
-    position: 'absolute',
+    position: "absolute",
     top: 25,
-    alignSelf: 'center',
+    alignSelf: "center",
     gap: 8,
   },
   windowRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 6,
   },
   window: {
     width: 6,
     height: 6,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: "#E2E8F0",
     borderRadius: 1,
   },
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 16,
     paddingHorizontal: 4,
   },
   addWingBtn: {
-    backgroundColor: '#F0FDF4',
+    backgroundColor: "#F0FDF4",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#22C55E',
+    borderColor: "#22C55E",
   },
   addWingBtnText: {
-    color: '#166534',
+    color: "#166534",
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   deleteWingIcon: {
-    position: 'absolute',
+    position: "absolute",
     top: 5,
     right: 5,
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
     zIndex: 20,
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.2)',
+    borderColor: "rgba(239, 68, 68, 0.2)",
   },
   deleteWingIconText: {
-    color: '#EF4444',
+    color: "#EF4444",
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: "800",
     lineHeight: 20,
-    textAlign: 'center',
+    textAlign: "center",
   },
 });

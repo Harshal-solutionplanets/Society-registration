@@ -1,24 +1,24 @@
-import { db } from "@/configs/firebaseConfig";
+import { appId, db } from "@/configs/firebaseConfig";
 import { COLLECTIONS } from "@/constants/Config";
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import {
   collection,
+  deleteDoc,
+  doc,
   onSnapshot,
   orderBy,
   query,
-  doc,
   setDoc,
-  deleteDoc,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -28,7 +28,20 @@ import {
 } from "react-native";
 import Toast from "react-native-toast-message";
 
-const STAFF_TYPES = ["Maid", "Driver", "Cook", "Nanny", "Tutor", "Cleaner", "Security", "Other"];
+const STAFF_TYPES = [
+  "Maid",
+  "Housekeeper",
+  "Driver",
+  "Cook",
+  "Shop Staff",
+  "Nanny",
+  "Tutor",
+  "Cleaner",
+  "Employee",
+  "Office Staff",
+  "Security",
+  "Other",
+];
 
 export default function ResidentStaff() {
   const { user } = useAuth();
@@ -55,25 +68,138 @@ export default function ResidentStaff() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [otherStaffType, setOtherStaffType] = useState("");
+  const [sessionData, setSessionData] = useState<any>(null);
+
+  // Drive helpers
+  const findOrCreateFolder = async (
+    name: string,
+    parentId: string,
+    token: string,
+  ) => {
+    try {
+      const q = `mimeType='application/vnd.google-apps.folder' and name='${name}' and '${parentId}' in parents and trashed=false`;
+      const searchRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!searchRes.ok) throw new Error("Drive Search Failed");
+      const searchData = await searchRes.json();
+      if (searchData.files && searchData.files.length > 0)
+        return searchData.files[0].id;
+
+      const createRes = await fetch(
+        "https://www.googleapis.com/drive/v3/files",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name,
+            mimeType: "application/vnd.google-apps.folder",
+            parents: [parentId],
+          }),
+        },
+      );
+      if (!createRes.ok) throw new Error("Drive Create Failed");
+      const createData = await createRes.json();
+      return createData.id;
+    } catch (error) {
+      console.error("findOrCreateFolder error", error);
+      throw error;
+    }
+  };
+
+  const uploadImageToDrive = async (
+    base64String: string,
+    fileName: string,
+    parentFolderId: string,
+  ) => {
+    try {
+      const { adminUID } = sessionData;
+      const backendUrl =
+        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+
+      const res = await fetch(`${backendUrl}/api/drive/upload-resident-staff`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminUID,
+          parentFolderId,
+          staffName, // Used by backend to create/find subfolder
+          fileName,
+          base64Data: base64String,
+          appId,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Backend Upload Failed");
+      }
+
+      const data = await res.json();
+      return data.staffFolderId; // Return the folder ID for metadata storage
+    } catch (error) {
+      console.error("Backend Drive Upload Error:", error);
+      throw error;
+    }
+  };
+
+  // Note: deleteFileFromDrive is now partially handled by backend (overwriting),
+  // but if needed, we could add a backend delete endpoint. For now, we update.
 
   useEffect(() => {
-    if (!user) return;
+    const loadSession = async () => {
+      try {
+        const session = await AsyncStorage.getItem("resident_session");
+        if (session) {
+          setSessionData(JSON.parse(session));
+        }
+      } catch (err) {
+        console.warn("AsyncStorage load failed:", err);
+      }
+    };
+    loadSession();
+  }, []);
 
+  useEffect(() => {
+    if (!user || !sessionData) return;
+
+    // Fetch from the society location as requested
+    const { adminUID, id: unitId } = sessionData;
     const q = query(
-      collection(db, `users/${user.uid}/${COLLECTIONS.STAFF}`),
+      collection(
+        db,
+        `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers`,
+      ),
       orderBy("uploadedAt", "desc"),
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setStaffList(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setStaffList(
+          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+        );
+      },
+      (error) => {
+        console.warn(
+          "Error fetching society staff records (Check Firestore Rules):",
+          error,
+        );
+      },
+    );
 
     return unsubscribe;
-  }, [user]);
+  }, [user, sessionData]);
 
-  const pickImage = async (type: 'photo' | 'idCard' | 'addressProof') => {
+  const pickImage = async (type: "photo" | "idCard" | "addressProof") => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ["images"],
       allowsEditing: true,
       quality: 0.5,
       base64: true,
@@ -82,35 +208,90 @@ export default function ResidentStaff() {
     if (!result.canceled) {
       const asset = result.assets[0];
 
-      // 500KB size limit check (~682666 characters in base64)
-      if (asset.base64 && asset.base64.length > 682666) {
-        Alert.alert("Error", "File size too large. Maximum limit is 500KB.");
+      // 220KB size limit check (~300,000 characters in base64) to stay under 1MB Firestore total limit
+      if (asset.base64 && asset.base64.length > 300000) {
+        Alert.alert(
+          "Error",
+          "File size too large. Maximum limit is 220KB to ensure smooth sync.",
+        );
         return;
       }
 
       const base64Image = `data:image/jpeg;base64,${asset.base64}`;
-      if (type === 'photo') setPhoto(base64Image);
-      else if (type === 'idCard') setIdCard(base64Image);
-      else if (type === 'addressProof') setAddressProof(base64Image);
+      if (type === "photo") setPhoto(base64Image);
+      else if (type === "idCard") setIdCard(base64Image);
+      else if (type === "addressProof") setAddressProof(base64Image);
     }
   };
 
   const handleSubmit = async () => {
-    if (!staffName || !contact || !photo) {
-      Alert.alert("Error", "Please fill Name, Contact and upload a Photo.");
+    // Only Staff Name, Category, and Contact are mandatory
+    if (!staffName || !contact || (staffType === "Other" && !otherStaffType)) {
+      Toast.show({
+        type: "error",
+        text1: "Required Fields Missing",
+        text2: "Please fill Name, Category and Contact Number.",
+      });
       return;
     }
 
-    if (!user) return;
+    if (!user || !sessionData) return;
 
     setIsUploading(true);
     try {
+      const { adminUID, id: unitId, driveFolderId: flatFolderId } = sessionData;
       const staffId = editingId || `r_staff_${Date.now()}`;
       const finalStaffType = staffType === "Other" ? otherStaffType : staffType;
 
       if (staffType === "Other" && !otherStaffType) {
         Alert.alert("Error", "Please specify the staff category.");
+        setIsUploading(false);
         return;
+      }
+
+      // DRIVE STORAGE LOGIC (via Backend)
+      let staffFolderId = "";
+
+      if (flatFolderId) {
+        try {
+          // Upload photos to Drive via Backend
+          if (photo) {
+            staffFolderId = await uploadImageToDrive(
+              photo,
+              "Photo.jpg",
+              flatFolderId,
+            );
+          }
+          if (idCard) {
+            staffFolderId = await uploadImageToDrive(
+              idCard,
+              "ID_Card.jpg",
+              flatFolderId,
+            );
+          }
+          if (addressProof) {
+            staffFolderId = await uploadImageToDrive(
+              addressProof,
+              "Address_Proof.jpg",
+              flatFolderId,
+            );
+          }
+          console.log(
+            "DEBUG: Drive sync complete via backend. Folder:",
+            staffFolderId,
+          );
+        } catch (driveErr: any) {
+          console.warn("Drive sync failed:", driveErr.message);
+          // Don't block Firestore save if Drive fails, but notify user
+          Alert.alert(
+            "Sync Notice",
+            `Documents saved locally. Drive sync failed: ${driveErr.message}`,
+          );
+        }
+      } else {
+        console.warn(
+          "No Flat Folder ID present in session. Check admin configuration.",
+        );
       }
 
       const staffData = {
@@ -126,20 +307,29 @@ export default function ResidentStaff() {
         idCard: idCard || "",
         addressProof: addressProof || "",
         uploadedBy: user.uid,
+        adminUID,
+        unitId,
+        driveFolderId: staffFolderId,
         uploadedAt: new Date().toISOString(),
       };
 
-      const staffPath = `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`;
-      await setDoc(doc(db, staffPath), staffData);
+      // 1. Store in Society collection (Requested location)
+      const societyStaffPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${staffId}`;
+      await setDoc(doc(db, societyStaffPath), staffData, { merge: true });
+
+      // 2. Keep local copy for user (Optional, maintained for redundancy)
+      const localStaffPath = `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`;
+      await setDoc(doc(db, localStaffPath), staffData, { merge: true });
 
       Toast.show({
         type: "success",
         text1: editingId ? "Staff Updated" : "Staff Registered",
-        text2: `${staffName} has been saved.`,
+        text2: `${staffName} has been saved to society records.`,
       });
 
       resetForm();
     } catch (error: any) {
+      console.error("Submit Error:", error);
       Alert.alert("Error", error.message);
     } finally {
       setIsUploading(false);
@@ -164,7 +354,8 @@ export default function ResidentStaff() {
   const handleEdit = (staff: any) => {
     setEditingId(staff.id);
     setStaffName(staff.staffName);
-    const isOther = !STAFF_TYPES.includes(staff.staffType) && staff.staffType !== "Other";
+    const isOther =
+      !STAFF_TYPES.includes(staff.staffType) && staff.staffType !== "Other";
     setStaffType(isOther ? "Other" : staff.staffType);
     setOtherStaffType(isOther ? staff.staffType : "");
 
@@ -179,20 +370,37 @@ export default function ResidentStaff() {
   };
 
   const handleDelete = async (staffId: string) => {
-    if (!user) return;
-    Alert.alert("Delete Staff", "Are you sure you want to remove this staff member?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete", style: "destructive", onPress: async () => {
-          try {
-            await deleteDoc(doc(db, `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`));
-            Toast.show({ type: "info", text1: "Staff Removed" });
-          } catch (error: any) {
-            Alert.alert("Error", error.message);
-          }
-        }
-      }
-    ]);
+    if (!user || !sessionData) return;
+    Alert.alert(
+      "Delete Staff",
+      "Are you sure you want to remove this staff member?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { adminUID, id: unitId } = sessionData;
+              // Delete from society records
+              await deleteDoc(
+                doc(
+                  db,
+                  `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${staffId}`,
+                ),
+              );
+              // Delete from local records
+              await deleteDoc(
+                doc(db, `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`),
+              );
+              Toast.show({ type: "info", text1: "Staff Removed" });
+            } catch (error: any) {
+              Alert.alert("Error", error.message);
+            }
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -207,10 +415,12 @@ export default function ResidentStaff() {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.form}>
-          <Text style={styles.sectionTitle}>{editingId ? "Edit Staff Details" : "Register New Staff"}</Text>
+          <Text style={styles.sectionTitle}>
+            {editingId ? "Edit Staff Details" : "Register New Staff"}
+          </Text>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Staff Name</Text>
+            <Text style={styles.label}>Staff Name *</Text>
             <TextInput
               style={styles.input}
               placeholder="e.g. Maya Devi"
@@ -220,18 +430,25 @@ export default function ResidentStaff() {
           </View>
 
           <View style={[styles.inputGroup, { zIndex: 1000 }]}>
-            <Text style={styles.label}>Staff Category</Text>
+            <Text style={styles.label}>Staff Category *</Text>
             <TouchableOpacity
               style={styles.dropdownButton}
               onPress={() => setShowTypeDropdown(!showTypeDropdown)}
             >
               <Text style={styles.dropdownText}>{staffType}</Text>
-              <Ionicons name={showTypeDropdown ? "chevron-up" : "chevron-down"} size={20} color="#64748B" />
+              <Ionicons
+                name={showTypeDropdown ? "chevron-up" : "chevron-down"}
+                size={20}
+                color="#64748B"
+              />
             </TouchableOpacity>
 
             {showTypeDropdown && (
               <View style={styles.dropdownListContainer}>
-                <ScrollView style={styles.dropdownList} nestedScrollEnabled={true}>
+                <ScrollView
+                  style={styles.dropdownList}
+                  nestedScrollEnabled={true}
+                >
                   {STAFF_TYPES.map((item) => (
                     <TouchableOpacity
                       key={item}
@@ -241,10 +458,17 @@ export default function ResidentStaff() {
                         setShowTypeDropdown(false);
                       }}
                     >
-                      <Text style={[styles.dropdownItemText, staffType === item && styles.activeDropdownText]}>
+                      <Text
+                        style={[
+                          styles.dropdownItemText,
+                          staffType === item && styles.activeDropdownText,
+                        ]}
+                      >
                         {item}
                       </Text>
-                      {staffType === item && <Ionicons name="checkmark" size={18} color="#3B82F6" />}
+                      {staffType === item && (
+                        <Ionicons name="checkmark" size={18} color="#3B82F6" />
+                      )}
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
@@ -254,7 +478,7 @@ export default function ResidentStaff() {
 
           {staffType === "Other" && (
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Specify Category</Text>
+              <Text style={styles.label}>Specify Category *</Text>
               <TextInput
                 style={styles.input}
                 placeholder="e.g. Plumber, Carpenter"
@@ -275,7 +499,7 @@ export default function ResidentStaff() {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Contact Number</Text>
+            <Text style={styles.label}>Contact Number *</Text>
             <TextInput
               style={styles.input}
               placeholder="e.g. 9876543210"
@@ -314,7 +538,7 @@ export default function ResidentStaff() {
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Guardian Address</Text>
             <TextInput
-              style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
+              style={[styles.input, { height: 80, textAlignVertical: "top" }]}
               placeholder="Complete address of the guardian"
               value={guardianAddress}
               onChangeText={setGuardianAddress}
@@ -325,11 +549,18 @@ export default function ResidentStaff() {
           <View style={styles.divider} />
 
           <View style={styles.uploadSection}>
-            <Text style={styles.label}>Required Documents of staff (Max 500KB)</Text>
+            <Text style={styles.label}>Staff Documents (Max 220KB)</Text>
             <View style={styles.uploadRow}>
-              <TouchableOpacity style={styles.uploadBox} onPress={() => pickImage('photo')}>
+              <TouchableOpacity
+                style={styles.uploadBox}
+                onPress={() => pickImage("photo")}
+              >
                 {photo ? (
-                  <Image source={{ uri: photo }} style={styles.previewImage} />
+                  <Image
+                    source={{ uri: photo }}
+                    style={styles.previewImage}
+                    resizeMode="cover"
+                  />
                 ) : (
                   <View style={styles.uploadPlaceholder}>
                     <Text style={styles.uploadIcon}>👤</Text>
@@ -338,24 +569,38 @@ export default function ResidentStaff() {
                 )}
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.uploadBox} onPress={() => pickImage('idCard')}>
+              <TouchableOpacity
+                style={styles.uploadBox}
+                onPress={() => pickImage("idCard")}
+              >
                 {idCard ? (
-                  <Image source={{ uri: idCard }} style={styles.previewImage} />
+                  <Image
+                    source={{ uri: idCard }}
+                    style={styles.previewImage}
+                    resizeMode="cover"
+                  />
                 ) : (
                   <View style={styles.uploadPlaceholder}>
                     <Text style={styles.uploadIcon}>💳</Text>
-                    <Text style={styles.uploadLabel}> Photo ID Card</Text>
+                    <Text style={styles.uploadLabel}>Photo ID Card</Text>
                   </View>
                 )}
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.uploadBox} onPress={() => pickImage('addressProof')}>
+              <TouchableOpacity
+                style={styles.uploadBox}
+                onPress={() => pickImage("addressProof")}
+              >
                 {addressProof ? (
-                  <Image source={{ uri: addressProof }} style={styles.previewImage} />
+                  <Image
+                    source={{ uri: addressProof }}
+                    style={styles.previewImage}
+                    resizeMode="cover"
+                  />
                 ) : (
                   <View style={styles.uploadPlaceholder}>
                     <Text style={styles.uploadIcon}>🏠</Text>
-                    <Text style={styles.uploadLabel}> Address Proof</Text>
+                    <Text style={styles.uploadLabel}>Address Proof</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -371,7 +616,9 @@ export default function ResidentStaff() {
               {isUploading ? (
                 <ActivityIndicator color="white" />
               ) : (
-                <Text style={styles.submitText}>{editingId ? "Update Staff" : "Register Staff"}</Text>
+                <Text style={styles.submitText}>
+                  {editingId ? "Update Staff" : "Register Staff"}
+                </Text>
               )}
             </TouchableOpacity>
 
@@ -387,38 +634,58 @@ export default function ResidentStaff() {
         {staffList.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color="#CBD5E1" />
-            <Text style={styles.emptyText}>No staff registered for your home yet.</Text>
+            <Text style={styles.emptyText}>
+              No staff registered for your home yet.
+            </Text>
           </View>
         ) : (
           staffList.map((staff) => (
             <View key={staff.id} style={styles.card}>
               <View style={styles.cardMain}>
                 {staff.photo ? (
-                  <Image source={{ uri: staff.photo }} style={styles.listAvatar} />
+                  <Image
+                    source={{ uri: staff.photo }}
+                    style={styles.listAvatar}
+                    resizeMode="cover"
+                  />
                 ) : (
                   <View style={styles.listAvatarPlaceholder}>
-                    <Text style={styles.avatarText}>{staff.staffName.charAt(0).toUpperCase()}</Text>
+                    <Text style={styles.avatarText}>
+                      {staff.staffName.charAt(0).toUpperCase()}
+                    </Text>
                   </View>
                 )}
                 <View style={styles.staffInfo}>
                   <View style={styles.staffHeader}>
                     <Text style={styles.staffName}>{staff.staffName}</Text>
                     <View style={styles.typeBadge}>
-                      <Text style={styles.typeBadgeText}>{staff.staffType}</Text>
+                      <Text style={styles.typeBadgeText}>
+                        {staff.staffType}
+                      </Text>
                     </View>
                   </View>
                   <Text style={styles.staffContact}>📞 {staff.contact}</Text>
-                  <Text style={styles.staffNative}>📍 {staff.nativePlace || "N/A"}</Text>
+                  <Text style={styles.staffNative}>
+                    📍 {staff.nativePlace || "N/A"}
+                  </Text>
                   {staff.guardianName && (
-                    <Text style={styles.staffGuardian}>G: {staff.guardianName}</Text>
+                    <Text style={styles.staffGuardian}>
+                      G: {staff.guardianName}
+                    </Text>
                   )}
                 </View>
               </View>
               <View style={styles.cardActions}>
-                <TouchableOpacity onPress={() => handleEdit(staff)} style={styles.editBtn}>
+                <TouchableOpacity
+                  onPress={() => handleEdit(staff)}
+                  style={styles.editBtn}
+                >
                   <Ionicons name="create-outline" size={20} color="#3B82F6" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleDelete(staff.id)} style={styles.deleteBtn}>
+                <TouchableOpacity
+                  onPress={() => handleDelete(staff.id)}
+                  style={styles.deleteBtn}
+                >
                   <Ionicons name="trash-outline" size={20} color="#EF4444" />
                 </TouchableOpacity>
               </View>
@@ -477,7 +744,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#334155",
     marginBottom: 16,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   form: {
@@ -577,24 +844,24 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   uploadRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
     marginTop: 10,
   },
   uploadBox: {
     flex: 1,
     height: 90,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: "#F8FAFC",
     borderRadius: 14,
     borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: '#CBD5E1',
-    overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderStyle: "dashed",
+    borderColor: "#CBD5E1",
+    overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
   },
   uploadPlaceholder: {
-    alignItems: 'center',
+    alignItems: "center",
   },
   uploadIcon: {
     fontSize: 22,
@@ -602,14 +869,14 @@ const styles = StyleSheet.create({
   },
   uploadLabel: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#64748B',
-    textTransform: 'uppercase',
+    fontWeight: "700",
+    color: "#64748B",
+    textTransform: "uppercase",
   },
   previewImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
   },
   formButtons: {
     marginTop: 10,
@@ -647,9 +914,9 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 20,
     marginBottom: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     borderWidth: 1,
     borderColor: "#F1F5F9",
     shadowColor: "#0F172A",
@@ -659,8 +926,8 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   cardMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     flex: 1,
     gap: 12,
   },
@@ -668,29 +935,29 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 15,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: "#F1F5F9",
   },
   listAvatarPlaceholder: {
     width: 50,
     height: 50,
     borderRadius: 15,
-    backgroundColor: '#F1F5F9',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#F1F5F9",
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: "#E2E8F0",
   },
   avatarText: {
     fontSize: 20,
-    fontWeight: '800',
-    color: '#64748B',
+    fontWeight: "800",
+    color: "#64748B",
   },
   staffInfo: {
     flex: 1,
   },
   staffHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     marginBottom: 4,
   },
@@ -709,7 +976,7 @@ const styles = StyleSheet.create({
     color: "#3B82F6",
     fontSize: 10,
     fontWeight: "800",
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   staffContact: {
     color: "#64748B",
@@ -727,32 +994,32 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   cardActions: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
   },
   editBtn: {
     padding: 8,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: "#EFF6FF",
     borderRadius: 10,
   },
   deleteBtn: {
     padding: 8,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: "#FEF2F2",
     borderRadius: 10,
   },
   emptyState: {
-    alignItems: 'center',
+    alignItems: "center",
     padding: 40,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 20,
     borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: '#E2E8F0',
+    borderStyle: "dashed",
+    borderColor: "#E2E8F0",
   },
   emptyText: {
     marginTop: 12,
-    color: '#94A3B8',
+    color: "#94A3B8",
     fontSize: 14,
-    textAlign: 'center',
+    textAlign: "center",
   },
 });

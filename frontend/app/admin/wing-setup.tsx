@@ -3,25 +3,25 @@ import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  writeBatch,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    writeBatch,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -42,12 +42,16 @@ export default function WingSetup() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [initialName, setInitialName] = useState(initialWingName); // Track initial name for rename logic
   const [wingName, setWingName] = useState(initialWingName);
   const [floorCount, setFloorCount] = useState("");
   const [floors, setFloors] = useState<FloorData[]>([]);
   const [deletedFloors, setDeletedFloors] = useState<number[]>([]);
   const [isInitialFlatSetup, setIsInitialFlatSetup] = useState(true);
   const [existingWingData, setExistingWingData] = useState<any>(null);
+
+  // Stable ID for database paths - consistently use underscores for spaces
+  const wingIdToUse = wingId || wingName.trim().replace(/\s+/g, "_");
 
   const [selectedFloor, setSelectedFloor] = useState<number | null>(null);
   const [flatInput, setFlatInput] = useState("");
@@ -70,7 +74,8 @@ export default function WingSetup() {
         const data = wingDoc.data();
         setExistingWingData(data);
         setWingName(data.name);
-        setFloorCount(data.floorCount.toString());
+        setInitialName(data.name); // Sync initial name with DB
+        setFloorCount(data.floorCount?.toString() || "0");
         setFloors(data.floors || []);
         if (
           data.floors &&
@@ -128,11 +133,14 @@ export default function WingSetup() {
     const newFloorNumber = maxFloor + 1;
     const newFloorName = `Floor ${newFloorNumber}`;
 
-    setFloors((prev) => [
-      { floorNumber: newFloorNumber, flatCount: 0, floorName: newFloorName },
-      ...prev,
-    ]);
-    setFloorCount((floors.length + 1).toString());
+    setFloors((prev) => {
+      const updated = [
+        { floorNumber: newFloorNumber, flatCount: 0, floorName: newFloorName },
+        ...prev,
+      ];
+      setFloorCount(updated.length.toString());
+      return updated;
+    });
 
     Toast.show({
       type: "success",
@@ -306,6 +314,37 @@ export default function WingSetup() {
     }
   };
 
+  // Rename an existing Drive folder
+  const renameDriveFolder = async (
+    folderId: string,
+    newName: string,
+    token: string,
+  ) => {
+    try {
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${folderId}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ name: newName }),
+        },
+      );
+      if (!response.ok) {
+        const error = await response.json();
+        console.warn("Drive folder rename failed:", error);
+        return false;
+      }
+      console.log(`DEBUG: Renamed Drive folder ${folderId} to ${newName}`);
+      return true;
+    } catch (error) {
+      console.warn("Error renaming Drive folder:", error);
+      return false;
+    }
+  };
+
   const handleSaveWing = async () => {
     if (!user) return;
     if (!wingName) {
@@ -346,12 +385,20 @@ export default function WingSetup() {
 
       const batch = writeBatch(db);
       const updatedFloors = [...floors];
-      const sanitizedWingId = wingName.replace(/\s+/g, "");
-      const wingPrefix = sanitizedWingId.toUpperCase();
+
+      const isRenaming = wingId && initialName !== wingName;
+      const wingPrefix = wingIdToUse.toUpperCase();
       let unitsGenerated = 0;
 
+      console.log(
+        "DEBUG: Wing Save - wingIdToUse:",
+        wingIdToUse,
+        "isRenaming:",
+        isRenaming,
+      );
+
       for (const floorNum of deletedFloors) {
-        const floorPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingId}/${floorNum}`;
+        const floorPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingIdToUse}/${floorNum}`;
         const unitsRef = collection(db, floorPath);
         const unitsSnap = await getDocs(unitsRef);
         unitsSnap.forEach((unitDoc) => {
@@ -367,7 +414,7 @@ export default function WingSetup() {
 
       for (let i = 0; i < updatedFloors.length; i++) {
         const floor = updatedFloors[i];
-        const floorName =
+        const currentFloorName =
           floor.floorName ||
           (floor.floorNumber === 0
             ? "Ground Floor"
@@ -376,69 +423,126 @@ export default function WingSetup() {
         let floorFolderId = floor.driveFolderId;
         if (!floorFolderId) {
           floorFolderId = await createDriveFolder(
-            floorName,
+            currentFloorName,
             wingFolderId as string,
             token as string,
           );
           updatedFloors[i] = { ...floor, driveFolderId: floorFolderId };
         }
 
+        // FETCH ALL UNITS FOR THIS FLOOR IN ONE GO
+        const floorUnitsRef = collection(
+          db,
+          `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingIdToUse}/${floor.floorNumber}`,
+        );
+        const floorUnitsSnap = await getDocs(floorUnitsRef);
+        const existingUnitsMap: Record<string, any> = {};
+        floorUnitsSnap.forEach((doc) => {
+          existingUnitsMap[doc.id] = doc.data();
+        });
+
         for (let unitIndex = 1; unitIndex <= floor.flatCount; unitIndex++) {
           const unitNumber = floor.floorNumber * 100 + unitIndex;
           const unitName = `${unitNumber}`;
-          const unitId = `${wingPrefix}-${floor.floorNumber}-${unitNumber}`;
+          // Consistently use underscores for unitId prefix
+          const wingPrefixForId = wingIdToUse
+            .replace(/\s+/g, "_")
+            .toUpperCase();
+          const unitId = `${wingPrefixForId}-${floor.floorNumber}-${unitNumber}`;
 
-          const societyUnitPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingId}/${floor.floorNumber}/${unitId}`;
-          const existingUnitDoc = await getDoc(doc(db, societyUnitPath));
+          const existingData = existingUnitsMap[unitId];
+          const societyUnitPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingIdToUse}/${floor.floorNumber}/${unitId}`;
+          const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${unitId}`;
 
-          if (!existingUnitDoc.exists()) {
-            const flatFolderId = await createDriveFolder(
-              unitName,
-              floorFolderId as string,
-              token as string,
-            );
+          if (!existingData || !existingData.username) {
+            // GENERATE CREDENTIALS (for new units OR units missing credentials)
+
+            // Only create Drive folder if definitely needed
+            let flatFolderId = existingData?.driveFolderId;
+            if (!flatFolderId && floorFolderId) {
+              try {
+                flatFolderId = await createDriveFolder(
+                  unitName,
+                  floorFolderId as string,
+                  token as string,
+                );
+              } catch (err) {
+                console.warn(
+                  `Drive folder creation failed for unit ${unitName}:`,
+                  err,
+                );
+                flatFolderId = "";
+              }
+            }
+
             const societyPrefix = (societyData?.societyName || "SOC")
               .substring(0, 3)
               .toUpperCase();
+            const wingPrefixForUsername = wingIdToUse
+              .replace(/\s+/g, "")
+              .toUpperCase();
             const residentUsername =
-              `${societyPrefix}-${wingPrefix}-${unitNumber}`.toUpperCase();
+              `${societyPrefix}-${wingPrefixForUsername}-${unitNumber}`.toUpperCase();
             const residentPassword = generatePassword(6);
-            const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${unitId}`;
 
             const unitPayload = {
+              ...existingData,
               id: unitId,
               societyName: societyData?.societyName || "",
               wingName: wingName,
+              floorName: currentFloorName,
               unitName: unitName,
-              residenceType: "Residence",
-              residentName: "",
-              residentMobile: "",
-              residenceStatus: "VACANT",
-              familyMembers: 0,
-              staffMembers: 0,
+              residenceType: existingData?.residenceType || "Residence",
+              residentName: existingData?.residentName || "",
+              residentMobile: existingData?.residentMobile || "",
+              residenceStatus: existingData?.residenceStatus || "VACANT",
+              familyMembers: existingData?.familyMembers || 0,
+              staffMembers: existingData?.staffMembers || 0,
               username: residentUsername,
               password: residentPassword,
               displayName: `${wingName} - ${unitName}`,
-              wingId: sanitizedWingId,
+              wingId: wingIdToUse,
               floorNumber: floor.floorNumber,
               unitNumber: unitNumber,
               residentUsername: residentUsername,
               residentPassword: residentPassword,
-              residentUID: null,
-              status: "VACANT",
-              driveFolderId: flatFolderId,
-              createdAt: new Date().toISOString(),
+              residentUID: existingData?.residentUID || null,
+              status: existingData?.residenceStatus || "VACANT",
+              driveFolderId: flatFolderId || "",
+              createdAt: existingData?.createdAt || new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             };
 
-            batch.set(doc(db, societyUnitPath), unitPayload);
-            batch.set(doc(db, residentPath), unitPayload);
+            batch.set(doc(db, societyUnitPath), unitPayload, { merge: true });
+            batch.set(doc(db, residentPath), unitPayload, { merge: true });
             unitsGenerated++;
+          } else {
+            // ALWAYS update names to reflect current Wing/Floor names, keep credentials intact
+            const needsUpdate =
+              existingData.wingName !== wingName ||
+              existingData.floorName !== currentFloorName ||
+              existingData.displayName !==
+                `${wingName} - ${existingData.unitName}`;
+
+            if (needsUpdate) {
+              const updatedPayload = {
+                ...existingData,
+                wingName: wingName,
+                floorName: currentFloorName,
+                displayName: `${wingName} - ${existingData.unitName}`,
+                updatedAt: new Date().toISOString(),
+              };
+              batch.set(doc(db, societyUnitPath), updatedPayload, {
+                merge: true,
+              });
+              batch.set(doc(db, residentPath), updatedPayload, { merge: true });
+            }
           }
         }
       }
 
-      const wingPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingId}`;
+      // Use the ORIGINAL wingId for the path - don't create new collection
+      const wingPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingIdToUse}`;
       const totalFlatsInWing = updatedFloors.reduce(
         (sum, f) => sum + f.flatCount,
         0,
@@ -447,8 +551,8 @@ export default function WingSetup() {
       batch.set(
         wingRef,
         {
-          name: wingName,
-          wingId: sanitizedWingId,
+          name: wingName, // Updated display name
+          wingId: wingIdToUse, // Keep original ID
           wingIndex: parseInt(wingIndex as string),
           driveFolderId: wingFolderId,
           floorCount: updatedFloors.length,
@@ -459,9 +563,9 @@ export default function WingSetup() {
         { merge: true },
       );
 
-      if (wingId && wingId !== sanitizedWingId) {
-        const oldWingPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}`;
-        batch.delete(doc(db, oldWingPath));
+      // Rename Drive folder if wing name changed
+      if (isRenaming && wingFolderId && token) {
+        await renameDriveFolder(wingFolderId, wingName, token);
       }
 
       await batch.commit();
@@ -643,10 +747,15 @@ export default function WingSetup() {
                           router.push({
                             pathname: "/admin/floor",
                             params: {
-                              wingId: sanitizedWingId,
+                              wingId: wingIdToUse, // CRITICAL: Use the original wingId to find the data!
                               wingName: wingName,
                               floorNumber: floor.floorNumber,
                               flatCount: floor.flatCount,
+                              floorName:
+                                floor.floorName ||
+                                (floor.floorNumber === 0
+                                  ? "Ground Floor"
+                                  : `Floor ${floor.floorNumber}`),
                             },
                           })
                         }

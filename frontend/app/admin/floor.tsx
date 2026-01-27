@@ -45,7 +45,8 @@ const RESIDENCE_TYPES = [
 ];
 
 export default function FloorDetail() {
-  const { wingId, wingName, floorNumber, flatCount } = useLocalSearchParams();
+  const { wingId, wingName, floorNumber, flatCount, floorName } =
+    useLocalSearchParams();
   const router = useRouter();
   const { user } = useAuth();
 
@@ -77,7 +78,6 @@ export default function FloorDetail() {
 
   const [selectedFlat, setSelectedFlat] = useState<FlatData | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [generating, setGenerating] = useState<number | null>(null);
 
   // Edit modal states
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -87,12 +87,18 @@ export default function FloorDetail() {
   const [editResidentName, setEditResidentName] = useState("");
   const [editResidentMobile, setEditResidentMobile] = useState("");
   const [editStatus, setEditStatus] = useState<"VACANT" | "OCCUPIED">("VACANT");
+  const [editOwnership, setEditOwnership] = useState<"SELF_OWNED" | "RENTAL">(
+    "SELF_OWNED",
+  );
   const [editFamilyMembers, setEditFamilyMembers] = useState("");
   const [editStaffMembers, setEditStaffMembers] = useState("");
   const [showResidenceDropdown, setShowResidenceDropdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [floorFolderId, setFloorFolderId] = useState<string | null>(null);
   const [societyName, setSocietyName] = useState("");
+  const [actualFloorName, setActualFloorName] = useState<string | null>(
+    (floorName as string) || null,
+  );
 
   useEffect(() => {
     if (user) {
@@ -141,6 +147,10 @@ export default function FloorDetail() {
         );
         if (floor?.driveFolderId) {
           setFloorFolderId(floor.driveFolderId);
+        }
+        // Set actual floor name from wing data
+        if (floor?.floorName) {
+          setActualFloorName(floor.floorName);
         }
       }
     } catch (error) {
@@ -205,118 +215,6 @@ export default function FloorDetail() {
     return password;
   };
 
-  const handleGenerateCredentials = async (flatNumber: number) => {
-    if (!user) return;
-
-    setGenerating(flatNumber);
-
-    try {
-      const wingPrefix = (wingName as string).replace(/\s+/g, "").toUpperCase();
-      const societyPrefix = (societyName as string)
-        .substring(0, 3)
-        .toUpperCase();
-      const username =
-        `${societyPrefix}-${wingPrefix}-${flatNumber}`.toUpperCase();
-      const password = generatePassword(6);
-
-      // Create unit ID
-      const floor = parseInt(floorNumber as string);
-      const unitId = `${wingPrefix}-${floor}-${flatNumber}`;
-
-      // Get the flat data to access residence type
-      const flatData = flats.find((f) => f.flatNumber === flatNumber);
-      const unitName = flatData?.unitName || flatNumber.toString();
-
-      // 0. Ensure Flat Folder exists in Drive if not already set
-      let flatFolderId = flatData?.driveFolderId;
-      const token =
-        typeof window !== "undefined"
-          ? sessionStorage.getItem("driveToken")
-          : null;
-
-      if (!flatFolderId && floorFolderId && token) {
-        try {
-          const response = await fetch(
-            "https://www.googleapis.com/drive/v3/files",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                name: unitName,
-                mimeType: "application/vnd.google-apps.folder",
-                parents: [floorFolderId],
-              }),
-            },
-          );
-          if (response.ok) {
-            const data = await response.json();
-            flatFolderId = data.id;
-          }
-        } catch (err) {
-          console.error("Error creating flat folder on demand:", err);
-        }
-      }
-
-      // Save to Firestore (Stable Hierarchical Path using unitId)
-      // Using unitId as the document ID ensures we overwrite the same record even if unitName changes
-      const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
-
-      const flatPayload = {
-        id: unitId,
-        societyName: societyName,
-        wingName: wingName,
-        unitName: unitName,
-        residenceType: flatData?.residenceType || "Residence",
-        residentName: flatData?.residentName || "",
-        residentMobile: flatData?.residentMobile || "",
-        residenceStatus: flatData?.status || "VACANT",
-        familyMembers: parseInt(flatData?.familyMembers || "0"),
-        staffMembers: parseInt(flatData?.staffMembers || "0"),
-        username: username,
-        password: password,
-        // Keep internal fields for logic/compatibility
-        displayName: `${wingName} - ${unitName}`,
-        wingId: wingId,
-        floorNumber: floor,
-        status: flatData?.status || "VACANT",
-        residentUsername: username,
-        residentPassword: password,
-        driveFolderId: flatFolderId || "",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      // Save to both locations for compatibility
-      const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${unitId}`;
-
-      await setDoc(doc(db, societyPath), flatPayload, { merge: true });
-      await setDoc(doc(db, residentPath), flatPayload, { merge: true });
-
-      // Update local state
-      setFlats((prev) =>
-        prev.map((flat) =>
-          flat.flatNumber === flatNumber
-            ? { ...flat, hasCredentials: true, username, password }
-            : flat,
-        ),
-      );
-
-      Toast.show({
-        type: "success",
-        text1: "Credentials Generated",
-        text2: `Unit ${flatNumber} credentials created`,
-      });
-    } catch (error: any) {
-      console.error("Error generating credentials:", error);
-      Alert.alert("Error", error.message || "Failed to generate credentials");
-    } finally {
-      setGenerating(null);
-    }
-  };
-
   const handleViewCredentials = (flat: FlatData) => {
     setSelectedFlat(flat);
     setModalVisible(true);
@@ -343,6 +241,7 @@ export default function FloorDetail() {
     setEditResidentName(flat.residentName);
     setEditResidentMobile(flat.residentMobile);
     setEditStatus(flat.status);
+    setEditOwnership(flat.ownership || "SELF_OWNED");
     setEditFamilyMembers(flat.familyMembers);
     setEditStaffMembers(flat.staffMembers || "");
     setEditModalVisible(true);
@@ -362,6 +261,7 @@ export default function FloorDetail() {
               residentName: editResidentName,
               residentMobile: editResidentMobile,
               status: editStatus,
+              ownership: editOwnership,
               familyMembers: editFamilyMembers,
               staffMembers: editStaffMembers,
             }
@@ -371,7 +271,8 @@ export default function FloorDetail() {
 
     // Update Firestore
     try {
-      const wingPrefix = (wingName as string).replace(/\s+/g, "").toUpperCase();
+      // Use wingId directly to ensure consistency with the preferred format (e.g. WING_A)
+      const wingPrefix = (wingId as string).replace(/\s+/g, "_").toUpperCase();
       const floor = parseInt(floorNumber as string);
       const unitId = `${wingPrefix}-${floor}-${editingFlat.flatNumber}`;
 
@@ -382,6 +283,8 @@ export default function FloorDetail() {
         residentName: editResidentName,
         residentMobile: editResidentMobile,
         residenceStatus: editStatus,
+        status: editStatus, // Sync both status fields
+        ownership: editOwnership,
         familyMembers: parseInt(editFamilyMembers || "0"),
         staffMembers: parseInt(editStaffMembers || "0"),
         societyName: societyName,
@@ -420,7 +323,7 @@ export default function FloorDetail() {
           <Text style={styles.backBtnText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>
-          {wingName} - Floor {floorNumber}
+          {wingName} - {actualFloorName || `Floor ${floorNumber}`}
         </Text>
         <Text style={styles.subtitle}>{flatCount} Flats</Text>
       </View>
@@ -529,24 +432,16 @@ export default function FloorDetail() {
                       <Text style={styles.viewBtnText}>View Details</Text>
                     </TouchableOpacity>
                   </>
-                ) : (
-                  <TouchableOpacity
-                    style={[
-                      styles.generateBtn,
-                      generating === flat.flatNumber && styles.disabledBtn,
-                    ]}
-                    onPress={() => handleGenerateCredentials(flat.flatNumber)}
-                    disabled={generating === flat.flatNumber}
-                  >
-                    {generating === flat.flatNumber ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Text style={styles.generateBtnText}>
-                        Generate Credentials
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                )}
+                ) : !flat.residentName && !flat.residentMobile ? (
+                  <View style={styles.noCredsContainer}>
+                    <Text style={styles.noCredsText}>
+                      Pending Initialization
+                    </Text>
+                    <Text style={styles.noCredsSubtext}>
+                      Credentials will appear once wing structure is saved.
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             ))}
           </View>
@@ -641,6 +536,15 @@ export default function FloorDetail() {
                       {selectedFlat.password}
                     </Text>
                   </View>
+                </View>
+
+                <View style={styles.credentialRow}>
+                  <Text style={styles.credentialLabel}>Ownership</Text>
+                  <Text style={styles.credentialValue}>
+                    {selectedFlat.ownership === "RENTAL"
+                      ? "Rental"
+                      : "Self Owned"}
+                  </Text>
                 </View>
               </View>
             )}
@@ -797,27 +701,67 @@ export default function FloorDetail() {
               </View>
 
               <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>
-                  Number of Family Members (Including Yourself)
-                </Text>
-                <TextInput
-                  style={styles.formInput}
-                  value={editFamilyMembers}
-                  onChangeText={setEditFamilyMembers}
-                  placeholder="e.g. 4"
-                  keyboardType="numeric"
-                />
+                <Text style={styles.formLabel}>Ownership Status</Text>
+                <View style={styles.statusToggleRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.statusToggleBtn,
+                      editOwnership === "SELF_OWNED" &&
+                        styles.statusToggleBtnActive,
+                    ]}
+                    onPress={() => setEditOwnership("SELF_OWNED")}
+                  >
+                    <Text
+                      style={[
+                        styles.statusToggleText,
+                        editOwnership === "SELF_OWNED" &&
+                          styles.statusToggleTextActive,
+                      ]}
+                    >
+                      Self Owned
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.statusToggleBtn,
+                      editOwnership === "RENTAL" &&
+                        styles.statusToggleBtnActive,
+                    ]}
+                    onPress={() => setEditOwnership("RENTAL")}
+                  >
+                    <Text
+                      style={[
+                        styles.statusToggleText,
+                        editOwnership === "RENTAL" &&
+                          styles.statusToggleTextActive,
+                      ]}
+                    >
+                      Rental
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Number of Family Members</Text>
+                <View
+                  style={[styles.formInput, { backgroundColor: "#E9ECEF" }]}
+                >
+                  <Text style={{ color: "#6C757D", fontSize: 16 }}>
+                    {editFamilyMembers || "Not set by resident"}
+                  </Text>
+                </View>
               </View>
 
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Number of Staff Members</Text>
-                <TextInput
-                  style={styles.formInput}
-                  value={editStaffMembers}
-                  onChangeText={setEditStaffMembers}
-                  placeholder="e.g. 1"
-                  keyboardType="numeric"
-                />
+                <View
+                  style={[styles.formInput, { backgroundColor: "#E9ECEF" }]}
+                >
+                  <Text style={{ color: "#6C757D", fontSize: 16 }}>
+                    {editStaffMembers || "Not set by resident"}
+                  </Text>
+                </View>
               </View>
             </View>
 
@@ -1227,5 +1171,24 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
     color: "#374151",
+  },
+  noCredsContainer: {
+    padding: 12,
+    backgroundColor: "#F8F9FA",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E9ECEF",
+    alignItems: "center",
+  },
+  noCredsText: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#666",
+    marginBottom: 4,
+  },
+  noCredsSubtext: {
+    fontSize: 11,
+    color: "#999",
+    textAlign: "center",
   },
 });
