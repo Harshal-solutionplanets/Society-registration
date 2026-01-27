@@ -19,6 +19,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -371,36 +372,36 @@ export default function ResidentStaff() {
 
   const handleDelete = async (staffId: string) => {
     if (!user || !sessionData) return;
-    Alert.alert(
-      "Delete Staff",
-      "Are you sure you want to remove this staff member?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const { adminUID, id: unitId } = sessionData;
-              // Delete from society records
-              await deleteDoc(
-                doc(
-                  db,
-                  `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${staffId}`,
-                ),
-              );
-              // Delete from local records
-              await deleteDoc(
-                doc(db, `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`),
-              );
-              Toast.show({ type: "info", text1: "Staff Removed" });
-            } catch (error: any) {
-              Alert.alert("Error", error.message);
-            }
-          },
-        },
-      ],
-    );
+
+    const confirmMessage = "Are you sure you want to remove this staff member?";
+    const confirmDelete = Platform.OS === 'web'
+      ? window.confirm(confirmMessage)
+      : await new Promise<boolean>((resolve) => {
+        Alert.alert("Delete Staff", confirmMessage, [
+          { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+          { text: "Delete", style: "destructive", onPress: () => resolve(true) }
+        ]);
+      });
+
+    if (!confirmDelete) return;
+
+    try {
+      const { adminUID, id: unitId } = sessionData;
+      // Delete from society records
+      await deleteDoc(
+        doc(
+          db,
+          `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${staffId}`,
+        ),
+      );
+      // Delete from local records
+      await deleteDoc(
+        doc(db, `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`),
+      );
+      Toast.show({ type: "info", text1: "Staff Removed" });
+    } catch (error: any) {
+      Alert.alert("Error", error.message);
+    }
   };
 
   return (

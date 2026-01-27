@@ -10,11 +10,29 @@ app.use(cors());
 app.use(bodyParser.json({ limit: "10mb" }));
 
 // Initialize Firebase Admin
-// You will need to provide a service account key file
-const serviceAccount = require("./serviceAccountKey.json");
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+let serviceAccount;
+try {
+  serviceAccount = require("./serviceAccountKey.json");
+} catch (e) {
+  console.log("Note: serviceAccountKey.json not found, checking environment variables.");
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  }
+}
+
+if (serviceAccount) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+} else {
+  console.error("\x1b[31m%s\x1b[0m", "ERROR: Firebase Service Account not found!");
+  console.log("\x1b[33m%s\x1b[0m", "Please follow these steps:");
+  console.log("1. Go to Firebase Console > Project Settings > Service Accounts.");
+  console.log("2. Click 'Generate new private key'.");
+  console.log("3. Rename the file to 'serviceAccountKey.json' and place it in the backend folder.");
+  console.log("OR: Add FIREBASE_SERVICE_ACCOUNT as a JSON string in your .env file.\n");
+  process.exit(1);
+}
 
 const db = admin.firestore();
 
@@ -106,7 +124,7 @@ app.get("/api/auth/google/callback", async (req, res) => {
       .status(500)
       .send(
         "Authentication failed: " +
-          (error.response?.data?.error_description || error.message),
+        (error.response?.data?.error_description || error.message),
       );
   }
 });
