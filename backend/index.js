@@ -205,6 +205,58 @@ app.post("/api/drive/upload-resident-staff", async (req, res) => {
   }
 });
 
+/**
+ * Step 3: Refresh Access Token using stored Refresh Token
+ */
+app.get("/api/auth/google/refresh", async (req, res) => {
+  const { adminUID, appId } = req.query;
+  if (!adminUID) return res.status(400).send("No adminUID provided");
+
+  try {
+    // 1. Fetch Refresh Token
+    const tokenDoc = await db
+      .collection("artifacts")
+      .doc(appId || "dev-society-id")
+      .collection("secure")
+      .doc(adminUID)
+      .get();
+
+    if (!tokenDoc.exists || !tokenDoc.data().refreshToken) {
+      return res
+        .status(404)
+        .json({ error: "Refresh token not found. Please link Drive again." });
+    }
+
+    const { refreshToken } = tokenDoc.data();
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+
+    // 2. Refresh the access token
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    const newAccessToken = credentials.access_token;
+
+    // 3. Update society doc with new access token
+    await db
+      .collection("artifacts")
+      .doc(appId || "dev-society-id")
+      .collection("public")
+      .doc("data")
+      .collection("societies")
+      .doc(adminUID)
+      .set(
+        {
+          driveAccessToken: newAccessToken,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+    res.json({ accessToken: newAccessToken });
+  } catch (error) {
+    console.error("Token Refresh Error:", error);
+    res.status(500).json({ error: error.message || "Failed to refresh token" });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);

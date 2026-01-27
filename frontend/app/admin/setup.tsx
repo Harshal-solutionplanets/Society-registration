@@ -32,6 +32,7 @@ export default function AdminSetup() {
     adminName: "",
     adminContact: "",
   });
+  const [isDriveLinked, setIsDriveLinked] = useState(false);
 
   const [societyRef, setSocietyRef] = useState<any>(null);
 
@@ -59,6 +60,7 @@ export default function AdminSetup() {
           adminName: data.adminName || "",
           adminContact: data.adminContact || "",
         });
+        setIsDriveLinked(!!data.isDriveLinked);
         setIsEditMode(true);
       }
     } catch (error) {
@@ -75,6 +77,55 @@ export default function AdminSetup() {
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleLinkDrive = async () => {
+    if (!user) return;
+    try {
+      const backendUrl =
+        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const res = await fetch(
+        `${backendUrl}/api/auth/google/url?adminUID=${user.uid}&appId=${appId}`,
+      );
+      const { url } = await res.json();
+      if (url) {
+        if (Platform.OS === "web") {
+          const authWindow = window.open(url, "_blank", "width=600,height=700");
+
+          // Poll for drive status update
+          const checkStatus = setInterval(async () => {
+            const societyDoc = await getDoc(
+              doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+            );
+            if (societyDoc.exists() && societyDoc.data().isDriveLinked) {
+              setIsDriveLinked(true);
+              clearInterval(checkStatus);
+              Toast.show({
+                type: "success",
+                text1: "Drive Linked",
+                text2: "Google Drive connected successfully!",
+              });
+            }
+          }, 3000);
+
+          // Stop polling after 5 minutes
+          setTimeout(() => clearInterval(checkStatus), 300000);
+        } else {
+          Toast.show({
+            type: "info",
+            text1: "Notice",
+            text2: "Drive Linking is currently supported on Web only.",
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Link Drive Error:", error);
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Could not connect to backend server.",
+      });
+    }
   };
 
   const handleSetup = async () => {
@@ -99,15 +150,11 @@ export default function AdminSetup() {
       return;
     }
 
-    const token =
-      typeof window !== "undefined"
-        ? sessionStorage.getItem("driveToken")
-        : null;
-    if (!token) {
+    if (!isDriveLinked) {
       Toast.show({
         type: "error",
-        text1: "Session Expired",
-        text2: "Please log in again to link Google Drive.",
+        text1: "Drive Not Linked",
+        text2: "Please connect your Google Drive first.",
       });
       return;
     }
@@ -117,6 +164,17 @@ export default function AdminSetup() {
       let realFolderId = null;
 
       if (!isEditMode) {
+        // Fetch the stored driveAccessToken from when they linked drive
+        const societyDoc = await getDoc(
+          doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+        );
+        const token = societyDoc.data()?.driveAccessToken;
+
+        if (!token)
+          throw new Error(
+            "Drive access token missing. Please link drive again.",
+          );
+
         // 1. Create the physical folder in Google Drive only during initial setup
         const driveResponse = await fetch(
           "https://www.googleapis.com/drive/v3/files",
@@ -156,7 +214,7 @@ export default function AdminSetup() {
       if (!isEditMode) {
         updateData.driveEmail = user.email;
         updateData.driveFolderId = realFolderId;
-        updateData.driveAccessToken = token; // Store Drive token for persistence
+        updateData.isDriveLinked = true;
         updateData.role = "ADMIN";
         updateData.createdAt = new Date().toISOString();
       }
@@ -209,6 +267,38 @@ export default function AdminSetup() {
         </View>
 
         <View style={styles.card}>
+          <Text style={styles.sectionHeader}>GOOGLE DRIVE CONNECTION</Text>
+          <View style={styles.driveStatusCard}>
+            <View style={styles.driveIconRow}>
+              <View
+                style={[
+                  styles.statusIndicator,
+                  { backgroundColor: isDriveLinked ? "#22C55E" : "#EF4444" },
+                ]}
+              />
+              <Text style={styles.driveStatusText}>
+                {isDriveLinked
+                  ? "Google Drive Connected"
+                  : "Google Drive Not Connected"}
+              </Text>
+            </View>
+            <Text style={styles.driveHelpText}>
+              We need permission to create folders for staff documentation in
+              your Google Drive.
+            </Text>
+            {!isDriveLinked && (
+              <TouchableOpacity
+                style={styles.connectDriveBtn}
+                onPress={handleLinkDrive}
+              >
+                <Text style={styles.connectDriveBtnText}>
+                  Connect Google Drive
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={styles.divider} />
           <Text style={styles.sectionHeader}>SOCIETY INFORMATION</Text>
 
           <View style={styles.inputGroup}>
@@ -312,10 +402,11 @@ export default function AdminSetup() {
           <TouchableOpacity
             style={[
               styles.primaryButton,
-              isSubmitting && styles.buttonDisabled,
+              (isSubmitting || (!isEditMode && !isDriveLinked)) &&
+                styles.buttonDisabled,
             ]}
             onPress={handleSetup}
-            disabled={isSubmitting}
+            disabled={isSubmitting || (!isEditMode && !isDriveLinked)}
           >
             <Text style={styles.buttonText}>
               {isSubmitting
@@ -470,5 +561,47 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     textDecorationLine: "underline",
+  },
+  driveStatusCard: {
+    backgroundColor: "#F8FAFC",
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    marginBottom: 8,
+  },
+  driveIconRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  statusIndicator: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 10,
+  },
+  driveStatusText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  driveHelpText: {
+    fontSize: 13,
+    color: "#64748B",
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  connectDriveBtn: {
+    backgroundColor: "#3B82F6",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  connectDriveBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
   },
 });

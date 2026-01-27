@@ -364,9 +364,10 @@ export default function WingSetup() {
       const societyData = societyDoc.data();
       const rootFolderId = societyData?.driveFolderId;
       const token =
-        typeof window !== "undefined"
+        societyData?.driveAccessToken ||
+        (typeof window !== "undefined"
           ? sessionStorage.getItem("driveToken")
-          : null;
+          : null);
 
       if (!rootFolderId || !token) {
         throw new Error(

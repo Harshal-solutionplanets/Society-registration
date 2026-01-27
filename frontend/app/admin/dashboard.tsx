@@ -129,33 +129,6 @@ export default function AdminDashboard() {
     }, [user, authLoading, fetchData]),
   );
 
-  const handleLinkDrive = async () => {
-    if (!user) return;
-    try {
-      const backendUrl =
-        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
-      const res = await fetch(
-        `${backendUrl}/api/auth/google/url?adminUID=${user.uid}&appId=${appId}`,
-      );
-      const { url } = await res.json();
-      if (url) {
-        // Open the Google Auth URL in a new window/tab
-        if (Platform.OS === "web") {
-          window.open(url, "_blank", "width=600,height=700");
-        } else {
-          // For mobile, you would use Linking or WebBrowser
-          Alert.alert(
-            "Notice",
-            "Drive Linking is currently supported on Web only.",
-          );
-        }
-      }
-    } catch (error) {
-      console.error("Link Drive Error:", error);
-      Alert.alert("Error", "Could not connect to backend server.");
-    }
-  };
-
   const handleAddWing = async () => {
     if (!user || !societyData) return;
     try {
@@ -327,17 +300,6 @@ export default function AdminDashboard() {
             <Text style={styles.welcomeText}>Welcome Admin</Text>
           </View>
           <View style={styles.headerRight}>
-            <TouchableOpacity
-              style={[
-                styles.headerBtn,
-                { backgroundColor: "#F0FDF4", borderColor: "#22C55E" },
-              ]}
-              onPress={handleLinkDrive}
-            >
-              <Text style={[styles.headerBtnText, { color: "#166534" }]}>
-                Link Drive
-              </Text>
-            </TouchableOpacity>
             <TouchableOpacity
               style={styles.headerBtn}
               onPress={() => router.push("/admin/setup")}

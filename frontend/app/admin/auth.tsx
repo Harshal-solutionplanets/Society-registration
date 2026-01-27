@@ -78,13 +78,8 @@ export default function AdminAuth() {
           return;
         }
 
-        // 3. RESTORE DRIVE TOKEN (if previously stored in Firestore)
-        const societyData = societyDoc.data();
-        if (societyData?.driveAccessToken && typeof window !== "undefined") {
-          sessionStorage.setItem("driveToken", societyData.driveAccessToken);
-          console.log("DEBUG: Drive token restored from Firestore");
-        } else {
-          console.warn("DEBUG: No stored Drive token found for this admin");
+        if (societyDoc.exists()) {
+          // Society document exists, we can proceed to dashboard
         }
       } else {
         // REGISTRATION FLOW - Email already validated above
@@ -103,7 +98,6 @@ export default function AdminAuth() {
 
   const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
-    provider.addScope("https://www.googleapis.com/auth/drive.file");
 
     try {
       const result = await signInWithPopup(auth, provider);
@@ -119,18 +113,6 @@ export default function AdminAuth() {
           text2: "Only @gmail.com accounts are allowed for admin registration.",
         });
         return;
-      }
-
-      // Domain is valid - proceed with token storage
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const accessToken = credential?.accessToken;
-
-      if (!accessToken) {
-        throw new Error("Failed to obtain Google Drive access token.");
-      }
-
-      if (typeof window !== "undefined" && window.sessionStorage) {
-        sessionStorage.setItem("driveToken", accessToken);
       }
 
       const societyDocRef = doc(

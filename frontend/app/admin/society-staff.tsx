@@ -3,26 +3,26 @@ import { useAuth } from "@/hooks/useAuth";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    setDoc,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -333,92 +333,73 @@ export default function SocietyStaff() {
         }
       }
 
-      const token =
-        typeof window !== "undefined"
-          ? sessionStorage.getItem("driveToken")
-          : null;
+      const societyDoc = await getDoc(
+        doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+      );
+      const societyData = societyDoc.data();
+      const token = societyData?.driveAccessToken;
       console.log("DEBUG: Drive Token present?", !!token);
 
-      if (token) {
-        // 1. Get Society Root
-        const societyDoc = await getDoc(
-          doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+      if (token && societyData?.driveFolderId) {
+        // 1. Find/Create "Society_Staff"
+        const mainStaffFolderId = await findOrCreateFolder(
+          "Society_Staff",
+          societyData.driveFolderId,
+          token,
         );
-        const societyData = societyDoc.data();
-        console.log(
-          "DEBUG: Society Drive Folder ID:",
-          societyData?.driveFolderId,
-        );
+        console.log("DEBUG: Society_Staff Folder ID:", mainStaffFolderId);
 
-        if (societyData?.driveFolderId) {
-          // 2. Find/Create "Society_Staff"
-          const mainStaffFolderId = await findOrCreateFolder(
-            "Society_Staff",
-            societyData.driveFolderId,
+        // 2. Find/Create Member Folder
+        if (!staffFolderId) {
+          staffFolderId = await findOrCreateFolder(
+            name,
+            mainStaffFolderId,
             token,
           );
-          console.log("DEBUG: Society_Staff Folder ID:", mainStaffFolderId);
+          console.log("DEBUG: New Staff Folder ID:", staffFolderId);
+        } else {
+          console.log("DEBUG: Using existing Staff Folder ID:", staffFolderId);
+        }
 
-          // 3. Find/Create Member Folder
-          if (!staffFolderId) {
-            staffFolderId = await findOrCreateFolder(
-              name,
-              mainStaffFolderId,
-              token,
-            );
-            console.log("DEBUG: New Staff Folder ID:", staffFolderId);
-          } else {
-            console.log(
-              "DEBUG: Using existing Staff Folder ID:",
-              staffFolderId,
-            );
+        // 3. Upload Files (Replace if editing)
+        if (photo) {
+          if (editingId) {
+            // Delete old photo before uploading new one
+            await deleteFileFromDrive("Photo.jpg", staffFolderId, token);
           }
-
-          // 4. Upload Files (Replace if editing)
-          if (photo) {
-            if (editingId) {
-              // Delete old photo before uploading new one
-              await deleteFileFromDrive("Photo.jpg", staffFolderId, token);
-            }
-            await uploadImageToDrive(photo, "Photo.jpg", staffFolderId, token);
+          await uploadImageToDrive(photo, "Photo.jpg", staffFolderId, token);
+        }
+        if (idCard) {
+          if (editingId) {
+            // Delete old ID card before uploading new one
+            await deleteFileFromDrive("ID_Card.jpg", staffFolderId, token);
           }
-          if (idCard) {
-            if (editingId) {
-              // Delete old ID card before uploading new one
-              await deleteFileFromDrive("ID_Card.jpg", staffFolderId, token);
-            }
-            await uploadImageToDrive(
-              idCard,
-              "ID_Card.jpg",
-              staffFolderId,
-              token,
-            );
-          }
-          if (addressProof) {
-            if (editingId) {
-              // Delete old address proof before uploading new one
-              await deleteFileFromDrive(
-                "Address_Proof.jpg",
-                staffFolderId,
-                token,
-              );
-            }
-            await uploadImageToDrive(
-              addressProof,
+          await uploadImageToDrive(idCard, "ID_Card.jpg", staffFolderId, token);
+        }
+        if (addressProof) {
+          if (editingId) {
+            // Delete old address proof before uploading new one
+            await deleteFileFromDrive(
               "Address_Proof.jpg",
               staffFolderId,
               token,
             );
           }
-        } else {
-          console.warn("DEBUG: No root driveFolderId found in society data.");
+          await uploadImageToDrive(
+            addressProof,
+            "Address_Proof.jpg",
+            staffFolderId,
+            token,
+          );
         }
       } else {
-        console.warn("DEBUG: No Drive Token in session storage.");
-        Alert.alert(
-          "Notice",
-          "Google Drive not linked. Documents saved locally only.",
-        );
+        console.warn("DEBUG: No Drive Token or root folder available.");
+        if (photo || idCard || addressProof) {
+          Alert.alert(
+            "Notice",
+            "Google Drive not linked or folder missing. Documents saved locally only.",
+          );
+        }
       }
       // End Drive Logic
 
@@ -499,7 +480,9 @@ export default function SocietyStaff() {
     if (!confirmDelete) return;
 
     try {
+      setSaving(true);
       console.log("DEBUG: Starting archive process for", member.name);
+      let driveArchived = false;
 
       // 1. Archive to Firestore "ArchivedStaff" collection (CRITICAL - always do this)
       const archivedStaffPath = `artifacts/${appId}/public/data/societies/${user.uid}/ArchivedStaff/${member.id}`;
@@ -512,31 +495,25 @@ export default function SocietyStaff() {
       console.log("DEBUG: Staff metadata archived to Firestore");
 
       // 2. Try to move Drive folder to "Archived Staff" folder (NON-CRITICAL)
-      let driveArchived = false;
-      const token =
-        typeof window !== "undefined"
-          ? sessionStorage.getItem("driveToken")
-          : null;
+      const societyDoc = await getDoc(
+        doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+      );
+      const societyData = societyDoc.data();
+      const token = societyData?.driveAccessToken;
       console.log("DEBUG: Archive Token present?", !!token);
       console.log("DEBUG: Member Folder ID:", member.driveFolderId);
 
-      if (token && member.driveFolderId) {
+      if (token && member.driveFolderId && societyData?.driveFolderId) {
         try {
-          const societyDoc = await getDoc(
-            doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+          const archiveFolderId = await findOrCreateFolder(
+            "Archived Staff",
+            societyData.driveFolderId,
+            token,
           );
-          const societyData = societyDoc.data();
-          if (societyData?.driveFolderId) {
-            const archiveFolderId = await findOrCreateFolder(
-              "Archived Staff",
-              societyData.driveFolderId,
-              token,
-            );
-            console.log("DEBUG: Archive Drive Folder ID:", archiveFolderId);
-            await moveFolder(member.driveFolderId, archiveFolderId, token);
-            console.log("DEBUG: Documents moved to Archived Staff in Drive");
-            driveArchived = true;
-          }
+          console.log("DEBUG: Archive Drive Folder ID:", archiveFolderId);
+          await moveFolder(member.driveFolderId, archiveFolderId, token);
+          console.log("DEBUG: Documents moved to Archived Staff in Drive");
+          driveArchived = true;
         } catch (driveError: any) {
           console.warn(
             "DEBUG: Drive archiving failed (token may be expired):",
@@ -573,6 +550,8 @@ export default function SocietyStaff() {
     } catch (error: any) {
       console.error("DEBUG: Archive/Delete failed:", error);
       Alert.alert("Error", error.message || "Failed to archive staff member");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -798,45 +777,43 @@ export default function SocietyStaff() {
             </View>
           </View>
 
-          <View style={styles.formButtons}>
+          <TouchableOpacity
+            style={[styles.addBtn, saving && styles.disabledBtn]}
+            onPress={handleAddOrUpdateStaff}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.addBtnText}>
+                {editingId ? "Update Member" : "Add Member"}
+              </Text>
+            )}
+          </TouchableOpacity>
+          {editingId && (
             <TouchableOpacity
-              style={[styles.primaryBtn, saving && styles.disabledBtn]}
-              onPress={handleAddOrUpdateStaff}
+              style={styles.cancelBtn}
+              onPress={() => {
+                setEditingId(null);
+                setName("");
+                setPosition("");
+                setPhone("");
+                setEmail("");
+                setShift("Day");
+                setOtherPosition("");
+                setPhoto(null);
+                setIdCard(null);
+                setAddressProof(null);
+              }}
               disabled={saving}
             >
-              {saving ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.primaryBtnText}>
-                  {editingId ? "Update Staff" : "Add Staff Member"}
-                </Text>
-              )}
+              <Text style={styles.cancelBtnText}>Cancel Edit</Text>
             </TouchableOpacity>
-
-            {editingId && (
-              <TouchableOpacity
-                style={styles.cancelBtn}
-                onPress={() => {
-                  setEditingId(null);
-                  setName("");
-                  setPosition("");
-                  setPhone("");
-                  setEmail("");
-                  setShift("Day");
-                  setOtherPosition("");
-                  setPhoto(null);
-                  setIdCard(null);
-                  setAddressProof(null);
-                }}
-              >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          )}
         </View>
 
         <View style={styles.listSection}>
-          <Text style={styles.sectionTitle}>Current Staff</Text>
+          <Text style={styles.sectionTitle}>Active Staff Members</Text>
           {members.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyText}>No staff members added yet.</Text>
@@ -844,40 +821,37 @@ export default function SocietyStaff() {
           ) : (
             members.map((member: StaffMember) => (
               <View key={member.id} style={styles.memberCard}>
-                <View style={styles.memberHeader}>
+                <View style={styles.memberRow}>
                   {member.photo ? (
                     <Image
                       source={{ uri: member.photo }}
                       style={styles.memberAvatar}
-                      resizeMode="cover"
                     />
                   ) : (
-                    <View
-                      style={[styles.memberAvatar, styles.placeholderAvatar]}
-                    >
-                      <Text style={styles.avatarText}>
+                    <View style={styles.memberAvatarPlaceholder}>
+                      <Text style={styles.avatarInitial}>
                         {member.name.charAt(0).toUpperCase()}
                       </Text>
                     </View>
                   )}
                   <View style={styles.memberInfo}>
                     <Text style={styles.memberName}>{member.name}</Text>
-                    <Text style={styles.memberMeta}>
+                    <Text style={styles.memberSubText}>
                       {member.position} • {member.shift} Shift
                     </Text>
-                    <Text style={styles.memberContact}>{member.phone}</Text>
+                    <Text style={styles.memberSubText}>📞 {member.phone}</Text>
                   </View>
                 </View>
-                <View style={styles.memberActions}>
+                <View style={styles.cardActions}>
                   <TouchableOpacity
-                    onPress={() => handleEditStaff(member)}
                     style={styles.editBtn}
+                    onPress={() => handleEditStaff(member)}
                   >
                     <Text style={styles.editBtnText}>Edit</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    onPress={() => handleDeleteStaff(member)}
                     style={styles.deleteBtn}
+                    onPress={() => handleDeleteStaff(member)}
                   >
                     <Text style={styles.deleteBtnText}>Remove</Text>
                   </TouchableOpacity>
@@ -892,155 +866,265 @@ export default function SocietyStaff() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F8FAFC" },
+  container: {
+    flex: 1,
+    backgroundColor: "#F1F5F9",
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
   header: {
-    padding: 20,
-    paddingTop: 60,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E2E8F0",
+    padding: 24,
+    paddingTop: 64,
+    backgroundColor: "#FFFFFF",
   },
-  backBtn: { marginBottom: 10 },
-  backBtnText: { color: "#3B82F6", fontSize: 16, fontWeight: "600" },
-  title: { fontSize: 24, fontWeight: "900", color: "#0F172A" },
-  formSection: { padding: 20, backgroundColor: "#fff", marginBottom: 16 },
-  sectionTitle: {
-    fontSize: 18,
+  backBtn: {
+    marginBottom: 12,
+  },
+  backBtnText: {
+    fontSize: 16,
+    color: "#3B82F6",
+    fontWeight: "600",
+  },
+  title: {
+    fontSize: 28,
     fontWeight: "800",
     color: "#0F172A",
+  },
+  formSection: {
+    margin: 20,
+    padding: 24,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1E293B",
+    marginBottom: 20,
+  },
+  inputGroup: {
     marginBottom: 16,
   },
-  inputGroup: { marginBottom: 16 },
   label: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#64748B",
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#475569",
     marginBottom: 8,
-    marginLeft: 4,
   },
   input: {
     backgroundColor: "#F8FAFC",
-    padding: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     borderRadius: 12,
+    padding: 12,
     fontSize: 16,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    color: "#0F172A",
+    color: "#1E293B",
   },
-  row: { flexDirection: "row", gap: 12, marginBottom: 16 },
+  row: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 16,
+  },
   dropdownButton: {
-    backgroundColor: "#F8FAFC",
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    padding: 12,
   },
-  dropdownText: { fontSize: 16, color: "#0F172A" },
+  dropdownText: {
+    fontSize: 15,
+    color: "#1E293B",
+  },
   dropdownListContainer: {
     position: "absolute",
-    top: 80,
+    top: 75,
     left: 0,
     right: 0,
-    backgroundColor: "#fff",
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    maxHeight: 200,
-    zIndex: 2000,
-    elevation: 5,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 8,
+    elevation: 10,
+    zIndex: 2000,
+    maxHeight: 200,
   },
-  dropdownList: { padding: 8 },
+  dropdownList: {
+    padding: 4,
+  },
   dropdownItem: {
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-  formButtons: { gap: 12, marginTop: 12 },
-  primaryBtn: {
-    backgroundColor: "#0F172A",
-    padding: 16,
-    borderRadius: 14,
-    alignItems: "center",
+  uploadSection: {
+    marginBottom: 24,
   },
-  primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  cancelBtn: { padding: 12, alignItems: "center" },
-  cancelBtnText: { color: "#64748B", fontWeight: "600" },
-  disabledBtn: { opacity: 0.7 },
-  listSection: { padding: 20 },
-  memberCard: {
-    backgroundColor: "#fff",
-    padding: 16,
-    borderRadius: 20,
-    marginBottom: 12,
+  uploadRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
+    gap: 12,
   },
-  memberInfo: { flex: 1 },
-  memberName: { fontSize: 16, fontWeight: "800", color: "#0F172A" },
-  memberMeta: {
-    fontSize: 14,
-    color: "#3B82F6",
-    fontWeight: "600",
-    marginTop: 2,
-  },
-  memberContact: { fontSize: 12, color: "#64748B", marginTop: 4 },
-  memberActions: { flexDirection: "row", gap: 12 },
-  editBtn: { padding: 8 },
-  editBtnText: { color: "#3B82F6", fontWeight: "700" },
-  deleteBtn: { padding: 8 },
-  deleteBtnText: { color: "#EF4444", fontWeight: "700" },
-  emptyState: { padding: 40, alignItems: "center" },
-  emptyText: { color: "#94A3B8", fontSize: 14 },
-  uploadSection: { marginBottom: 20 },
-  uploadRow: { flexDirection: "row", gap: 12, marginTop: 10 },
   uploadBox: {
     flex: 1,
-    height: 100,
+    aspectRatio: 1,
     backgroundColor: "#F8FAFC",
-    borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: 2,
     borderStyle: "dashed",
     borderColor: "#CBD5E1",
+    borderRadius: 16,
     overflow: "hidden",
+  },
+  uploadPlaceholder: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    padding: 8,
   },
-  uploadPlaceholder: { alignItems: "center" },
-  uploadIcon: { fontSize: 24, marginBottom: 4 },
-  uploadLabel: { fontSize: 11, fontWeight: "600", color: "#64748B" },
-  previewImage: { width: "100%", height: "100%" },
-  memberHeader: {
+  uploadIcon: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  uploadLabel: {
+    fontSize: 10,
+    color: "#64748B",
+    textAlign: "center",
+    fontWeight: "600",
+  },
+  previewImage: {
+    width: "100%",
+    height: "100%",
+  },
+  addBtn: {
+    backgroundColor: "#3B82F6",
+    borderRadius: 14,
+    padding: 16,
+    alignItems: "center",
+    shadowColor: "#3B82F6",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  addBtnText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  cancelBtn: {
+    marginTop: 12,
+    padding: 12,
+    alignItems: "center",
+  },
+  cancelBtnText: {
+    color: "#64748B",
+    fontWeight: "600",
+  },
+  disabledBtn: {
+    opacity: 0.6,
+  },
+  listSection: {
+    paddingHorizontal: 20,
+  },
+  memberCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  memberRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    flex: 1,
   },
   memberAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "#F1F5F9",
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    marginRight: 16,
   },
-  placeholderAvatar: {
+  memberAvatarPlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#E2E8F0",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
+    marginRight: 16,
   },
-  avatarText: { fontSize: 20, fontWeight: "800", color: "#64748B" },
+  avatarInitial: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#64748B",
+  },
+  memberInfo: {
+    flex: 1,
+  },
+  memberName: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1E293B",
+  },
+  memberSubText: {
+    fontSize: 14,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  cardActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+    paddingTop: 16,
+  },
+  editBtn: {
+    flex: 1,
+    backgroundColor: "#F1F5F9",
+    padding: 10,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  editBtnText: {
+    color: "#1E293B",
+    fontWeight: "600",
+  },
+  deleteBtn: {
+    flex: 1,
+    backgroundColor: "#FEF2F2",
+    padding: 10,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  deleteBtnText: {
+    color: "#EF4444",
+    fontWeight: "600",
+  },
+  emptyState: {
+    padding: 40,
+    alignItems: "center",
+  },
+  emptyText: {
+    color: "#94A3B8",
+    fontSize: 16,
+  },
 });
