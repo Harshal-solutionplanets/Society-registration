@@ -94,6 +94,11 @@ export default function AdminSetup() {
   });
 
   const [showDropdowns, setShowDropdowns] = useState<Record<string, boolean>>({});
+  const [formErrors, setFormErrors] = useState({
+    pincode: "",
+    adminContact: "",
+    googleLocation: "",
+  });
 
   const [societyRef, setSocietyRef] = useState<any>(null);
 
@@ -139,10 +144,77 @@ export default function AdminSetup() {
   };
 
   const handleInputChange = (field: string, value: string) => {
+    // Clear error when user changes input
+    if (formErrors[field as keyof typeof formErrors]) {
+      setFormErrors(prev => ({ ...prev, [field]: "" }));
+    }
+
+    // Enforce 6-digit limit for pincode
+    if (field === "pincode") {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      if (sanitized.length > 6) return;
+
+      setFormData((prev) => ({ ...prev, [field]: sanitized }));
+
+      // Inline validation
+      if (sanitized.length > 0 && sanitized.length < 6) {
+        setFormErrors(prev => ({ ...prev, pincode: "Pincode must be 6 digits" }));
+      }
+      return;
+    }
+
+    // Enforce 10-digit limit for contact number
+    if (field === "adminContact") {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      if (sanitized.length > 10) return;
+
+      setFormData((prev) => ({ ...prev, [field]: sanitized }));
+
+      // Inline validation
+      if (sanitized.length > 0 && sanitized.length < 10) {
+        setFormErrors(prev => ({ ...prev, adminContact: "Contact must be 10 digits" }));
+      }
+      return;
+    }
+
+    // Google Maps URL validation - Strictly original google links
+    if (field === "googleLocation") {
+      setFormData((prev) => ({ ...prev, [field]: value }));
+      if (value.length === 0) {
+        setFormErrors(prev => ({ ...prev, googleLocation: "" }));
+      } else {
+        const googleMapsRegex = /^(https?:\/\/)?(www\.)?(google\.com\/maps|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+$/;
+        if (!googleMapsRegex.test(value)) {
+          setFormErrors(prev => ({ ...prev, googleLocation: "Invalid Google Maps URL. Use original shared link." }));
+        } else {
+          setFormErrors(prev => ({ ...prev, googleLocation: "" }));
+        }
+      }
+      return;
+    }
+
+    // Limit wing count to 3 digits
+    if (field === "wingCount") {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      if (sanitized.length > 3) return;
+      setFormData((prev) => ({ ...prev, [field]: sanitized }));
+      return;
+    }
+
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleAdvanceInputChange = (field: string, value: string) => {
+    // Global limit for any numeric field in advance form (preventing accidental massive numbers)
+    // Most counts won't exceed 4 digits (9999)
+    const numericFields = ["fireExtinguisherCount", "liftCount", "waterTankCount", "cctvCount", "completionYear"];
+    if (numericFields.includes(field)) {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      const limit = field === "completionYear" ? 4 : 4;
+      if (sanitized.length > limit) return;
+      value = sanitized;
+    }
+
     setAdvanceFormData((prev) => {
       const updatedData = { ...prev, [field]: value };
 
@@ -171,7 +243,7 @@ export default function AdminSetup() {
   };
 
   const handleSetup = async () => {
-    const { societyName, wingCount, pincode, adminName } = formData;
+    const { societyName, wingCount, pincode, adminName, adminContact, googleLocation } = formData;
 
     // Validation for essential fields
     if (!societyName || !wingCount || !pincode || !adminName) {
@@ -181,6 +253,34 @@ export default function AdminSetup() {
         text2: "Please fill in all essential fields.",
       });
       return;
+    }
+
+    // Final validation check before submission
+    if (formErrors.pincode || formErrors.adminContact || formErrors.googleLocation) {
+      Toast.show({
+        type: "error",
+        text1: "Validation Error",
+        text2: "Please fix the errors in the form before submitting.",
+      });
+      return;
+    }
+
+    // Doubly ensure values are correct length (in case user just left it incomplete)
+    if (pincode.length !== 6) {
+      setFormErrors(prev => ({ ...prev, pincode: "Pincode must be 6 digits" }));
+      return;
+    }
+    if (adminContact && adminContact.length !== 10) {
+      setFormErrors(prev => ({ ...prev, adminContact: "Contact must be 10 digits" }));
+      return;
+    }
+
+    if (googleLocation) {
+      const googleMapsRegex = /^(https?:\/\/)?(www\.)?(google\.com\/maps|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+$/;
+      if (!googleMapsRegex.test(googleLocation)) {
+        setFormErrors(prev => ({ ...prev, googleLocation: "Invalid Google Maps URL. Use original shared link." }));
+        return;
+      }
     }
 
     if (!user || !user.email) {
@@ -329,6 +429,7 @@ export default function AdminSetup() {
         value={advanceFormData[field as keyof typeof advanceFormData] as string}
         onChangeText={(val) => handleAdvanceInputChange(field, val)}
         keyboardType={keyboardType}
+        maxLength={keyboardType === "numeric" ? (field === "completionYear" ? 4 : 4) : undefined}
       />
     </View>
   );
@@ -538,23 +639,26 @@ export default function AdminSetup() {
                 <View style={styles.flex1}>
                   <Text style={styles.label}>Pincode *</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, formErrors.pincode ? styles.inputError : null]}
                     placeholder="411057"
                     placeholderTextColor="#94A3B8"
                     value={formData.pincode}
                     onChangeText={(val) => handleInputChange("pincode", val)}
                     keyboardType="numeric"
+                    maxLength={6}
                   />
+                  {formErrors.pincode ? <Text style={styles.errorText}>{formErrors.pincode}</Text> : null}
                 </View>
                 <View style={styles.flex1}>
                   <Text style={styles.label}>Wings/Blocks *</Text>
                   <TextInput
                     style={[styles.input, isEditMode && styles.inputDisabled]}
-                    placeholder="e.g. 3"
+                    placeholder="e.g. 5"
                     placeholderTextColor="#94A3B8"
                     value={formData.wingCount}
                     onChangeText={(val) => handleInputChange("wingCount", val)}
                     keyboardType="numeric"
+                    maxLength={3}
                     editable={!isEditMode}
                   />
                 </View>
@@ -574,12 +678,13 @@ export default function AdminSetup() {
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Google Maps Location URL</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, formErrors.googleLocation ? styles.inputError : null]}
                   placeholder="https://goo.gl/maps/..."
                   placeholderTextColor="#94A3B8"
                   value={formData.googleLocation}
                   onChangeText={(val) => handleInputChange("googleLocation", val)}
                 />
+                {formErrors.googleLocation ? <Text style={styles.errorText}>{formErrors.googleLocation}</Text> : null}
               </View>
 
               <View style={styles.divider} />
@@ -600,13 +705,15 @@ export default function AdminSetup() {
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Admin Contact</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, formErrors.adminContact ? styles.inputError : null]}
                   placeholder="e.g. 9876543210"
                   placeholderTextColor="#94A3B8"
                   value={formData.adminContact}
                   onChangeText={(val) => handleInputChange("adminContact", val)}
                   keyboardType="phone-pad"
+                  maxLength={10}
                 />
+                {formErrors.adminContact ? <Text style={styles.errorText}>{formErrors.adminContact}</Text> : null}
               </View>
             </>
           ) : (
@@ -651,7 +758,7 @@ export default function AdminSetup() {
           )}
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingView >
   );
 }
 
@@ -939,5 +1046,16 @@ const styles = StyleSheet.create({
     height: 1.5,
     backgroundColor: "#E2E8F0",
     marginVertical: 16,
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 11,
+    marginTop: 4,
+    marginLeft: 4,
+    fontWeight: "600",
+  },
+  inputError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FFF1F2",
   },
 });

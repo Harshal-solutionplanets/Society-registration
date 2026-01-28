@@ -70,6 +70,10 @@ export default function ResidentStaff() {
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [otherStaffType, setOtherStaffType] = useState("");
   const [sessionData, setSessionData] = useState<any>(null);
+  const [formErrors, setFormErrors] = useState({
+    contact: "",
+    guardianContact: "",
+  });
 
   // Drive helpers
   const findOrCreateFolder = async (
@@ -198,41 +202,104 @@ export default function ResidentStaff() {
     return unsubscribe;
   }, [user, sessionData]);
 
-  const pickImage = async (type: "photo" | "idCard" | "addressProof") => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      quality: 0.5,
-      base64: true,
-    });
+  const handleDocumentChange = async (type: "photo" | "idCard" | "addressProof", action: "pick" | "delete") => {
+    let newValue = null;
 
-    if (!result.canceled) {
-      const asset = result.assets[0];
+    if (action === "pick") {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        quality: 0.5,
+        base64: true,
+      });
 
-      // 220KB size limit check (~300,000 characters in base64) to stay under 1MB Firestore total limit
-      if (asset.base64 && asset.base64.length > 300000) {
-        Alert.alert(
-          "Error",
-          "File size too large. Maximum limit is 220KB to ensure smooth sync.",
-        );
+      if (!result.canceled) {
+        const asset = result.assets[0];
+        if (asset.base64 && asset.base64.length > 300000) {
+          Alert.alert("Error", "File size too large. Maximum limit is 220KB.");
+          return;
+        }
+        newValue = `data:image/jpeg;base64,${asset.base64}`;
+      } else {
         return;
       }
+    }
 
-      const base64Image = `data:image/jpeg;base64,${asset.base64}`;
-      if (type === "photo") setPhoto(base64Image);
-      else if (type === "idCard") setIdCard(base64Image);
-      else if (type === "addressProof") setAddressProof(base64Image);
+    // Update state immediately
+    if (type === "photo") setPhoto(newValue);
+    else if (type === "idCard") setIdCard(newValue);
+    else if (type === "addressProof") setAddressProof(newValue);
+
+    // If we are editing an existing record, sync "turant" (immediately)
+    if (editingId && sessionData && user) {
+      const { adminUID, id: unitId, driveFolderId: flatFolderId } = sessionData;
+      const fileName = type === "photo" ? "Photo.jpg" : type === "idCard" ? "ID_Card.jpg" : "Address_Proof.jpg";
+
+      try {
+        // 1. Update Firestore (Society & Local)
+        const updateObj = { [type]: newValue || "", updatedAt: new Date().toISOString() };
+
+        const societyPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${editingId}`;
+        const localPath = `users/${user.uid}/${COLLECTIONS.STAFF}/${editingId}`;
+
+        await setDoc(doc(db, societyPath), updateObj, { merge: true });
+        await setDoc(doc(db, localPath), updateObj, { merge: true });
+
+        // 2. Drive Update (if photo picked)
+        if (flatFolderId && newValue) {
+          await uploadImageToDrive(newValue, fileName, flatFolderId);
+        }
+
+        Toast.show({
+          type: "success",
+          text1: "Auto-synced",
+          text2: `${type} updated in cloud.`
+        });
+      } catch (err: any) {
+        console.error("Immediate sync failed:", err);
+      }
+    }
+  };
+
+  const handleContactChange = (val: string) => {
+    const sanitized = val.replace(/[^0-9]/g, "");
+    if (sanitized.length > 10) return;
+    setContact(sanitized);
+    if (sanitized.length > 0 && sanitized.length < 10) {
+      setFormErrors(prev => ({ ...prev, contact: "Contact must be 10 digits" }));
+    } else {
+      setFormErrors(prev => ({ ...prev, contact: "" }));
+    }
+  };
+
+  const handleGuardianContactChange = (val: string) => {
+    const sanitized = val.replace(/[^0-9]/g, "");
+    if (sanitized.length > 10) return;
+    setGuardianContact(sanitized);
+    if (sanitized.length > 0 && sanitized.length < 10) {
+      setFormErrors(prev => ({ ...prev, guardianContact: "Contact must be 10 digits" }));
+    } else {
+      setFormErrors(prev => ({ ...prev, guardianContact: "" }));
     }
   };
 
   const handleSubmit = async () => {
-    // Only Staff Name, Category, and Contact are mandatory
-    if (!staffName || !contact || (staffType === "Other" && !otherStaffType)) {
+    if (!staffName || !contact || !staffType) {
       Toast.show({
         type: "error",
-        text1: "Required Fields Missing",
-        text2: "Please fill Name, Category and Contact Number.",
+        text1: "Required Fields",
+        text2: "Staff Name, Type and Contact are mandatory.",
       });
+      return;
+    }
+
+    // Validation check
+    if (contact.length !== 10) {
+      setFormErrors(prev => ({ ...prev, contact: "Contact must be 10 digits" }));
+      return;
+    }
+    if (guardianContact && guardianContact.length !== 10) {
+      setFormErrors(prev => ({ ...prev, guardianContact: "Contact must be 10 digits" }));
       return;
     }
 
@@ -502,12 +569,14 @@ export default function ResidentStaff() {
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Contact Number *</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, formErrors.contact ? styles.inputError : null]}
               placeholder="e.g. 9876543210"
               value={contact}
-              onChangeText={setContact}
+              onChangeText={handleContactChange}
               keyboardType="phone-pad"
+              maxLength={10}
             />
+            {formErrors.contact ? <Text style={styles.errorText}>{formErrors.contact}</Text> : null}
           </View>
 
           <View style={styles.divider} />
@@ -527,12 +596,14 @@ export default function ResidentStaff() {
             <View style={[styles.inputGroup, { flex: 1 }]}>
               <Text style={styles.label}>Guardian Contact</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, formErrors.guardianContact ? styles.inputError : null]}
                 placeholder="98765..."
                 value={guardianContact}
-                onChangeText={setGuardianContact}
+                onChangeText={handleGuardianContactChange}
                 keyboardType="phone-pad"
+                maxLength={10}
               />
+              {formErrors.guardianContact ? <Text style={styles.errorText}>{formErrors.guardianContact}</Text> : null}
             </View>
           </View>
 
@@ -552,59 +623,107 @@ export default function ResidentStaff() {
           <View style={styles.uploadSection}>
             <Text style={styles.label}>Staff Documents (Max 220KB)</Text>
             <View style={styles.uploadRow}>
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => pickImage("photo")}
-              >
-                {photo ? (
-                  <Image
-                    source={{ uri: photo }}
-                    style={styles.previewImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.uploadPlaceholder}>
-                    <Text style={styles.uploadIcon}>👤</Text>
-                    <Text style={styles.uploadLabel}>Photo</Text>
+              {/* PHOTO UPLOAD */}
+              <View style={styles.uploadWrapper}>
+                <TouchableOpacity
+                  style={styles.uploadBox}
+                  onPress={() => !photo && handleDocumentChange("photo", "pick")}
+                  activeOpacity={photo ? 1 : 0.7}
+                >
+                  {photo ? (
+                    <Image source={{ uri: photo }} style={styles.previewImage} resizeMode="cover" />
+                  ) : (
+                    <View style={styles.uploadPlaceholder}>
+                      <Text style={styles.uploadIcon}>👤</Text>
+                      <Text style={styles.uploadLabel}>Photo</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {photo && (
+                  <View style={styles.overlayControls}>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.editOverlay]}
+                      onPress={() => handleDocumentChange("photo", "pick")}
+                    >
+                      <Ionicons name="create" size={16} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.deleteOverlay]}
+                      onPress={() => handleDocumentChange("photo", "delete")}
+                    >
+                      <Ionicons name="trash" size={16} color="white" />
+                    </TouchableOpacity>
                   </View>
                 )}
-              </TouchableOpacity>
+              </View>
 
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => pickImage("idCard")}
-              >
-                {idCard ? (
-                  <Image
-                    source={{ uri: idCard }}
-                    style={styles.previewImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.uploadPlaceholder}>
-                    <Text style={styles.uploadIcon}>💳</Text>
-                    <Text style={styles.uploadLabel}>Photo ID Card</Text>
+              {/* ID CARD UPLOAD */}
+              <View style={styles.uploadWrapper}>
+                <TouchableOpacity
+                  style={styles.uploadBox}
+                  onPress={() => !idCard && handleDocumentChange("idCard", "pick")}
+                  activeOpacity={idCard ? 1 : 0.7}
+                >
+                  {idCard ? (
+                    <Image source={{ uri: idCard }} style={styles.previewImage} resizeMode="cover" />
+                  ) : (
+                    <View style={styles.uploadPlaceholder}>
+                      <Text style={styles.uploadIcon}>💳</Text>
+                      <Text style={styles.uploadLabel}>ID Card</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {idCard && (
+                  <View style={styles.overlayControls}>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.editOverlay]}
+                      onPress={() => handleDocumentChange("idCard", "pick")}
+                    >
+                      <Ionicons name="create" size={16} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.deleteOverlay]}
+                      onPress={() => handleDocumentChange("idCard", "delete")}
+                    >
+                      <Ionicons name="trash" size={16} color="white" />
+                    </TouchableOpacity>
                   </View>
                 )}
-              </TouchableOpacity>
+              </View>
 
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => pickImage("addressProof")}
-              >
-                {addressProof ? (
-                  <Image
-                    source={{ uri: addressProof }}
-                    style={styles.previewImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.uploadPlaceholder}>
-                    <Text style={styles.uploadIcon}>🏠</Text>
-                    <Text style={styles.uploadLabel}>Address Proof</Text>
+              {/* ADDRESS PROOF UPLOAD */}
+              <View style={styles.uploadWrapper}>
+                <TouchableOpacity
+                  style={styles.uploadBox}
+                  onPress={() => !addressProof && handleDocumentChange("addressProof", "pick")}
+                  activeOpacity={addressProof ? 1 : 0.7}
+                >
+                  {addressProof ? (
+                    <Image source={{ uri: addressProof }} style={styles.previewImage} resizeMode="cover" />
+                  ) : (
+                    <View style={styles.uploadPlaceholder}>
+                      <Text style={styles.uploadIcon}>🏠</Text>
+                      <Text style={styles.uploadLabel}>Address</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {addressProof && (
+                  <View style={styles.overlayControls}>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.editOverlay]}
+                      onPress={() => handleDocumentChange("addressProof", "pick")}
+                    >
+                      <Ionicons name="create" size={16} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.deleteOverlay]}
+                      onPress={() => handleDocumentChange("addressProof", "delete")}
+                    >
+                      <Ionicons name="trash" size={16} color="white" />
+                    </TouchableOpacity>
                   </View>
                 )}
-              </TouchableOpacity>
+              </View>
             </View>
           </View>
 
@@ -1022,5 +1141,45 @@ const styles = StyleSheet.create({
     color: "#94A3B8",
     fontSize: 14,
     textAlign: "center",
+  },
+  uploadWrapper: {
+    flex: 1,
+    position: 'relative',
+  },
+  overlayControls: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    gap: 8,
+    flexDirection: 'row',
+  },
+  overlayBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  editOverlay: {
+    backgroundColor: '#3B82F6',
+  },
+  deleteOverlay: {
+    backgroundColor: '#EF4444',
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 11,
+    marginTop: 4,
+    marginLeft: 4,
+    fontWeight: "600",
+  },
+  inputError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FFF1F2",
   },
 });

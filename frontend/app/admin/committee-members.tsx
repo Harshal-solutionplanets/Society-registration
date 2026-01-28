@@ -83,6 +83,10 @@ export default function CommitteeMembers() {
   const [selectedAdditionalWings, setSelectedAdditionalWings] = useState<string[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState("");
+  const [formErrors, setFormErrors] = useState({
+    phone: "",
+    email: "",
+  });
 
   // Auto-fill logic state
   const [lastSavedByPost, setLastSavedByPost] = useState<Record<string, any>>({});
@@ -221,10 +225,49 @@ export default function CommitteeMembers() {
     }
   };
 
+  const handlePhoneChange = (val: string) => {
+    const sanitized = val.replace(/[^0-9]/g, "");
+    if (sanitized.length > 10) return;
+    setPhone(sanitized);
+    if (sanitized.length > 0 && sanitized.length < 10) {
+      setFormErrors(prev => ({ ...prev, phone: "Phone must be 10 digits" }));
+    } else {
+      setFormErrors(prev => ({ ...prev, phone: "" }));
+    }
+  };
+
+  const handleEmailChange = (val: string) => {
+    setEmail(val);
+    if (val.length > 0) {
+      if (!val.toLowerCase().endsWith("@gmail.com")) {
+        setFormErrors(prev => ({ ...prev, email: "Only @gmail.com is allowed" }));
+      } else {
+        setFormErrors(prev => ({ ...prev, email: "" }));
+      }
+    } else {
+      setFormErrors(prev => ({ ...prev, email: "" }));
+    }
+  };
+
   const handleAddMember = async () => {
     if (!user) return;
-    if (!name || !post || !phone || !email || !flatNo || !floor || !wing) {
-      Alert.alert("Error", "Please fill all fields");
+
+    // Validation check
+    if (phone.length !== 10) {
+      setFormErrors(prev => ({ ...prev, phone: "Phone must be 10 digits" }));
+      return;
+    }
+    if (email && !email.toLowerCase().endsWith("@gmail.com")) {
+      setFormErrors(prev => ({ ...prev, email: "Only @gmail.com is allowed" }));
+      return;
+    }
+
+    if (!name || !post || !phone || !wing || !flatNo) {
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Please fill all required fields",
+      });
       return;
     }
 
@@ -753,21 +796,31 @@ export default function CommitteeMembers() {
             </View>
           </View>
 
-          <TextInput
-            style={[styles.input, { marginTop: 12 }]}
-            placeholder="Phone Number"
-            value={phone}
-            onChangeText={setPhone}
-            keyboardType="phone-pad"
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Phone Number *</Text>
+            <TextInput
+              style={[styles.input, formErrors.phone ? styles.inputError : null]}
+              placeholder="e.g. 9876543210"
+              value={phone}
+              onChangeText={handlePhoneChange}
+              keyboardType="phone-pad"
+              maxLength={10}
+            />
+            {formErrors.phone ? <Text style={styles.errorText}>{formErrors.phone}</Text> : null}
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Email (Optional)</Text>
+            <TextInput
+              style={[styles.input, formErrors.email ? styles.inputError : null]}
+              placeholder="e.g. member@gmail.com"
+              value={email}
+              onChangeText={handleEmailChange}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            {formErrors.email ? <Text style={styles.errorText}>{formErrors.email}</Text> : null}
+          </View>
           <TouchableOpacity
             style={[styles.addBtn, saving && styles.disabledBtn]}
             onPress={handleAddMember}
@@ -1016,7 +1069,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   emptyText: {
-    color: "#999",
+    color: "#94A3B8",
+    fontSize: 14,
+    textAlign: "center",
   },
   additionalWingsSection: {
     marginTop: 16,
@@ -1176,5 +1231,25 @@ const styles = StyleSheet.create({
     color: "#0369A1",
     fontSize: 12,
     fontWeight: "700",
+  },
+  inputGroup: {
+    marginBottom: 12,
+  },
+  label: {
+    fontSize: 14,
+    color: "#495057",
+    marginBottom: 6,
+    fontWeight: "500",
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 11,
+    marginTop: 4,
+    marginLeft: 4,
+    fontWeight: "600",
+  },
+  inputError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FFF1F2",
   },
 });

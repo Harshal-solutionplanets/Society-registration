@@ -2,24 +2,24 @@ import { appId, auth, db } from "@/configs/firebaseConfig";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
-    createUserWithEmailAndPassword,
-    GoogleAuthProvider,
-    signInWithEmailAndPassword,
-    signInWithPopup,
-    signOut,
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -30,6 +30,20 @@ export default function AdminAuth() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [emailError, setEmailError] = useState("");
+
+  const handleEmailChange = (val: string) => {
+    setEmail(val);
+    if (!isLogin && val.length > 0) {
+      if (!val.toLowerCase().endsWith("@gmail.com")) {
+        setEmailError("Only @gmail.com leads are allowed");
+      } else {
+        setEmailError("");
+      }
+    } else {
+      setEmailError("");
+    }
+  };
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -39,11 +53,7 @@ export default function AdminAuth() {
 
     // Validate email domain for registration BEFORE any Firebase calls
     if (!isLogin && !email.toLowerCase().endsWith("@gmail.com")) {
-      Toast.show({
-        type: "error",
-        text1: "Invalid Email Domain",
-        text2: "Only @gmail.com accounts are allowed for admin registration.",
-      });
+      setEmailError("Only @gmail.com leads are allowed");
       return;
     }
 
@@ -202,14 +212,15 @@ export default function AdminAuth() {
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Email Address</Text>
             <TextInput
-              style={styles.input}
-              placeholder="admin@example.com"
+              style={[styles.input, emailError ? styles.inputError : null]}
+              placeholder="admin@gmail.com"
               placeholderTextColor="#94A3B8"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={handleEmailChange}
               keyboardType="email-address"
               autoCapitalize="none"
             />
+            {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
           </View>
 
           <View style={styles.inputGroup}>
@@ -437,5 +448,16 @@ const styles = StyleSheet.create({
     color: "#EF4444",
     fontSize: 14,
     fontWeight: "700",
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 11,
+    marginTop: 4,
+    marginLeft: 4,
+    fontWeight: "600",
+  },
+  inputError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FFF1F2",
   },
 });

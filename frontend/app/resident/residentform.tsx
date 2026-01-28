@@ -60,6 +60,11 @@ export default function ResidentForm() {
     hobbies: "",
   });
 
+  const [formErrors, setFormErrors] = useState<any>({
+    residentMobile: "",
+    alternateMobile: "",
+  });
+
   const [showDropdowns, setShowDropdowns] = useState<any>({
     status: false,
     ownership: false,
@@ -109,6 +114,21 @@ export default function ResidentForm() {
   };
 
   const handleInputChange = (field: string, value: any) => {
+    // Mobile number validation
+    if (field === "residentMobile" || field === "alternateMobile") {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      if (sanitized.length > 10) return;
+
+      setFormData((prev: any) => ({ ...prev, [field]: sanitized }));
+
+      if (sanitized.length > 0 && sanitized.length < 10) {
+        setFormErrors((prev: any) => ({ ...prev, [field]: "Mobile must be 10 digits" }));
+      } else {
+        setFormErrors((prev: any) => ({ ...prev, [field]: "" }));
+      }
+      return;
+    }
+
     setFormData((prev: any) => ({ ...prev, [field]: value }));
   };
 
@@ -185,8 +205,22 @@ export default function ResidentForm() {
   };
 
   const handleSubmit = async () => {
+    // Validation check before submit
+    if (formData.residentMobile && formData.residentMobile.length !== 10) {
+      setFormErrors((prev: any) => ({ ...prev, residentMobile: "Mobile must be 10 digits" }));
+      return;
+    }
+    if (formData.alternateMobile && formData.alternateMobile.length > 0 && formData.alternateMobile.length !== 10) {
+      setFormErrors((prev: any) => ({ ...prev, alternateMobile: "Mobile must be 10 digits" }));
+      return;
+    }
+
     if (!formData.residentName || !formData.residentMobile) {
-      Toast.show({ type: "error", text1: "Required Fields", text2: "Name and Mobile required" });
+      Toast.show({
+        type: "error",
+        text1: "Required Fields",
+        text2: "Resident Name and Mobile are mandatory.",
+      });
       return;
     }
     setIsSubmitting(true);
@@ -307,12 +341,31 @@ export default function ResidentForm() {
 
               <View style={[styles.rowInputsContainer, { zIndex: showDropdowns.residentBlood ? 3000 : 15 }]}>
                 <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.label}>Mobile *</Text>
-                  <TextInput style={styles.input} value={formData.residentMobile} onChangeText={(val) => handleInputChange("residentMobile", val)} placeholder="10-digit mobile" keyboardType="phone-pad" />
+                  <Text style={styles.label}>Mobile Number *</Text>
+                  <TextInput
+                    style={[styles.input, formErrors.residentMobile ? styles.inputError : null]}
+                    value={formData.residentMobile}
+                    onChangeText={(val) => handleInputChange("residentMobile", val)}
+                    placeholder="e.g. 9876543210"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                  />
+                  {formErrors.residentMobile ? <Text style={styles.errorText}>{formErrors.residentMobile}</Text> : null}
                 </View>
+
                 <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.label}>Alternate</Text>
-                  <TextInput style={styles.input} value={formData.alternateMobile} onChangeText={(val) => handleInputChange("alternateMobile", val)} placeholder="Optional" keyboardType="phone-pad" />
+                  <Text style={styles.label}>Alternate Mobile (Optional)</Text>
+                  <TextInput
+                    style={[styles.input, formErrors.alternateMobile ? styles.inputError : null]}
+                    value={formData.alternateMobile}
+                    onChangeText={(val) => handleInputChange("alternateMobile", val)}
+                    placeholder="e.g. 9876543210"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                  />
+                  {formErrors.alternateMobile ? <Text style={styles.errorText}>{formErrors.alternateMobile}</Text> : null}
                 </View>
                 {renderDropdown("Blood Group", formData.residentBloodGroup, BLOOD_GROUPS, showDropdowns.residentBlood, (val) => { handleInputChange("residentBloodGroup", val); setShowDropdowns({ ...showDropdowns, residentBlood: false }); }, () => setShowDropdowns({ ...showDropdowns, residentBlood: !showDropdowns.residentBlood }), { flex: 1 })}
               </View>
@@ -410,6 +463,20 @@ const styles = StyleSheet.create({
   activeTab: { backgroundColor: "#FFFFFF", elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
   tabText: { fontSize: 14, fontWeight: "700", color: "#64748B" },
   activeTabText: { color: "#3B82F6" },
+  placeholderText: {
+    color: "#94A3B8",
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 11,
+    marginTop: 4,
+    marginLeft: 4,
+    fontWeight: "600",
+  },
+  inputError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FFF1F2",
+  },
   card: { backgroundColor: "#FFFFFF", borderRadius: 20, padding: 15, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 },
   sectionHeader: { fontSize: 11, fontWeight: "800", color: "#3B82F6", letterSpacing: 0.5, marginBottom: 12, marginTop: 4 },
   inputGroup: { marginBottom: 12 },
