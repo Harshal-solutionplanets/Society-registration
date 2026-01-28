@@ -2,26 +2,26 @@ import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    getDocs,
-    setDoc,
-    updateDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import * as React from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    GestureResponderEvent,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  GestureResponderEvent,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 interface Wing {
@@ -30,6 +30,7 @@ interface Wing {
   wingIndex?: number;
   floorCount: number;
   floors: any[];
+  totalFlats?: number;
   driveFolderId?: string;
 }
 
@@ -398,7 +399,13 @@ export default function AdminDashboard() {
                         : styles.wingLetterPending,
                     ]}
                   >
-                    {wingInfo.name.charAt(0).toUpperCase()}
+                    {wingInfo.totalFlats ||
+                      wingInfo.floors?.reduce(
+                        (sum: number, f: any) => sum + (f.flatCount || 0),
+                        0,
+                      ) ||
+                      0}{" "}
+                    Units
                   </Text>
                   <Text
                     style={[

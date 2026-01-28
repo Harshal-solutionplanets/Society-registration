@@ -28,6 +28,7 @@ import Toast from "react-native-toast-message";
 interface Wing {
   id: string;
   name: string;
+  isConfigured?: boolean;
 }
 
 interface CommitteeMember {
@@ -79,6 +80,9 @@ export default function CommitteeMembers() {
 
   const [floorsList, setFloorsList] = useState<string[]>([]);
   const [flatsList, setFlatsList] = useState<string[]>([]);
+  const [selectedAdditionalWings, setSelectedAdditionalWings] = useState<string[]>([]);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editId, setEditId] = useState("");
 
   // Auto-fill logic state
   const [lastSavedByPost, setLastSavedByPost] = useState<Record<string, any>>({});
@@ -116,6 +120,7 @@ export default function CommitteeMembers() {
       const fetchedWings = wingsSnapshot.docs.map((doc) => ({
         id: doc.id,
         name: doc.data().name,
+        isConfigured: doc.data().isConfigured || false,
       })) as Wing[];
       setWings(fetchedWings);
     } catch (error) {
@@ -135,9 +140,9 @@ export default function CommitteeMembers() {
           `artifacts/${appId}/public/data/societies/${user.uid}/society_committee_members`,
         );
       } else {
-        const wing = wings.find((w) => w.id === selectedLevel);
-        if (!wing) return;
-        const sanitizedWingName = wing.name.replace(/\s+/g, "");
+        const wingObj = wings.find((w) => w.id === selectedLevel);
+        if (!wingObj) return;
+        const sanitizedWingName = wingObj.name.replace(/\s+/g, "");
         membersRef = collection(
           db,
           `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members`,
@@ -182,6 +187,15 @@ export default function CommitteeMembers() {
     }
   };
 
+  const handleNonResidentSelect = () => {
+    setWing("Non-Resident");
+    setFloor("N/A");
+    setFlatNo("N/A");
+    setFloorsList(["N/A"]);
+    setFlatsList(["N/A"]);
+    setShowWingDropdown(false);
+  };
+
   const handleFloorSelect = async (selectedFloor: string) => {
     setFloor(selectedFloor);
     setFlatNo("");
@@ -216,7 +230,7 @@ export default function CommitteeMembers() {
 
     setSaving(true);
     try {
-      const memberId = name; // Use name as identifying field
+      const memberId = name;
       const memberData: CommitteeMember = {
         id: memberId,
         name,
@@ -239,12 +253,38 @@ export default function CommitteeMembers() {
         memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members/${memberId}`;
       }
 
+      // Handle name change during edit (delete old record if ID changes)
+      if (isEditing && editId !== memberId) {
+        let oldPath = "";
+        if (selectedLevel === "society") {
+          oldPath = `artifacts/${appId}/public/data/societies/${user.uid}/society_committee_members/${editId}`;
+        } else {
+          const wingObj = wings.find((w) => w.id === selectedLevel);
+          if (wingObj) {
+            const sanitizedWingName = wingObj.name.replace(/\s+/g, "");
+            oldPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members/${editId}`;
+          }
+        }
+        if (oldPath) await deleteDoc(doc(db, oldPath));
+      }
+
       await setDoc(doc(db, memberPath), memberData);
 
       setMembers((prev) => {
         const filtered = prev.filter((m) => m.id !== memberId);
         return [...filtered, memberData];
       });
+
+      // Save to additional wings if selected
+      for (const additionalWingId of selectedAdditionalWings) {
+        const addWingObj = wings.find(w => w.id === additionalWingId);
+        if (addWingObj) {
+          const sanitizedAddWingName = addWingObj.name.replace(/\s+/g, "");
+          const addMemberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedAddWingName}/wing_committee_members/${memberId}`;
+          await setDoc(doc(db, addMemberPath), { ...memberData, level: additionalWingId });
+        }
+      }
+
       // Reset form
       setName("");
       setPost("");
@@ -253,6 +293,7 @@ export default function CommitteeMembers() {
       setWing("");
       setFlatNo("");
       setFloor("");
+      setSelectedAdditionalWings([]);
 
       // Save to auto-fill store
       setLastSavedByPost((prev: Record<string, any>) => ({
@@ -260,10 +301,13 @@ export default function CommitteeMembers() {
         [post]: { name, phone, email, floor, flatNo }
       }));
 
+      setIsEditing(false);
+      setEditId("");
+
       Toast.show({
         type: "success",
-        text1: "Member Added",
-        text2: `${name} has been added to the committee.`,
+        text1: isEditing ? "Member Updated" : "Member Added",
+        text2: `${name} has been ${isEditing ? "updated" : "added"}.`,
       });
     } catch (error: any) {
       Alert.alert("Error", error.message);
@@ -274,39 +318,54 @@ export default function CommitteeMembers() {
 
   const handleDeleteMember = async (member: CommitteeMember) => {
     if (!user) return;
-    Alert.alert(
-      "Delete Member",
-      `Are you sure you want to remove ${member.name}?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              let memberPath = "";
-              if (selectedLevel === "society") {
-                memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/society_committee_members/${member.id}`;
-              } else {
-                const wingObj = wings.find((w) => w.id === selectedLevel);
-                if (!wingObj) throw new Error("Wing not found");
-                const sanitizedWingName = wingObj.name.replace(/\s+/g, "");
-                memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members/${member.id}`;
-              }
 
-              await deleteDoc(doc(db, memberPath));
-              setMembers((prev) => prev.filter((m) => m.id !== member.id));
-              Toast.show({
-                type: "info",
-                text1: "Member Removed",
-              });
-            } catch (error: any) {
-              Alert.alert("Error", error.message);
-            }
-          },
-        },
-      ],
-    );
+    const confirmMessage = `Are you sure you want to remove ${member.name}?`;
+    const confirmDelete = Platform.OS === 'web'
+      ? window.confirm(confirmMessage)
+      : await new Promise<boolean>((resolve) => {
+        Alert.alert("Delete Member", confirmMessage, [
+          { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+          { text: "Delete", style: "destructive", onPress: () => resolve(true) }
+        ]);
+      });
+
+    if (!confirmDelete) return;
+
+    try {
+      let memberPath = "";
+      if (selectedLevel === "society") {
+        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/society_committee_members/${member.id}`;
+      } else {
+        const wingObj = wings.find((w) => w.id === selectedLevel);
+        if (!wingObj) throw new Error("Wing not found");
+        const sanitizedWingName = wingObj.name.replace(/\s+/g, "");
+        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members/${member.id}`;
+      }
+
+      await deleteDoc(doc(db, memberPath));
+      setMembers((prev) => prev.filter((m) => m.id !== member.id));
+      Toast.show({
+        type: "info",
+        text1: "Member Removed",
+      });
+    } catch (error: any) {
+      Alert.alert("Error", error.message);
+    }
+  };
+
+  const handleEditMember = (member: CommitteeMember) => {
+    setName(member.name);
+    setPost(member.post);
+    setPhone(member.phone);
+    setEmail(member.email);
+    setWing(member.wing);
+    setFloor(member.floor);
+    setFlatNo(member.flatNo);
+    setIsEditing(true);
+    setEditId(member.id);
+
+    // Scroll to top to show form
+    // Optional: add a ref to ScrollView
   };
 
   if (loading) {
@@ -366,7 +425,31 @@ export default function CommitteeMembers() {
                 Complete Society
               </Text>
             </TouchableOpacity>
-            {wings.map((w: Wing) => (
+            {/* Configured Wings */}
+            {wings.filter(w => w.isConfigured).map((w: Wing) => (
+              <TouchableOpacity
+                key={w.id}
+                style={[
+                  styles.levelBtn,
+                  selectedLevel === w.id && styles.levelBtnActive,
+                ]}
+                onPress={() => {
+                  setSelectedLevel(w.id);
+                  handleWingSelect(w);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.levelBtnText,
+                    selectedLevel === w.id && styles.levelBtnTextActive,
+                  ]}
+                >
+                  {w.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            {/* Other Wings */}
+            {wings.filter(w => !w.isConfigured).map((w: Wing) => (
               <TouchableOpacity
                 key={w.id}
                 style={[
@@ -392,13 +475,7 @@ export default function CommitteeMembers() {
         </View>
 
         <View style={styles.formSection}>
-          <View style={styles.formContextBanner}>
-            <Text style={styles.formContextLabel}>committee:</Text>
-            <Text style={styles.formContextValue}>
-              {selectedLevel === "society" ? "Complete Society" : `Wing: ${wing || "Select Wing Below"}`}
-            </Text>
-          </View>
-          <Text style={styles.sectionTitle}>Add New Member</Text>
+          <Text style={styles.sectionTitle}>{isEditing ? "Edit Member" : "Add New Member"}</Text>
 
           {showSuggestion && (
             <View style={styles.suggestionBanner}>
@@ -487,45 +564,61 @@ export default function CommitteeMembers() {
           </View>
 
           <View style={[styles.row, { zIndex: 900 }]}>
-            {/* Wing Dropdown - Only shown if society level is selected */}
-            {selectedLevel === "society" && (
-              <View style={{ flex: 1, position: "relative" }}>
-                <TouchableOpacity
-                  style={[styles.dropdownButton, { marginBottom: 0 }]}
-                  onPress={() => setShowWingDropdown(!showWingDropdown)}
+            {/* Wing Dropdown */}
+            <View style={{ flex: 1, position: "relative" }}>
+              <TouchableOpacity
+                style={[styles.dropdownButton, { marginBottom: 0 }]}
+                onPress={() => setShowWingDropdown(!showWingDropdown)}
+              >
+                <Text
+                  style={[
+                    styles.dropdownButtonText,
+                    { fontSize: 13 },
+                    !wing && { color: "#94A3B8" },
+                  ]}
+                  numberOfLines={1}
                 >
-                  <Text
-                    style={[
-                      styles.dropdownButtonText,
-                      { fontSize: 13 },
-                      !wing && { color: "#94A3B8" },
-                    ]}
-                    numberOfLines={1}
+                  {wing || "Wing"}
+                </Text>
+              </TouchableOpacity>
+              {showWingDropdown && (
+                <View style={[styles.dropdownListContainer, { top: 48 }]}>
+                  <ScrollView
+                    style={styles.dropdownList}
+                    nestedScrollEnabled={true}
+                    keyboardShouldPersistTaps="handled"
                   >
-                    {wing || "Wing"}
-                  </Text>
-                </TouchableOpacity>
-                {showWingDropdown && (
-                  <View style={[styles.dropdownListContainer, { top: 48 }]}>
-                    <ScrollView
-                      style={styles.dropdownList}
-                      nestedScrollEnabled={true}
-                      keyboardShouldPersistTaps="handled"
+                    {/* Configured Wings */}
+                    {wings.filter(w => w.isConfigured).map((w: Wing) => (
+                      <TouchableOpacity
+                        key={w.id}
+                        style={styles.dropdownItem}
+                        onPress={() => handleWingSelect(w)}
+                      >
+                        <Text style={styles.dropdownItemText}>{w.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {/* Other Wings */}
+                    {wings.filter(w => !w.isConfigured).map((w: Wing) => (
+                      <TouchableOpacity
+                        key={w.id}
+                        style={styles.dropdownItem}
+                        onPress={() => handleWingSelect(w)}
+                      >
+                        <Text style={styles.dropdownItemText}>{w.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {/* Non-Resident Option */}
+                    <TouchableOpacity
+                      style={styles.dropdownItem}
+                      onPress={() => handleNonResidentSelect()}
                     >
-                      {wings.map((w: Wing) => (
-                        <TouchableOpacity
-                          key={w.id}
-                          style={styles.dropdownItem}
-                          onPress={() => handleWingSelect(w)}
-                        >
-                          <Text style={styles.dropdownItemText}>{w.name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
-              </View>
-            )}
+                      <Text style={styles.dropdownItemText}>Non-Resident</Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+                </View>
+              )}
+            </View>
 
             {/* Floor Dropdown */}
             <View style={{ flex: 1, position: "relative" }}>
@@ -623,6 +716,43 @@ export default function CommitteeMembers() {
             </View>
           </View>
 
+          {/* Additional Wings Multi-select Section */}
+          <View style={styles.additionalWingsSection}>
+            <Text style={styles.additionalWingsLabel}>
+              Is this person a member or secretary of any other wing?
+            </Text>
+            <View style={styles.checkboxContainer}>
+              {wings
+                .filter((w) => w.id !== selectedLevel)
+                .map((w) => (
+                  <TouchableOpacity
+                    key={w.id}
+                    style={styles.checkboxRow}
+                    onPress={() => {
+                      setSelectedAdditionalWings((prev) =>
+                        prev.includes(w.id)
+                          ? prev.filter((id) => id !== w.id)
+                          : [...prev, w.id],
+                      );
+                    }}
+                  >
+                    <View
+                      style={[
+                        styles.checkbox,
+                        selectedAdditionalWings.includes(w.id) &&
+                        styles.checkboxActive,
+                      ]}
+                    >
+                      {selectedAdditionalWings.includes(w.id) && (
+                        <View style={styles.checkboxTick} />
+                      )}
+                    </View>
+                    <Text style={styles.checkboxLabel}>{w.name}</Text>
+                  </TouchableOpacity>
+                ))}
+            </View>
+          </View>
+
           <TextInput
             style={[styles.input, { marginTop: 12 }]}
             placeholder="Phone Number"
@@ -646,9 +776,27 @@ export default function CommitteeMembers() {
             {saving ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.addBtnText}>Add Member</Text>
+              <Text style={styles.addBtnText}>{isEditing ? "Update Member" : "Add Member"}</Text>
             )}
           </TouchableOpacity>
+          {isEditing && (
+            <TouchableOpacity
+              style={[styles.cancelBtn, { marginTop: 10 }]}
+              onPress={() => {
+                setIsEditing(false);
+                setEditId("");
+                setName("");
+                setPost("");
+                setPhone("");
+                setEmail("");
+                setWing("");
+                setFloor("");
+                setFlatNo("");
+              }}
+            >
+              <Text style={styles.cancelBtnText}>Cancel Edit</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.listSection}>
@@ -672,12 +820,20 @@ export default function CommitteeMembers() {
                   </Text>
                   <Text style={styles.memberContact}>{member.phone}</Text>
                 </View>
-                <TouchableOpacity
-                  style={styles.deleteBtn}
-                  onPress={() => handleDeleteMember(member)}
-                >
-                  <Text style={styles.deleteBtnText}>Remove</Text>
-                </TouchableOpacity>
+                <View style={styles.memberActions}>
+                  <TouchableOpacity
+                    style={styles.editBtn}
+                    onPress={() => handleEditMember(member)}
+                  >
+                    <Text style={styles.editBtnText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.deleteBtn}
+                    onPress={() => handleDeleteMember(member)}
+                  >
+                    <Text style={styles.deleteBtnText}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ))
           )}
@@ -801,11 +957,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 5,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#EEE",
   },
   memberInfo: {
     flex: 1,
@@ -814,25 +967,49 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
     color: "#333",
+    marginBottom: 4,
   },
   memberPost: {
-    fontSize: 14,
-    color: "#007AFF",
-    marginTop: 2,
-    fontWeight: "500",
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 4,
   },
   memberContact: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 4,
+    fontSize: 13,
+    color: "#007AFF",
   },
   deleteBtn: {
     padding: 8,
   },
   deleteBtnText: {
     color: "#FF3B30",
-    fontSize: 14,
     fontWeight: "600",
+  },
+  memberActions: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  editBtn: {
+    padding: 8,
+    backgroundColor: "#E7F3FF",
+    borderRadius: 6,
+  },
+  editBtnText: {
+    color: "#007AFF",
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  cancelBtn: {
+    backgroundColor: "#F1F3F5",
+    padding: 15,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  cancelBtnText: {
+    color: "#495057",
+    fontWeight: "bold",
+    fontSize: 16,
   },
   emptyState: {
     padding: 40,
@@ -840,7 +1017,57 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     color: "#999",
+  },
+  additionalWingsSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#EEE",
+  },
+  additionalWingsLabel: {
     fontSize: 14,
+    fontWeight: "600",
+    color: "#495057",
+    marginBottom: 12,
+  },
+  checkboxContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8F9FA",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#DEE2E6",
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: "#007AFF",
+    marginRight: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  checkboxActive: {
+    backgroundColor: "#007AFF",
+  },
+  checkboxTick: {
+    width: 8,
+    height: 8,
+    backgroundColor: "#fff",
+    borderRadius: 2,
+  },
+  checkboxLabel: {
+    fontSize: 13,
+    color: "#495057",
+    fontWeight: "500",
   },
   dropdownButton: {
     backgroundColor: "#F8F9FA",
@@ -949,26 +1176,5 @@ const styles = StyleSheet.create({
     color: "#0369A1",
     fontSize: 12,
     fontWeight: "700",
-  },
-  formContextBanner: {
-    backgroundColor: "#F8FAFC",
-    padding: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    marginBottom: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  formContextLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  formContextValue: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#0F172A',
   },
 });

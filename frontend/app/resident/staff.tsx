@@ -13,12 +13,14 @@ import {
   orderBy,
   query,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -129,7 +131,9 @@ export default function ResidentStaff() {
         body: JSON.stringify({
           adminUID,
           parentFolderId,
-          staffName, // Used by backend to create/find subfolder
+          staffFolderId: staffList.find((s) => s.id === editingId)
+            ?.driveFolderId,
+          staffName, // Used by backend for search or rename
           fileName,
           base64Data: base64String,
           appId,
@@ -149,8 +153,31 @@ export default function ResidentStaff() {
     }
   };
 
-  // Note: deleteFileFromDrive is now partially handled by backend (overwriting),
-  // but if needed, we could add a backend delete endpoint. For now, we update.
+  const deleteResFile = async (
+    fileName: string,
+    flatFolderId: string,
+    staffFolderId: string | undefined, // Need specific staff folder if possible
+  ) => {
+    try {
+      if (!staffFolderId) return; // Can't delete without folder ID
+      const { adminUID, id: unitId } = sessionData;
+      const backendUrl =
+        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+
+      await fetch(`${backendUrl}/api/drive/delete-resident-file`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminUID,
+          appId,
+          staffFolderId,
+          fileName,
+        }),
+      });
+    } catch (error) {
+      console.warn("Delete file error:", error);
+    }
+  };
 
   useEffect(() => {
     const loadSession = async () => {
@@ -181,10 +208,44 @@ export default function ResidentStaff() {
 
     const unsubscribe = onSnapshot(
       q,
-      (snapshot) => {
-        setStaffList(
-          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-        );
+      async (snapshot) => {
+        const staff = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        setStaffList(staff);
+
+        // SYNC: Update staffMembers count in Unit document & Session
+        try {
+          const count = staff.length;
+
+          // Only sync if count actually changed to avoid loops/excessive writes
+          if (sessionData && sessionData.staffMembers !== count) {
+            // 1. Update Unit record in society path
+            const societyUnitPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}`;
+            await updateDoc(doc(db, societyUnitPath), { staffMembers: count });
+
+            // 2. Update Wing specific record
+            const wingId = sessionData.wingId;
+            const floorNumber = sessionData.floorNumber;
+            if (wingId && floorNumber !== undefined) {
+              const wingUnitPath = `artifacts/${appId}/public/data/societies/${adminUID}/wings/${wingId}/${floorNumber}/${unitId}`;
+              await updateDoc(doc(db, wingUnitPath), {
+                staffMembers: count,
+              });
+            }
+
+            // 3. Update Session / AsyncStorage
+            const updatedSession = { ...sessionData, staffMembers: count };
+            setSessionData(updatedSession);
+            await AsyncStorage.setItem(
+              "resident_session",
+              JSON.stringify(updatedSession),
+            );
+          }
+        } catch (syncErr) {
+          console.warn("Sync staff count failed:", syncErr);
+        }
       },
       (error) => {
         console.warn(
@@ -195,7 +256,7 @@ export default function ResidentStaff() {
     );
 
     return unsubscribe;
-  }, [user, sessionData]);
+  }, [user, sessionData?.adminUID, sessionData?.id]);
 
   const pickImage = async (type: "photo" | "idCard" | "addressProof") => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -250,32 +311,49 @@ export default function ResidentStaff() {
       }
 
       // DRIVE STORAGE LOGIC (via Backend)
+      // DRIVE STORAGE LOGIC (via Backend)
       let staffFolderId = "";
+
+      // If editing, get existing ID
+      if (editingId) {
+        const existing = staffList.find((s) => s.id === editingId);
+        if (existing?.driveFolderId) staffFolderId = existing.driveFolderId;
+      }
 
       if (flatFolderId) {
         try {
-          // Upload photos to Drive via Backend
-          if (photo) {
-            staffFolderId = await uploadImageToDrive(
-              photo,
-              "Photo.jpg",
-              flatFolderId,
-            );
-          }
-          if (idCard) {
-            staffFolderId = await uploadImageToDrive(
-              idCard,
-              "ID_Card.jpg",
-              flatFolderId,
-            );
-          }
-          if (addressProof) {
-            staffFolderId = await uploadImageToDrive(
-              addressProof,
-              "Address_Proof.jpg",
-              flatFolderId,
-            );
-          }
+          const existingMember = editingId
+            ? staffList.find((s) => s.id === editingId)
+            : null;
+
+          const handleResDocOp = async (
+            currentBase64: string | null,
+            originalValue: string | null | undefined,
+            fileName: string,
+          ) => {
+            // 1. If we have a photo, upload it (Create or Overwrite)
+            if (currentBase64 && currentBase64.startsWith("data:image")) {
+              const fid = await uploadImageToDrive(
+                currentBase64,
+                fileName,
+                flatFolderId,
+              );
+              if (!staffFolderId) staffFolderId = fid; // Capture created folder ID
+            }
+            // 2. If no photo now, but had one before -> Delete
+            else if (!currentBase64 && originalValue && staffFolderId) {
+              await deleteResFile(fileName, flatFolderId, staffFolderId);
+            }
+          };
+
+          await handleResDocOp(photo, existingMember?.photo, "Photo.jpg");
+          await handleResDocOp(idCard, existingMember?.idCard, "ID_Card.jpg");
+          await handleResDocOp(
+            addressProof,
+            existingMember?.addressProof,
+            "Address_Proof.jpg",
+          );
+
           console.log(
             "DEBUG: Drive sync complete via backend. Folder:",
             staffFolderId,
@@ -371,36 +449,85 @@ export default function ResidentStaff() {
 
   const handleDelete = async (staffId: string) => {
     if (!user || !sessionData) return;
-    Alert.alert(
-      "Delete Staff",
-      "Are you sure you want to remove this staff member?",
-      [
-        { text: "Cancel", style: "cancel" },
+
+    const confirmMessage = "Are you sure you want to remove this staff member?";
+    const confirmDelete =
+      Platform.OS === "web"
+        ? window.confirm(confirmMessage)
+        : await new Promise<boolean>((resolve) => {
+            Alert.alert("Delete Staff", confirmMessage, [
+              {
+                text: "Cancel",
+                style: "cancel",
+                onPress: () => resolve(false),
+              },
+              {
+                text: "Delete",
+                style: "destructive",
+                onPress: () => resolve(true),
+              },
+            ]);
+          });
+
+    if (!confirmDelete) return;
+
+    try {
+      const { adminUID, id: unitId, driveFolderId: flatFolderId } = sessionData;
+      const member = staffList.find((s) => s.id === staffId);
+
+      if (!member) throw new Error("Staff member not found locally.");
+
+      // Archive via Backend (Handles both Drive AND Firestore to bypass local permission rules)
+      const backendUrl =
+        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const res = await fetch(
+        `${backendUrl}/api/drive/archive-resident-staff`,
         {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const { adminUID, id: unitId } = sessionData;
-              // Delete from society records
-              await deleteDoc(
-                doc(
-                  db,
-                  `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${staffId}`,
-                ),
-              );
-              // Delete from local records
-              await deleteDoc(
-                doc(db, `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`),
-              );
-              Toast.show({ type: "info", text1: "Staff Removed" });
-            } catch (error: any) {
-              Alert.alert("Error", error.message);
-            }
-          },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            adminUID,
+            parentFolderId: flatFolderId,
+            staffFolderId: member.driveFolderId || "", // If empty, drive part will skip in backend
+            appId,
+            unitId,
+            staffId: member.id,
+          }),
         },
-      ],
-    );
+      );
+
+      if (!res.ok) {
+        let errorMsg = "Backend archiving failed";
+        try {
+          const contentType = res.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const errorData = await res.json();
+            errorMsg = errorData.error || errorMsg;
+          } else {
+            const text = await res.text();
+            console.error("Backend returned non-JSON error:", text);
+            errorMsg = `Server error (Status ${res.status}). Please ensure backend is running and updated.`;
+          }
+        } catch (e) {
+          errorMsg = `Request failed with status ${res.status}`;
+        }
+        throw new Error(errorMsg);
+      }
+
+      // Also delete from local personal user records if exists (this might still need permission check)
+      try {
+        await deleteDoc(
+          doc(db, `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`),
+        );
+      } catch (e) {
+        console.log("Local record delete failed or not found (non-critical)");
+      }
+
+      Toast.show({ type: "info", text1: "Staff Archived Successfully" });
+    } catch (error: any) {
+      console.error("Delete Error:", error);
+      Alert.alert("Deletion Failed", error.message);
+    }
   };
 
   return (
@@ -551,59 +678,119 @@ export default function ResidentStaff() {
           <View style={styles.uploadSection}>
             <Text style={styles.label}>Staff Documents (Max 220KB)</Text>
             <View style={styles.uploadRow}>
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => pickImage("photo")}
-              >
-                {photo ? (
-                  <Image
-                    source={{ uri: photo }}
-                    style={styles.previewImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.uploadPlaceholder}>
-                    <Text style={styles.uploadIcon}>👤</Text>
-                    <Text style={styles.uploadLabel}>Photo</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
+              {/* Photo */}
+              <View style={styles.uploadContainer}>
+                <TouchableOpacity
+                  style={styles.uploadBox}
+                  onPress={() => !photo && pickImage("photo")}
+                  activeOpacity={photo ? 1 : 0.7}
+                >
+                  {photo ? (
+                    <>
+                      <Image
+                        source={{ uri: photo }}
+                        style={styles.previewImage}
+                        resizeMode="cover"
+                      />
+                      <View style={styles.uploadActionButtons}>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.editActionBtn]}
+                          onPress={() => pickImage("photo")}
+                        >
+                          <Ionicons name="pencil" size={14} color="#fff" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.deleteActionBtn]}
+                          onPress={() => setPhoto(null)}
+                        >
+                          <Ionicons name="trash" size={14} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.uploadPlaceholder}>
+                      <Text style={styles.uploadIcon}>👤</Text>
+                      <Text style={styles.uploadLabel}>Photo</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
 
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => pickImage("idCard")}
-              >
-                {idCard ? (
-                  <Image
-                    source={{ uri: idCard }}
-                    style={styles.previewImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.uploadPlaceholder}>
-                    <Text style={styles.uploadIcon}>💳</Text>
-                    <Text style={styles.uploadLabel}>Photo ID Card</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
+              {/* ID Card */}
+              <View style={styles.uploadContainer}>
+                <TouchableOpacity
+                  style={styles.uploadBox}
+                  onPress={() => !idCard && pickImage("idCard")}
+                  activeOpacity={idCard ? 1 : 0.7}
+                >
+                  {idCard ? (
+                    <>
+                      <Image
+                        source={{ uri: idCard }}
+                        style={styles.previewImage}
+                        resizeMode="cover"
+                      />
+                      <View style={styles.uploadActionButtons}>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.editActionBtn]}
+                          onPress={() => pickImage("idCard")}
+                        >
+                          <Ionicons name="pencil" size={14} color="#fff" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.deleteActionBtn]}
+                          onPress={() => setIdCard(null)}
+                        >
+                          <Ionicons name="trash" size={14} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.uploadPlaceholder}>
+                      <Text style={styles.uploadIcon}>💳</Text>
+                      <Text style={styles.uploadLabel}>Photo ID Card</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
 
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => pickImage("addressProof")}
-              >
-                {addressProof ? (
-                  <Image
-                    source={{ uri: addressProof }}
-                    style={styles.previewImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.uploadPlaceholder}>
-                    <Text style={styles.uploadIcon}>🏠</Text>
-                    <Text style={styles.uploadLabel}>Address Proof</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
+              {/* Address Proof */}
+              <View style={styles.uploadContainer}>
+                <TouchableOpacity
+                  style={styles.uploadBox}
+                  onPress={() => !addressProof && pickImage("addressProof")}
+                  activeOpacity={addressProof ? 1 : 0.7}
+                >
+                  {addressProof ? (
+                    <>
+                      <Image
+                        source={{ uri: addressProof }}
+                        style={styles.previewImage}
+                        resizeMode="cover"
+                      />
+                      <View style={styles.uploadActionButtons}>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.editActionBtn]}
+                          onPress={() => pickImage("addressProof")}
+                        >
+                          <Ionicons name="pencil" size={14} color="#fff" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.deleteActionBtn]}
+                          onPress={() => setAddressProof(null)}
+                        >
+                          <Ionicons name="trash" size={14} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.uploadPlaceholder}>
+                      <Text style={styles.uploadIcon}>🏠</Text>
+                      <Text style={styles.uploadLabel}>Address Proof</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
 
@@ -845,18 +1032,22 @@ const styles = StyleSheet.create({
   },
   uploadRow: {
     flexDirection: "row",
+    justifyContent: "space-between",
     gap: 12,
-    marginTop: 10,
+  },
+  uploadContainer: {
+    flex: 1,
+    aspectRatio: 1,
   },
   uploadBox: {
     flex: 1,
-    height: 90,
     backgroundColor: "#F8FAFC",
-    borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 2,
     borderStyle: "dashed",
     borderColor: "#CBD5E1",
+    borderRadius: 16,
     overflow: "hidden",
+    position: "relative",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -990,8 +1181,33 @@ const styles = StyleSheet.create({
   },
   staffGuardian: {
     color: "#94A3B8",
-    fontSize: 11,
-    marginTop: 2,
+    fontSize: 16,
+  },
+  uploadActionButtons: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    flexDirection: "row",
+    gap: 6,
+    zIndex: 20,
+  },
+  actionBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  editActionBtn: {
+    backgroundColor: "#3B82F6",
+  },
+  deleteActionBtn: {
+    backgroundColor: "#EF4444",
   },
   cardActions: {
     flexDirection: "row",

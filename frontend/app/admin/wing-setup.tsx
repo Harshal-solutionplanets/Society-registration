@@ -3,25 +3,25 @@ import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    writeBatch,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  writeBatch,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -827,6 +827,7 @@ export default function WingSetup() {
               onChangeText={setFlatInput}
               keyboardType="numeric"
               selectTextOnFocus
+              autoFocus
             />
             <View style={styles.modalButtons}>
               <TouchableOpacity

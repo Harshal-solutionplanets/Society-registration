@@ -1,7 +1,14 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  setDoc,
+} from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -101,19 +108,81 @@ export default function FloorDetail() {
   );
 
   useEffect(() => {
-    if (user) {
-      fetchData();
-    }
+    if (!user) return;
+
+    fetchFloorFolderId();
+    fetchSocietyName();
+
+    const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}`;
+    const q = query(collection(db, societyPath));
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const dbFlatsMap: Record<number, any> = {};
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        const parts = data.id.split("-");
+        const flatNum = parseInt(parts[parts.length - 1]);
+        if (!isNaN(flatNum)) {
+          dbFlatsMap[flatNum] = data;
+        }
+      });
+
+      let updatedFlats: FlatData[] = [];
+      setFlats((prev) => {
+        updatedFlats = prev.map((flat) => {
+          const dbFlat = dbFlatsMap[flat.flatNumber];
+          if (dbFlat) {
+            return {
+              ...flat,
+              unitName: dbFlat.unitName || flat.unitName,
+              residenceType: dbFlat.residenceType || flat.residenceType,
+              residentName: dbFlat.residentName || "",
+              residentMobile: dbFlat.residentMobile || "",
+              alternateMobile: dbFlat.alternateMobile || "",
+              status: dbFlat.residenceStatus || dbFlat.status || "VACANT",
+              ownership: dbFlat.ownership || "SELF_OWNED",
+              familyMembers: dbFlat.familyMembers?.toString() || "0",
+              staffMembers: dbFlat.staffMembers?.toString() || "0",
+              hasCredentials: !!(dbFlat.username || dbFlat.residentUsername),
+              username: dbFlat.username || dbFlat.residentUsername,
+              password: dbFlat.password || dbFlat.residentPassword,
+              driveFolderId: dbFlat.driveFolderId || "",
+            };
+          }
+          return flat;
+        });
+
+        // Sync local states if modals are open
+        if (selectedFlat) {
+          const updated = updatedFlats.find(
+            (f) => f.flatNumber === selectedFlat.flatNumber,
+          );
+          if (updated) setSelectedFlat(updated);
+        }
+        if (editingFlat) {
+          const updated = updatedFlats.find(
+            (f) => f.flatNumber === editingFlat.flatNumber,
+          );
+          if (updated) {
+            setEditingFlat(updated);
+            setEditStaffMembers(updated.staffMembers);
+            setEditFamilyMembers(updated.familyMembers);
+          }
+        }
+
+        return updatedFlats;
+      });
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [user]);
 
   const fetchData = async () => {
+    // Other simple fetches can stay here or be moved
     setLoading(true);
     try {
-      await Promise.all([
-        fetchFlats(),
-        fetchFloorFolderId(),
-        fetchSocietyName(),
-      ]);
+      await Promise.all([fetchFloorFolderId(), fetchSocietyName()]);
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
@@ -155,54 +224,6 @@ export default function FloorDetail() {
       }
     } catch (error) {
       console.error("Error fetching floor folder ID:", error);
-    }
-  };
-
-  const fetchFlats = async () => {
-    if (!user) return;
-    try {
-      const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}`;
-      const querySnapshot = await getDocs(collection(db, societyPath));
-
-      const dbFlatsMap: Record<number, any> = {};
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        // Extract flat number from ID (e.g., WINGA-1-101 -> 101)
-        const parts = data.id.split("-");
-        const flatNum = parseInt(parts[parts.length - 1]);
-        if (!isNaN(flatNum)) {
-          dbFlatsMap[flatNum] = data;
-        }
-      });
-
-      setFlats((prev) =>
-        prev.map((flat) => {
-          const dbFlat = dbFlatsMap[flat.flatNumber];
-          if (dbFlat) {
-            return {
-              ...flat,
-              unitName: dbFlat.unitName || flat.unitName,
-              residenceType: dbFlat.residenceType || flat.residenceType,
-              residentName: dbFlat.residentName || "",
-              residentMobile: dbFlat.residentMobile || "",
-              alternateMobile: dbFlat.alternateMobile || "",
-              status: dbFlat.residenceStatus || dbFlat.status || "VACANT",
-              ownership: dbFlat.ownership || "SELF_OWNED",
-              familyMembers: dbFlat.familyMembers?.toString() || "",
-              staffMembers: dbFlat.staffMembers?.toString() || "",
-              hasCredentials: !!(dbFlat.username || dbFlat.residentUsername),
-              username: dbFlat.username || dbFlat.residentUsername,
-              password: dbFlat.password || dbFlat.residentPassword,
-              driveFolderId: dbFlat.driveFolderId || "",
-            };
-          }
-          return flat;
-        }),
-      );
-    } catch (error) {
-      console.error("Error fetching flats:", error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -739,28 +760,6 @@ export default function FloorDetail() {
                       Rental
                     </Text>
                   </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Number of Family Members</Text>
-                <View
-                  style={[styles.formInput, { backgroundColor: "#E9ECEF" }]}
-                >
-                  <Text style={{ color: "#6C757D", fontSize: 16 }}>
-                    {editFamilyMembers || "Not set by resident"}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Number of Staff Members</Text>
-                <View
-                  style={[styles.formInput, { backgroundColor: "#E9ECEF" }]}
-                >
-                  <Text style={{ color: "#6C757D", fontSize: 16 }}>
-                    {editStaffMembers || "Not set by resident"}
-                  </Text>
                 </View>
               </View>
             </View>

@@ -1,28 +1,29 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
+import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import {
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    getDocs,
-    setDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -121,11 +122,32 @@ const uploadImageToDrive = async (
 ) => {
   try {
     const cleanBase64 = base64String.replace(/^data:image\/\w+;base64,/, "");
+
+    // 1. Search if file already exists
+    const q = `name='${fileName}' and '${parentId}' in parents and trashed=false`;
+    const searchRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const searchData = await searchRes.json();
+    const existingFile =
+      searchData.files && searchData.files.length > 0
+        ? searchData.files[0]
+        : null;
+
     const boundary = "foo_bar_baz";
+    const metadata = existingFile
+      ? {}
+      : { name: fileName, parents: [parentId] };
+    const method = existingFile ? "PATCH" : "POST";
+    const url = existingFile
+      ? `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=multipart`
+      : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
+
     const body =
       `--${boundary}\r\n` +
       `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-      JSON.stringify({ name: fileName, parents: [parentId] }) +
+      JSON.stringify(metadata) +
       `\r\n` +
       `--${boundary}\r\n` +
       `Content-Type: image/jpeg\r\n` +
@@ -133,21 +155,17 @@ const uploadImageToDrive = async (
       cleanBase64 +
       `\r\n--${boundary}--`;
 
-    const res = await fetch(
-      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": `multipart/related; boundary=${boundary}`,
-        },
-        body: body,
+    const res = await fetch(url, {
+      method: method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
       },
-    );
+      body: body,
+    });
 
     if (!res.ok) {
       const err = await res.json();
-      console.error("DEBUG: uploadImageToDrive failed", err);
       throw new Error("Upload Failed: " + (err.error?.message || "Unknown"));
     }
 
@@ -165,23 +183,15 @@ const deleteFileFromDrive = async (
   token: string,
 ) => {
   try {
-    // Search for file by name in the specific folder
     const q = `name='${fileName}' and '${folderId}' in parents and trashed=false`;
     const searchRes = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      },
+      { headers: { Authorization: `Bearer ${token}` } },
     );
-
-    if (!searchRes.ok) return; // File might not exist, that's ok
-
+    if (!searchRes.ok) return;
     const searchData = await searchRes.json();
     if (searchData.files && searchData.files.length > 0) {
       const fileId = searchData.files[0].id;
-      console.log(`DEBUG: Deleting existing file: ${fileName} (${fileId})`);
-
-      // Delete the old file
       await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
@@ -189,7 +199,6 @@ const deleteFileFromDrive = async (
     }
   } catch (error) {
     console.warn("DEBUG: deleteFileFromDrive error (non-critical):", error);
-    // Don't throw - we can proceed even if deletion fails
   }
 };
 
@@ -201,17 +210,10 @@ const moveFolder = async (
   try {
     const fileRes = await fetch(
       `https://www.googleapis.com/drive/v3/files/${fileId}?fields=parents`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      },
+      { headers: { Authorization: `Bearer ${token}` } },
     );
     const fileData = await fileRes.json();
     const previousParents = fileData.parents ? fileData.parents.join(",") : "";
-
-    console.log(
-      `DEBUG: Moving file ${fileId} from ${previousParents} to ${destinationId}`,
-    );
-
     const moveRes = await fetch(
       `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${destinationId}&removeParents=${previousParents}`,
       {
@@ -219,10 +221,8 @@ const moveFolder = async (
         headers: { Authorization: `Bearer ${token}` },
       },
     );
-
     if (!moveRes.ok) {
       const err = await moveRes.json();
-      console.error("DEBUG: moveFolder failed", err);
       throw new Error("Move Failed: " + (err.error?.message || "Unknown"));
     }
   } catch (error) {
@@ -292,8 +292,6 @@ export default function SocietyStaff() {
     if (!result.canceled) {
       const asset = result.assets[0];
 
-      // Checking size (rough estimate from base64)
-      // 500KB = ~682666 characters in base64.
       if (asset.base64 && asset.base64.length > 682666) {
         Alert.alert("Error", "File size too large. Maximum limit is 500KB.");
         return;
@@ -306,15 +304,41 @@ export default function SocietyStaff() {
     }
   };
 
+  const refreshAccessToken = async () => {
+    if (!user) return null;
+    try {
+      const backendUrl =
+        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const res = await fetch(
+        `${backendUrl}/api/auth/google/refresh?adminUID=${user.uid}&appId=${appId}`,
+      );
+      if (!res.ok) throw new Error("Refresh failed");
+      const data = await res.json();
+      return data.accessToken;
+    } catch (error) {
+      console.error("DEBUG: Token refresh failed:", error);
+      return null;
+    }
+  };
+
   const handleAddOrUpdateStaff = async () => {
     if (!user) return;
-    if (!name || !position || !phone) {
-      Alert.alert("Error", "Please fill Name, Position and Phone");
+
+    if (!name || !position || !shift || !phone) {
+      Toast.show({
+        type: "error",
+        text1: "Required Fields Missing",
+        text2: "Please fill Name, Position, Shift and Phone Number.",
+      });
       return;
     }
 
     if (position === "Other" && !otherPosition) {
-      Alert.alert("Error", "Please specify the position.");
+      Toast.show({
+        type: "error",
+        text1: "Position Missing",
+        text2: "Please specify the other position.",
+      });
       return;
     }
 
@@ -325,7 +349,6 @@ export default function SocietyStaff() {
 
       // Start Drive Logic
       let staffFolderId = "";
-      // If editing and we already have a folder, keep it.
       if (editingId) {
         const existingMember = members.find((m) => m.id === editingId);
         if (existingMember?.driveFolderId) {
@@ -337,61 +360,79 @@ export default function SocietyStaff() {
         doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
       );
       const societyData = societyDoc.data();
-      const token = societyData?.driveAccessToken;
-      console.log("DEBUG: Drive Token present?", !!token);
+      let token = societyData?.driveAccessToken;
+
+      if (token) {
+        const testRes = await fetch(
+          "https://www.googleapis.com/drive/v3/about?fields=user",
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (testRes.status === 401) {
+          token = await refreshAccessToken();
+        }
+      }
 
       if (token && societyData?.driveFolderId) {
-        // 1. Find/Create "Society_Staff"
         const mainStaffFolderId = await findOrCreateFolder(
           "Society_Staff",
           societyData.driveFolderId,
           token,
         );
-        console.log("DEBUG: Society_Staff Folder ID:", mainStaffFolderId);
 
-        // 2. Find/Create Member Folder
         if (!staffFolderId) {
           staffFolderId = await findOrCreateFolder(
             name,
             mainStaffFolderId,
             token,
           );
-          console.log("DEBUG: New Staff Folder ID:", staffFolderId);
-        } else {
-          console.log("DEBUG: Using existing Staff Folder ID:", staffFolderId);
+        } else if (editingId) {
+          // Rename folder if name changed
+          const existingMember = members.find((m) => m.id === editingId);
+          if (existingMember && existingMember.name !== name) {
+            await fetch(
+              `https://www.googleapis.com/drive/v3/files/${staffFolderId}`,
+              {
+                method: "PATCH",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ name }),
+              },
+            );
+          }
         }
 
-        // 3. Upload Files (Replace if editing)
-        if (photo) {
-          if (editingId) {
-            // Delete old photo before uploading new one
-            await deleteFileFromDrive("Photo.jpg", staffFolderId, token);
-          }
-          await uploadImageToDrive(photo, "Photo.jpg", staffFolderId, token);
-        }
-        if (idCard) {
-          if (editingId) {
-            // Delete old ID card before uploading new one
-            await deleteFileFromDrive("ID_Card.jpg", staffFolderId, token);
-          }
-          await uploadImageToDrive(idCard, "ID_Card.jpg", staffFolderId, token);
-        }
-        if (addressProof) {
-          if (editingId) {
-            // Delete old address proof before uploading new one
-            await deleteFileFromDrive(
-              "Address_Proof.jpg",
+        // 3. Document Operations (Upload/Overwrite/Delete)
+        const handleDocOp = async (
+          currentBase64: string | null,
+          originalValue: string | null | undefined,
+          fileName: string,
+        ) => {
+          if (!currentBase64 && originalValue && editingId) {
+            // User deleted existing doc
+            await deleteFileFromDrive(fileName, staffFolderId, token);
+          } else if (currentBase64 && currentBase64.startsWith("data:image")) {
+            // User uploaded NEW or UPDATED doc
+            await uploadImageToDrive(
+              currentBase64,
+              fileName,
               staffFolderId,
               token,
             );
           }
-          await uploadImageToDrive(
-            addressProof,
-            "Address_Proof.jpg",
-            staffFolderId,
-            token,
-          );
-        }
+        };
+
+        const existingMember = editingId
+          ? members.find((m) => m.id === editingId)
+          : null;
+        await handleDocOp(photo, existingMember?.photo, "Photo.jpg");
+        await handleDocOp(idCard, existingMember?.idCard, "ID_Card.jpg");
+        await handleDocOp(
+          addressProof,
+          existingMember?.addressProof,
+          "Address_Proof.jpg",
+        );
       } else {
         console.warn("DEBUG: No Drive Token or root folder available.");
         if (photo || idCard || addressProof) {
@@ -484,22 +525,25 @@ export default function SocietyStaff() {
       console.log("DEBUG: Starting archive process for", member.name);
       let driveArchived = false;
 
-      // 1. Archive to Firestore "ArchivedStaff" collection (CRITICAL - always do this)
-      const archivedStaffPath = `artifacts/${appId}/public/data/societies/${user.uid}/ArchivedStaff/${member.id}`;
-      const archiveData = {
-        ...member,
-        archivedAt: new Date().toISOString(),
-        archivedBy: user.uid,
-      };
-      await setDoc(doc(db, archivedStaffPath), archiveData);
-      console.log("DEBUG: Staff metadata archived to Firestore");
-
       // 2. Try to move Drive folder to "Archived Staff" folder (NON-CRITICAL)
       const societyDoc = await getDoc(
         doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
       );
       const societyData = societyDoc.data();
-      const token = societyData?.driveAccessToken;
+      let token = societyData?.driveAccessToken;
+
+      if (token) {
+        const testRes = await fetch(
+          "https://www.googleapis.com/drive/v3/about?fields=user",
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (testRes.status === 401) {
+          token = await refreshAccessToken();
+        }
+      }
+
       console.log("DEBUG: Archive Token present?", !!token);
       console.log("DEBUG: Member Folder ID:", member.driveFolderId);
 
@@ -523,11 +567,19 @@ export default function SocietyStaff() {
         }
       }
 
-      // 3. Delete from active "Staff" collection
+      // 3. Metadata Archiving in Firestore
+      const archivedPath = `artifacts/${appId}/public/data/societies/${user.uid}/Archived Staff/${member.id}`;
+      await setDoc(doc(db, archivedPath), {
+        ...member,
+        archivedAt: new Date().toISOString(),
+        driveArchived,
+      });
+
+      // 4. Delete from active "Staff" collection
       const staffPath = `artifacts/${appId}/public/data/societies/${user.uid}/Staff/${member.id}`;
       await deleteDoc(doc(db, staffPath));
 
-      // 4. Update UI
+      // 5. Update UI
       setMembers((prev: StaffMember[]) =>
         prev.filter((m: StaffMember) => m.id !== member.id),
       );
@@ -606,7 +658,7 @@ export default function SocietyStaff() {
           </Text>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Full Name</Text>
+            <Text style={styles.label}>Full Name *</Text>
             <TextInput
               style={styles.input}
               placeholder="e.g. Ramesh"
@@ -617,7 +669,7 @@ export default function SocietyStaff() {
 
           <View style={[styles.row, { zIndex: 1000 }]}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Position</Text>
+              <Text style={styles.label}>Position *</Text>
               <TouchableOpacity
                 style={styles.dropdownButton}
                 onPress={() => setShowPositionDropdown(!showPositionDropdown)}
@@ -656,7 +708,7 @@ export default function SocietyStaff() {
             </View>
 
             <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Shift</Text>
+              <Text style={styles.label}>Shift *</Text>
               <TouchableOpacity
                 style={styles.dropdownButton}
                 onPress={() => setShowShiftDropdown(!showShiftDropdown)}
@@ -696,7 +748,7 @@ export default function SocietyStaff() {
           )}
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Phone Number</Text>
+            <Text style={styles.label}>Phone Number *</Text>
             <TextInput
               style={styles.input}
               placeholder="e.g. 9876543210"
@@ -721,59 +773,121 @@ export default function SocietyStaff() {
           <View style={styles.uploadSection}>
             <Text style={styles.label}>Required Documents (Max 500KB)</Text>
             <View style={styles.uploadRow}>
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => handlePickImage("photo")}
-              >
-                {photo ? (
-                  <Image
-                    source={{ uri: photo }}
-                    style={styles.previewImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.uploadPlaceholder}>
-                    <Text style={styles.uploadIcon}>👤</Text>
-                    <Text style={styles.uploadLabel}>Photo</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
+              {/* Photo */}
+              <View style={styles.uploadContainer}>
+                <TouchableOpacity
+                  style={styles.uploadBox}
+                  onPress={() => !photo && handlePickImage("photo")}
+                  activeOpacity={photo ? 1 : 0.7}
+                >
+                  {photo ? (
+                    <>
+                      <Image
+                        source={{ uri: photo }}
+                        style={styles.previewImage}
+                        resizeMode="cover"
+                      />
+                      <View style={styles.uploadActionButtons}>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.editActionBtn]}
+                          onPress={() => handlePickImage("photo")}
+                        >
+                          <Ionicons name="pencil" size={14} color="#fff" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.deleteActionBtn]}
+                          onPress={() => setPhoto(null)}
+                        >
+                          <Ionicons name="trash" size={14} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.uploadPlaceholder}>
+                      <Text style={styles.uploadIcon}>👤</Text>
+                      <Text style={styles.uploadLabel}>Photo</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
 
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => handlePickImage("idCard")}
-              >
-                {idCard ? (
-                  <Image
-                    source={{ uri: idCard }}
-                    style={styles.previewImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.uploadPlaceholder}>
-                    <Text style={styles.uploadIcon}>💳</Text>
-                    <Text style={styles.uploadLabel}>Photo ID card</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
+              {/* ID Card */}
+              <View style={styles.uploadContainer}>
+                <TouchableOpacity
+                  style={styles.uploadBox}
+                  onPress={() => !idCard && handlePickImage("idCard")}
+                  activeOpacity={idCard ? 1 : 0.7}
+                >
+                  {idCard ? (
+                    <>
+                      <Image
+                        source={{ uri: idCard }}
+                        style={styles.previewImage}
+                        resizeMode="cover"
+                      />
+                      <View style={styles.uploadActionButtons}>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.editActionBtn]}
+                          onPress={() => handlePickImage("idCard")}
+                        >
+                          <Ionicons name="pencil" size={14} color="#fff" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.deleteActionBtn]}
+                          onPress={() => setIdCard(null)}
+                        >
+                          <Ionicons name="trash" size={14} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.uploadPlaceholder}>
+                      <Text style={styles.uploadIcon}>💳</Text>
+                      <Text style={styles.uploadLabel}>Photo ID card</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
 
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => handlePickImage("addressProof")}
-              >
-                {addressProof ? (
-                  <Image
-                    source={{ uri: addressProof }}
-                    style={styles.previewImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.uploadPlaceholder}>
-                    <Text style={styles.uploadIcon}>🏠</Text>
-                    <Text style={styles.uploadLabel}>Address Proof</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
+              {/* Address Proof */}
+              <View style={styles.uploadContainer}>
+                <TouchableOpacity
+                  style={styles.uploadBox}
+                  onPress={() =>
+                    !addressProof && handlePickImage("addressProof")
+                  }
+                  activeOpacity={addressProof ? 1 : 0.7}
+                >
+                  {addressProof ? (
+                    <>
+                      <Image
+                        source={{ uri: addressProof }}
+                        style={styles.previewImage}
+                        resizeMode="cover"
+                      />
+                      <View style={styles.uploadActionButtons}>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.editActionBtn]}
+                          onPress={() => handlePickImage("addressProof")}
+                        >
+                          <Ionicons name="pencil" size={14} color="#fff" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.deleteActionBtn]}
+                          onPress={() => setAddressProof(null)}
+                        >
+                          <Ionicons name="trash" size={14} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.uploadPlaceholder}>
+                      <Text style={styles.uploadIcon}>🏠</Text>
+                      <Text style={styles.uploadLabel}>Address Proof</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
 
@@ -980,15 +1094,19 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  uploadBox: {
+  uploadContainer: {
     flex: 1,
     aspectRatio: 1,
+  },
+  uploadBox: {
+    flex: 1,
     backgroundColor: "#F8FAFC",
     borderWidth: 2,
     borderStyle: "dashed",
     borderColor: "#CBD5E1",
     borderRadius: 16,
     overflow: "hidden",
+    position: "relative",
   },
   uploadPlaceholder: {
     flex: 1,
@@ -1126,5 +1244,31 @@ const styles = StyleSheet.create({
   emptyText: {
     color: "#94A3B8",
     fontSize: 16,
+  },
+  uploadActionButtons: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    flexDirection: "row",
+    gap: 6,
+    zIndex: 20,
+  },
+  actionBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  editActionBtn: {
+    backgroundColor: "#3B82F6",
+  },
+  deleteActionBtn: {
+    backgroundColor: "#EF4444",
   },
 });

@@ -10,11 +10,40 @@ app.use(cors());
 app.use(bodyParser.json({ limit: "10mb" }));
 
 // Initialize Firebase Admin
-// You will need to provide a service account key file
-const serviceAccount = require("./serviceAccountKey.json");
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+let serviceAccount;
+try {
+  serviceAccount = require("./serviceAccountKey.json");
+} catch (e) {
+  console.log(
+    "Note: serviceAccountKey.json not found, checking environment variables.",
+  );
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  }
+}
+
+if (serviceAccount) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+} else {
+  console.error(
+    "\x1b[31m%s\x1b[0m",
+    "ERROR: Firebase Service Account not found!",
+  );
+  console.log("\x1b[33m%s\x1b[0m", "Please follow these steps:");
+  console.log(
+    "1. Go to Firebase Console > Project Settings > Service Accounts.",
+  );
+  console.log("2. Click 'Generate new private key'.");
+  console.log(
+    "3. Rename the file to 'serviceAccountKey.json' and place it in the backend folder.",
+  );
+  console.log(
+    "OR: Add FIREBASE_SERVICE_ACCOUNT as a JSON string in your .env file.\n",
+  );
+  process.exit(1);
+}
 
 const db = admin.firestore();
 
@@ -23,6 +52,17 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_SECRET,
   process.env.GOOGLE_REDIRECT_URI,
 );
+
+/**
+ * Health Check / Versioning
+ */
+app.get("/api/status", (req, res) => {
+  res.json({
+    status: "running",
+    version: "1.0.5",
+    endpoints: ["archive-resident-staff verified"],
+  });
+});
 
 /**
  * Step 1: Generate the Auth URL for the Admin to link Google Drive
@@ -51,7 +91,6 @@ app.get("/api/auth/google/callback", async (req, res) => {
     const { adminUID, appId } = JSON.parse(state);
 
     if (tokens.refresh_token) {
-      // Store Refresh Token in SECURE location
       await db
         .collection("artifacts")
         .doc(appId || "dev-society-id")
@@ -66,7 +105,6 @@ app.get("/api/auth/google/callback", async (req, res) => {
         );
     }
 
-    // Update society doc to indicate drive is linked
     await db
       .collection("artifacts")
       .doc(appId || "dev-society-id")
@@ -76,7 +114,7 @@ app.get("/api/auth/google/callback", async (req, res) => {
       .doc(adminUID)
       .set(
         {
-          driveAccessToken: tokens.access_token, // Store latest access token too
+          driveAccessToken: tokens.access_token,
           isDriveLinked: true,
         },
         { merge: true },
@@ -94,37 +132,22 @@ app.get("/api/auth/google/callback", async (req, res) => {
       </html>
     `);
   } catch (error) {
-    if (error.response && error.response.data) {
-      console.error(
-        "Callback Error Detail:",
-        JSON.stringify(error.response.data),
-      );
-    } else {
-      console.error("Callback Error:", error);
-    }
-    res
-      .status(500)
-      .send(
-        "Authentication failed: " +
-          (error.response?.data?.error_description || error.message),
-      );
+    console.error("Callback Error:", error);
+    res.status(500).send("Authentication failed: " + error.message);
   }
 });
 
 /**
- * Endpoint to upload documents to Google Drive for a Resident's staff member.
- * This is called by the frontend resident app.
+ * Upload Documents
  */
 app.post("/api/drive/upload-resident-staff", async (req, res) => {
   const { adminUID, parentFolderId, staffName, fileName, base64Data, appId } =
     req.body;
-
   if (!adminUID || !parentFolderId || !staffName || !fileName || !base64Data) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
   try {
-    // 1. Fetch Admin's Refresh Token
     const tokenDoc = await db
       .collection("artifacts")
       .doc(appId || "dev-society-id")
@@ -133,40 +156,66 @@ app.post("/api/drive/upload-resident-staff", async (req, res) => {
       .get();
 
     if (!tokenDoc.exists || !tokenDoc.data().refreshToken) {
-      return res.status(404).json({
-        error:
-          "Google Drive is not properly linked in this society's Admin Dashboard.",
-      });
+      return res.status(404).json({ error: "Google Drive not linked." });
     }
 
-    const { refreshToken } = tokenDoc.data();
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
-
+    oauth2Client.setCredentials({
+      refresh_token: tokenDoc.data().refreshToken,
+    });
     const drive = google.drive({ version: "v3", auth: oauth2Client });
 
-    // 2. Find or Create Staff Sub-folder
-    const folderSearch = await drive.files.list({
-      q: `name = '${staffName}' and '${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    // 1. Find/Create/Rename folder
+    let staffFolderId = req.body.staffFolderId;
+
+    if (staffFolderId) {
+      // Check if rename needed
+      try {
+        const existingFolder = await drive.files.get({
+          fileId: staffFolderId,
+          fields: "name",
+        });
+        if (existingFolder.data.name !== staffName) {
+          await drive.files.update({
+            fileId: staffFolderId,
+            resource: { name: staffName },
+          });
+        }
+      } catch (e) {
+        console.warn(
+          "Folder ID provided but not found, falling back to name search.",
+        );
+        staffFolderId = null;
+      }
+    }
+
+    if (!staffFolderId) {
+      const folderSearch = await drive.files.list({
+        q: `name = '${staffName}' and '${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        fields: "files(id)",
+      });
+
+      if (folderSearch.data.files && folderSearch.data.files.length > 0) {
+        staffFolderId = folderSearch.data.files[0].id;
+      } else {
+        const folderRes = await drive.files.create({
+          resource: {
+            name: staffName,
+            mimeType: "application/vnd.google-apps.folder",
+            parents: [parentFolderId],
+          },
+          fields: "id",
+        });
+        staffFolderId = folderRes.data.id;
+      }
+    }
+
+    // Search for existing file with same name in staffFolderId
+    const fileSearch = await drive.files.list({
+      q: `name = '${fileName}' and '${staffFolderId}' in parents and trashed = false`,
       fields: "files(id)",
     });
 
-    let staffFolderId;
-    if (folderSearch.data.files && folderSearch.data.files.length > 0) {
-      staffFolderId = folderSearch.data.files[0].id;
-    } else {
-      const folderMetadata = {
-        name: staffName,
-        mimeType: "application/vnd.google-apps.folder",
-        parents: [parentFolderId],
-      };
-      const folderRes = await drive.files.create({
-        resource: folderMetadata,
-        fields: "id",
-      });
-      staffFolderId = folderRes.data.id;
-    }
-
-    // 3. Upload File to Staff Folder
+    // Upload file (Update if exists, else Create)
     const buffer = Buffer.from(
       base64Data.replace(/^data:image\/\w+;base64,/, ""),
       "base64",
@@ -176,21 +225,17 @@ app.post("/api/drive/upload-resident-staff", async (req, res) => {
     stream.push(buffer);
     stream.push(null);
 
-    // Check if file exists in that staff folder
-    const fileSearch = await drive.files.list({
-      q: `name = '${fileName}' and '${staffFolderId}' in parents and trashed = false`,
-      fields: "files(id)",
-    });
-
     let finalFileId;
     if (fileSearch.data.files && fileSearch.data.files.length > 0) {
-      const existingId = fileSearch.data.files[0].id;
+      // Update existing file
+      const fileId = fileSearch.data.files[0].id;
       const updateRes = await drive.files.update({
-        fileId: existingId,
+        fileId: fileId,
         media: { mimeType: "image/jpeg", body: stream },
       });
       finalFileId = updateRes.data.id;
     } else {
+      // Create new file
       const createRes = await drive.files.create({
         requestBody: { name: fileName, parents: [staffFolderId] },
         media: { mimeType: "image/jpeg", body: stream },
@@ -200,20 +245,19 @@ app.post("/api/drive/upload-resident-staff", async (req, res) => {
 
     res.json({ success: true, fileId: finalFileId, staffFolderId });
   } catch (error) {
-    console.error("Backend Drive Upload Error:", error);
-    res.status(500).json({ error: error.message || "Internal Server Error" });
+    console.error("Upload Error:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 
-/**
- * Step 3: Refresh Access Token using stored Refresh Token
- */
-app.get("/api/auth/google/refresh", async (req, res) => {
-  const { adminUID, appId } = req.query;
-  if (!adminUID) return res.status(400).send("No adminUID provided");
+app.post("/api/drive/delete-resident-file", async (req, res) => {
+  const { adminUID, appId, staffFolderId, fileName } = req.body;
+
+  if (!adminUID || !staffFolderId || !fileName) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
 
   try {
-    // 1. Fetch Refresh Token
     const tokenDoc = await db
       .collection("artifacts")
       .doc(appId || "dev-society-id")
@@ -222,19 +266,167 @@ app.get("/api/auth/google/refresh", async (req, res) => {
       .get();
 
     if (!tokenDoc.exists || !tokenDoc.data().refreshToken) {
-      return res
-        .status(404)
-        .json({ error: "Refresh token not found. Please link Drive again." });
+      return res.status(404).json({ error: "Google Drive not linked." });
     }
 
-    const { refreshToken } = tokenDoc.data();
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      "postmessage",
+    );
 
-    // 2. Refresh the access token
+    oauth2Client.setCredentials({
+      refresh_token: tokenDoc.data().refreshToken,
+    });
+    const drive = google.drive({ version: "v3", auth: oauth2Client });
+
+    // Search for the file in the specific folder
+    const fileSearch = await drive.files.list({
+      q: `name = '${fileName}' and '${staffFolderId}' in parents and trashed = false`,
+      fields: "files(id)",
+    });
+
+    if (fileSearch.data.files && fileSearch.data.files.length > 0) {
+      const fileId = fileSearch.data.files[0].id;
+      await drive.files.delete({ fileId });
+      res.json({ success: true, message: "File deleted" });
+    } else {
+      res.json({ success: true, message: "File not found (already deleted?)" });
+    }
+  } catch (error) {
+    console.error("Delete Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Archive Staff (The route that was giving 404)
+ */
+app.post("/api/drive/archive-resident-staff", async (req, res) => {
+  const { adminUID, parentFolderId, staffFolderId, appId, unitId, staffId } =
+    req.body;
+  console.log("DEBUG: Archive request received for", { staffId, unitId });
+
+  if (!adminUID || !parentFolderId || !unitId || !staffId) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    const societyId = appId || "dev-society-id";
+    const activeDocRef = db
+      .collection("artifacts")
+      .doc(societyId)
+      .collection("public")
+      .doc("data")
+      .collection("societies")
+      .doc(adminUID)
+      .collection("Residents")
+      .doc(unitId)
+      .collection("StaffMembers")
+      .doc(staffId);
+
+    const snapshot = await activeDocRef.get();
+    if (!snapshot.exists) {
+      return res.status(404).json({ error: "Staff record not found." });
+    }
+    const staffData = snapshot.data();
+
+    // Move Drive Folder if possible
+    let driveArchived = false;
+    const tokenDoc = await db
+      .collection("artifacts")
+      .doc(societyId)
+      .collection("secure")
+      .doc(adminUID)
+      .get();
+
+    if (tokenDoc.exists && tokenDoc.data().refreshToken && staffFolderId) {
+      try {
+        oauth2Client.setCredentials({
+          refresh_token: tokenDoc.data().refreshToken,
+        });
+        const drive = google.drive({ version: "v3", auth: oauth2Client });
+
+        // Find/Create "Archived" folder
+        const archiveSearch = await drive.files.list({
+          q: `name = 'Archived' and '${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+          fields: "files(id)",
+        });
+
+        let archiveFolderId;
+        if (archiveSearch.data.files && archiveSearch.data.files.length > 0) {
+          archiveFolderId = archiveSearch.data.files[0].id;
+        } else {
+          const folderRes = await drive.files.create({
+            resource: {
+              name: "Archived",
+              mimeType: "application/vnd.google-apps.folder",
+              parents: [parentFolderId],
+            },
+            fields: "id",
+          });
+          archiveFolderId = folderRes.data.id;
+        }
+
+        await drive.files.update({
+          fileId: staffFolderId,
+          addParents: archiveFolderId,
+          removeParents: parentFolderId, // Assumes it was in the parent
+          fields: "id, parents",
+        });
+        driveArchived = true;
+      } catch (e) {
+        console.warn("Drive folder move failed:", e.message);
+      }
+    }
+
+    // Move Firestore metadata
+    const archivedDocRef = db
+      .collection("artifacts")
+      .doc(societyId)
+      .collection("public")
+      .doc("data")
+      .collection("societies")
+      .doc(adminUID)
+      .collection("Residents")
+      .doc(unitId)
+      .collection("Archived Staff")
+      .doc(staffId);
+
+    await archivedDocRef.set({
+      ...staffData,
+      archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+      driveArchived,
+    });
+
+    await activeDocRef.delete();
+    res.json({ success: true, driveArchived });
+  } catch (error) {
+    console.error("Archive Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Refresh Token
+ */
+app.get("/api/auth/google/refresh", async (req, res) => {
+  const { adminUID, appId } = req.query;
+  try {
+    const tokenDoc = await db
+      .collection("artifacts")
+      .doc(appId || "dev-society-id")
+      .collection("secure")
+      .doc(adminUID)
+      .get();
+    if (!tokenDoc.exists)
+      return res.status(404).json({ error: "No refresh token" });
+
+    oauth2Client.setCredentials({
+      refresh_token: tokenDoc.data().refreshToken,
+    });
     const { credentials } = await oauth2Client.refreshAccessToken();
-    const newAccessToken = credentials.access_token;
 
-    // 3. Update society doc with new access token
     await db
       .collection("artifacts")
       .doc(appId || "dev-society-id")
@@ -244,16 +436,14 @@ app.get("/api/auth/google/refresh", async (req, res) => {
       .doc(adminUID)
       .set(
         {
-          driveAccessToken: newAccessToken,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          driveAccessToken: credentials.access_token,
         },
         { merge: true },
       );
 
-    res.json({ accessToken: newAccessToken });
+    res.json({ accessToken: credentials.access_token });
   } catch (error) {
-    console.error("Token Refresh Error:", error);
-    res.status(500).json({ error: error.message || "Failed to refresh token" });
+    res.status(500).json({ error: error.message });
   }
 });
 
