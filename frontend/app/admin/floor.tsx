@@ -3,6 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   onSnapshot,
@@ -20,6 +21,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Toast from "react-native-toast-message";
@@ -34,6 +36,8 @@ interface FlatData {
   alternateMobile?: string;
   status: "VACANT" | "OCCUPIED";
   ownership?: "SELF_OWNED" | "RENTAL";
+  ownerName?: string;
+  ownerContact?: string;
   familyMembers: string;
   staffMembers: string;
   username?: string;
@@ -56,6 +60,8 @@ export default function FloorDetail() {
     useLocalSearchParams();
   const router = useRouter();
   const { user } = useAuth();
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
 
   const [flats, setFlats] = useState<FlatData[]>(() => {
     // Generate flat numbers based on flatCount
@@ -97,8 +103,11 @@ export default function FloorDetail() {
   const [editOwnership, setEditOwnership] = useState<"SELF_OWNED" | "RENTAL">(
     "SELF_OWNED",
   );
-  const [editFamilyMembers, setEditFamilyMembers] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [editFamilyMembers, setEditFamilyMembers] = useState("0");
   const [editStaffMembers, setEditStaffMembers] = useState("");
+  const [editOwnerName, setEditOwnerName] = useState("");
+  const [editOwnerContact, setEditOwnerContact] = useState("");
   const [showResidenceDropdown, setShowResidenceDropdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [floorFolderId, setFloorFolderId] = useState<string | null>(null);
@@ -141,6 +150,8 @@ export default function FloorDetail() {
               alternateMobile: dbFlat.alternateMobile || "",
               status: dbFlat.residenceStatus || dbFlat.status || "VACANT",
               ownership: dbFlat.ownership || "SELF_OWNED",
+              ownerName: dbFlat.ownerName || "",
+              ownerContact: dbFlat.ownerContact || "",
               familyMembers: dbFlat.familyMembers?.toString() || "0",
               staffMembers: dbFlat.staffMembers?.toString() || "0",
               hasCredentials: !!(dbFlat.username || dbFlat.residentUsername),
@@ -260,10 +271,13 @@ export default function FloorDetail() {
     setEditUnitName(flat.unitName);
     setEditResidenceType(flat.residenceType);
     setEditResidentName(flat.residentName);
-    setEditResidentMobile(flat.residentMobile);
-    setEditStatus(flat.status);
+    setEditResidentMobile(flat.residentMobile || "");
+    setEditStatus(flat.status || "VACANT");
     setEditOwnership(flat.ownership || "SELF_OWNED");
-    setEditFamilyMembers(flat.familyMembers);
+    setEditOwnerName(flat.ownerName || "");
+    setEditOwnerContact(flat.ownerContact || "");
+    setEditPassword(flat.password || "");
+    setEditFamilyMembers(flat.familyMembers || "0");
     setEditStaffMembers(flat.staffMembers || "");
     setEditModalVisible(true);
   };
@@ -283,6 +297,9 @@ export default function FloorDetail() {
               residentMobile: editResidentMobile,
               status: editStatus,
               ownership: editOwnership,
+              ownerName: editOwnerName,
+              ownerContact: editOwnerContact,
+              password: editPassword,
               familyMembers: editFamilyMembers,
               staffMembers: editStaffMembers,
             }
@@ -306,14 +323,18 @@ export default function FloorDetail() {
         residenceStatus: editStatus,
         status: editStatus, // Sync both status fields
         ownership: editOwnership,
+        ownerName: editOwnerName,
+        ownerContact: editOwnerContact,
         familyMembers: parseInt(editFamilyMembers || "0"),
         staffMembers: parseInt(editStaffMembers || "0"),
         societyName: societyName,
         wingName: wingName,
-        username: editingFlat.username, // Preserve credentials
-        password: editingFlat.password,
+        username: editingFlat.username, // Preserve username
+        password: editPassword, // Allow admin to change password
         driveFolderId: editingFlat.driveFolderId || "",
         updatedAt: new Date().toISOString(),
+        residentPassword: deleteField(), // Cleanup old field
+        residentUsername: deleteField(), // Cleanup old field
       };
 
       // Update both locations (using unitId as stable doc ID)
@@ -360,111 +381,118 @@ export default function FloorDetail() {
           contentContainerStyle={{ paddingBottom: 40 }}
         >
           <View style={styles.flatsGrid}>
-            {flats.map((flat) => (
-              <View key={flat.flatNumber} style={styles.flatPanel}>
-                <View style={styles.flatHeader}>
-                  <Text style={styles.flatNumber}>{flat.unitName}</Text>
-                  <View style={styles.headerRight}>
-                    <TouchableOpacity
-                      style={styles.editIconBtn}
-                      onPress={() => handleEditFlat(flat)}
-                    >
-                      <Text style={styles.editIcon}>✏️</Text>
-                    </TouchableOpacity>
+            {flats.map((flat) => {
+              const cardWidth =
+                width < 480 ? "100%" : width < 768 ? "48%" : "31.3%";
+              return (
+                <View
+                  key={flat.flatNumber}
+                  style={[styles.flatPanel, { width: cardWidth }]}
+                >
+                  <View style={styles.flatHeader}>
+                    <Text style={styles.flatNumber}>{flat.unitName}</Text>
+                    <View style={styles.headerRight}>
+                      <TouchableOpacity
+                        style={styles.editIconBtn}
+                        onPress={() => handleEditFlat(flat)}
+                      >
+                        <Text style={styles.editIcon}>✏️</Text>
+                      </TouchableOpacity>
+                      <View
+                        style={[
+                          styles.statusBadge,
+                          flat.hasCredentials
+                            ? styles.statusGenerated
+                            : styles.statusPending,
+                        ]}
+                      >
+                        <Text style={styles.statusText}>
+                          {flat.hasCredentials ? "READY" : "PENDING"}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.residenceTypeContainer}>
+                    <Text style={styles.residenceTypeLabel}>Type:</Text>
+                    <Text style={styles.residenceTypeValue}>
+                      {flat.residenceType}
+                    </Text>
                     <View
                       style={[
-                        styles.statusBadge,
-                        flat.hasCredentials
-                          ? styles.statusGenerated
-                          : styles.statusPending,
+                        styles.statusIndicator,
+                        flat.status === "OCCUPIED"
+                          ? styles.statusOccupied
+                          : styles.statusVacant,
                       ]}
                     >
-                      <Text style={styles.statusText}>
-                        {flat.hasCredentials ? "READY" : "PENDING"}
+                      <Text style={styles.statusIndicatorText}>
+                        {flat.status}
                       </Text>
                     </View>
                   </View>
-                </View>
 
-                <View style={styles.residenceTypeContainer}>
-                  <Text style={styles.residenceTypeLabel}>Type:</Text>
-                  <Text style={styles.residenceTypeValue}>
-                    {flat.residenceType}
-                  </Text>
-                  <View
-                    style={[
-                      styles.statusIndicator,
-                      flat.status === "OCCUPIED"
-                        ? styles.statusOccupied
-                        : styles.statusVacant,
-                    ]}
-                  >
-                    <Text style={styles.statusIndicatorText}>
-                      {flat.status}
+                  <View style={styles.residentInfoMini}>
+                    <Text style={styles.residentNameMini}>
+                      {flat.residentName || "No Name Set"}
                     </Text>
+                    <Text style={styles.residentMobileMini}>
+                      {flat.residentMobile || "No Mobile Set"}
+                    </Text>
+                    {flat.familyMembers ? (
+                      <Text style={styles.familyMini}>
+                        👨‍👩‍👧‍👦 {flat.familyMembers} members
+                      </Text>
+                    ) : null}
+                    {flat.staffMembers ? (
+                      <Text style={styles.familyMini}>
+                        👮 {flat.staffMembers} staff
+                      </Text>
+                    ) : null}
+                    {flat.ownership && (
+                      <View
+                        style={[
+                          styles.ownershipBadge,
+                          flat.ownership === "RENTAL"
+                            ? styles.rentalBadge
+                            : styles.selfOwnedBadge,
+                        ]}
+                      >
+                        <Text style={styles.ownershipText}>
+                          {flat.ownership === "RENTAL"
+                            ? "🏠 Rental"
+                            : "🔑 Self Owned"}
+                        </Text>
+                      </View>
+                    )}
                   </View>
-                </View>
 
-                <View style={styles.residentInfoMini}>
-                  <Text style={styles.residentNameMini}>
-                    {flat.residentName || "No Name Set"}
-                  </Text>
-                  <Text style={styles.residentMobileMini}>
-                    {flat.residentMobile || "No Mobile Set"}
-                  </Text>
-                  {flat.familyMembers ? (
-                    <Text style={styles.familyMini}>
-                      👨‍👩‍👧‍👦 {flat.familyMembers} members
-                    </Text>
-                  ) : null}
-                  {flat.staffMembers ? (
-                    <Text style={styles.familyMini}>
-                      👮 {flat.staffMembers} staff
-                    </Text>
-                  ) : null}
-                  {flat.ownership && (
-                    <View
-                      style={[
-                        styles.ownershipBadge,
-                        flat.ownership === "RENTAL"
-                          ? styles.rentalBadge
-                          : styles.selfOwnedBadge,
-                      ]}
-                    >
-                      <Text style={styles.ownershipText}>
-                        {flat.ownership === "RENTAL"
-                          ? "🏠 Rental"
-                          : "🔑 Self Owned"}
+                  {flat.hasCredentials ? (
+                    <>
+                      <View style={styles.credInfo}>
+                        <Text style={styles.credLabel}>Username:</Text>
+                        <Text style={styles.credValue}>{flat.username}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.viewBtn}
+                        onPress={() => handleViewCredentials(flat)}
+                      >
+                        <Text style={styles.viewBtnText}>View Details</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : !flat.residentName && !flat.residentMobile ? (
+                    <View style={styles.noCredsContainer}>
+                      <Text style={styles.noCredsText}>
+                        Pending Initialization
+                      </Text>
+                      <Text style={styles.noCredsSubtext}>
+                        Credentials will appear once wing structure is saved.
                       </Text>
                     </View>
-                  )}
+                  ) : null}
                 </View>
-
-                {flat.hasCredentials ? (
-                  <>
-                    <View style={styles.credInfo}>
-                      <Text style={styles.credLabel}>Username:</Text>
-                      <Text style={styles.credValue}>{flat.username}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.viewBtn}
-                      onPress={() => handleViewCredentials(flat)}
-                    >
-                      <Text style={styles.viewBtnText}>View Details</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : !flat.residentName && !flat.residentMobile ? (
-                  <View style={styles.noCredsContainer}>
-                    <Text style={styles.noCredsText}>
-                      Pending Initialization
-                    </Text>
-                    <Text style={styles.noCredsSubtext}>
-                      Credentials will appear once wing structure is saved.
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            ))}
+              );
+            })}
           </View>
         </ScrollView>
       )}
@@ -730,7 +758,11 @@ export default function FloorDetail() {
                       editOwnership === "SELF_OWNED" &&
                         styles.statusToggleBtnActive,
                     ]}
-                    onPress={() => setEditOwnership("SELF_OWNED")}
+                    onPress={() => {
+                      setEditOwnership("SELF_OWNED");
+                      setEditOwnerName("");
+                      setEditOwnerContact("");
+                    }}
                   >
                     <Text
                       style={[
@@ -761,6 +793,50 @@ export default function FloorDetail() {
                     </Text>
                   </TouchableOpacity>
                 </View>
+              </View>
+
+              {editOwnership === "RENTAL" && (
+                <>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>Flat owner name</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={editOwnerName}
+                      onChangeText={setEditOwnerName}
+                      placeholder="Enter Owner Name"
+                    />
+                  </View>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.formLabel}>Flat owner contact</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={editOwnerContact}
+                      onChangeText={setEditOwnerContact}
+                      placeholder="Enter Owner Contact"
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                    />
+                  </View>
+                </>
+              )}
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>
+                  Login Password (Admin/User Copy)
+                </Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={editPassword}
+                  onChangeText={(val) =>
+                    setEditPassword(val.replace(/\s/g, ""))
+                  }
+                  placeholder="Enter Password"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <Text style={styles.helpText}>
+                  6-14 chars, no spaces. Updates for both resident and admin.
+                </Text>
               </View>
             </View>
 
@@ -835,11 +911,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     padding: 10,
+    justifyContent: "space-between",
   },
   flatPanel: {
-    width: "47%",
     backgroundColor: "#fff",
-    margin: "1.5%",
+    marginVertical: 6,
     padding: 15,
     borderRadius: 12,
     borderWidth: 1,
@@ -1127,6 +1203,7 @@ const styles = StyleSheet.create({
   statusToggleRow: {
     flexDirection: "row",
     gap: 10,
+    flexWrap: "wrap",
   },
   statusToggleBtn: {
     flex: 1,
@@ -1189,5 +1266,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#999",
     textAlign: "center",
+  },
+  helpText: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 4,
+    fontStyle: "italic",
   },
 });

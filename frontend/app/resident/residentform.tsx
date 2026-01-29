@@ -85,6 +85,8 @@ export default function ResidentForm() {
     alternateMobile: "",
     status: "OCCUPIED",
     ownership: "SELF_OWNED",
+    ownerName: "",
+    ownerContact: "",
     familyMemberCount: "0",
     familyDetails: [],
     profession: "",
@@ -93,6 +95,14 @@ export default function ResidentForm() {
     vehicleCount: "0",
     vehicleDetails: [],
     hobbies: "",
+  });
+  const [newPassword, setNewPassword] = useState("");
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+
+  const [formErrors, setFormErrors] = useState<any>({
+    residentMobile: "",
+    alternateMobile: "",
   });
 
   const [showDropdowns, setShowDropdowns] = useState<any>({
@@ -152,6 +162,28 @@ export default function ResidentForm() {
   };
 
   const handleInputChange = (field: string, value: any) => {
+    // Mobile number validation
+    if (
+      field === "residentMobile" ||
+      field === "alternateMobile" ||
+      field === "ownerContact"
+    ) {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      if (sanitized.length > 10) return;
+
+      setFormData((prev: any) => ({ ...prev, [field]: sanitized }));
+
+      if (sanitized.length > 0 && sanitized.length < 10) {
+        setFormErrors((prev: any) => ({
+          ...prev,
+          [field]: "Mobile must be 10 digits",
+        }));
+      } else {
+        setFormErrors((prev: any) => ({ ...prev, [field]: "" }));
+      }
+      return;
+    }
+
     setFormData((prev: any) => ({ ...prev, [field]: value }));
   };
 
@@ -268,13 +300,46 @@ export default function ResidentForm() {
   };
 
   const handleSubmit = async () => {
+    // Validation check before submit
+    if (formData.residentMobile && formData.residentMobile.length !== 10) {
+      setFormErrors((prev: any) => ({
+        ...prev,
+        residentMobile: "Mobile must be 10 digits",
+      }));
+      return;
+    }
+    if (
+      formData.alternateMobile &&
+      formData.alternateMobile.length > 0 &&
+      formData.alternateMobile.length !== 10
+    ) {
+      setFormErrors((prev: any) => ({
+        ...prev,
+        alternateMobile: "Mobile must be 10 digits",
+      }));
+      return;
+    }
+
     if (!formData.residentName || !formData.residentMobile) {
       Toast.show({
         type: "error",
         text1: "Required Fields",
-        text2: "Name and Mobile required",
+        text2: "Resident Name and Mobile are mandatory.",
       });
       return;
+    }
+
+    // New Password Validation
+    if (showPasswordChange && newPassword) {
+      if (newPassword.length < 6 || newPassword.length > 14) {
+        setPasswordError("Password must be 6 to 14 characters");
+        return;
+      }
+      if (/\s/.test(newPassword)) {
+        setPasswordError("Password cannot contain spaces");
+        return;
+      }
+      setPasswordError("");
     }
     setIsSubmitting(true);
     try {
@@ -293,8 +358,13 @@ export default function ResidentForm() {
       const updateData = {
         ...formData,
         familyMembers: parseInt(formData.familyMemberCount) || 0,
+        residenceStatus: formData.status, // Ensure admin side reflects this
         updatedAt: new Date().toISOString(),
       };
+
+      if (showPasswordChange && newPassword) {
+        updateData.password = newPassword;
+      }
 
       // Save to BOTH Firestore locations
       await setDoc(doc(db, residentPath), updateData, { merge: true });
@@ -557,28 +627,49 @@ export default function ResidentForm() {
                 ]}
               >
                 <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.label}>Mobile *</Text>
+                  <Text style={styles.label}>Mobile Number *</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[
+                      styles.input,
+                      formErrors.residentMobile ? styles.inputError : null,
+                    ]}
                     value={formData.residentMobile}
                     onChangeText={(val) =>
                       handleInputChange("residentMobile", val)
                     }
-                    placeholder="10-digit mobile"
+                    placeholder="e.g. 9876543210"
+                    placeholderTextColor="#94A3B8"
                     keyboardType="phone-pad"
+                    maxLength={10}
                   />
+                  {formErrors.residentMobile ? (
+                    <Text style={styles.errorText}>
+                      {formErrors.residentMobile}
+                    </Text>
+                  ) : null}
                 </View>
+
                 <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.label}>Alternate</Text>
+                  <Text style={styles.label}>Alternate Mobile (Optional)</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[
+                      styles.input,
+                      formErrors.alternateMobile ? styles.inputError : null,
+                    ]}
                     value={formData.alternateMobile}
                     onChangeText={(val) =>
                       handleInputChange("alternateMobile", val)
                     }
-                    placeholder="Optional"
+                    placeholder="e.g. 9876543210"
+                    placeholderTextColor="#94A3B8"
                     keyboardType="phone-pad"
+                    maxLength={10}
                   />
+                  {formErrors.alternateMobile ? (
+                    <Text style={styles.errorText}>
+                      {formErrors.alternateMobile}
+                    </Text>
+                  ) : null}
                 </View>
                 {renderDropdown(
                   "Blood Group",
@@ -598,6 +689,51 @@ export default function ResidentForm() {
                       residentBlood: !showDropdowns.residentBlood,
                     }),
                   { flex: 1 },
+                )}
+              </View>
+
+              <View style={styles.divider} />
+
+              <View style={styles.passwordSection}>
+                <TouchableOpacity
+                  style={styles.passwordToggleBtn}
+                  onPress={() => setShowPasswordChange(!showPasswordChange)}
+                >
+                  <Ionicons
+                    name={showPasswordChange ? "chevron-up" : "key-outline"}
+                    size={20}
+                    color="#3B82F6"
+                  />
+                  <Text style={styles.passwordToggleText}>
+                    {showPasswordChange
+                      ? "Cancel Password Change"
+                      : "Change Login Password"}
+                  </Text>
+                </TouchableOpacity>
+
+                {showPasswordChange && (
+                  <View style={styles.passwordInputContainer}>
+                    <Text style={styles.label}>
+                      New Password (6-14 chars, no spaces) *
+                    </Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        passwordError ? styles.inputError : null,
+                      ]}
+                      placeholder="Enter new password"
+                      value={newPassword}
+                      onChangeText={(val) => {
+                        setNewPassword(val);
+                        if (passwordError) setPasswordError("");
+                      }}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    {passwordError ? (
+                      <Text style={styles.errorText}>{passwordError}</Text>
+                    ) : null}
+                  </View>
                 )}
               </View>
 
@@ -637,6 +773,13 @@ export default function ResidentForm() {
                   showDropdowns.ownership,
                   (val) => {
                     handleInputChange("ownership", val);
+                    if (val === "SELF_OWNED") {
+                      setFormData((prev: any) => ({
+                        ...prev,
+                        ownerName: "",
+                        ownerContact: "",
+                      }));
+                    }
                     setShowDropdowns({ ...showDropdowns, ownership: false });
                   },
                   () =>
@@ -647,6 +790,40 @@ export default function ResidentForm() {
                   { flex: 1 },
                 )}
               </View>
+
+              {formData.ownership === "RENTAL" && (
+                <View
+                  style={[
+                    styles.rowInputsContainer,
+                    { marginTop: 16, zIndex: 5 },
+                  ]}
+                >
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Flat owner name</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Enter owner name"
+                      value={formData.ownerName}
+                      onChangeText={(val) =>
+                        handleInputChange("ownerName", val)
+                      }
+                    />
+                  </View>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Flat owner contact number</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Enter owner contact"
+                      value={formData.ownerContact}
+                      onChangeText={(val) =>
+                        handleInputChange("ownerContact", val)
+                      }
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                    />
+                  </View>
+                </View>
+              )}
 
               <View style={styles.divider} />
               <Text style={styles.sectionHeader}>FAMILY MEMBERS</Text>
@@ -1047,6 +1224,20 @@ const styles = StyleSheet.create({
   },
   tabText: { fontSize: 14, fontWeight: "700", color: "#64748B" },
   activeTabText: { color: "#3B82F6" },
+  placeholderText: {
+    color: "#94A3B8",
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 11,
+    marginTop: 4,
+    marginLeft: 4,
+    fontWeight: "600",
+  },
+  inputError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FFF1F2",
+  },
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
@@ -1121,6 +1312,23 @@ const styles = StyleSheet.create({
   dropdownItemText: { fontSize: 13, color: "#475569", fontWeight: "500" },
   activeDropdownText: { color: "#3B82F6", fontWeight: "700" },
   divider: { height: 1, backgroundColor: "#F1F5F9", marginVertical: 15 },
+  passwordSection: {
+    paddingVertical: 10,
+  },
+  passwordToggleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 8,
+  },
+  passwordToggleText: {
+    color: "#3B82F6",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  passwordInputContainer: {
+    marginTop: 12,
+  },
   dynamicRowCard: {
     backgroundColor: "#F1F5F9",
     borderRadius: 12,

@@ -1,16 +1,24 @@
+import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
 import {
-  ActivityIndicator,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    collection,
+    doc,
+    onSnapshot,
+    orderBy,
+    query,
+} from "firebase/firestore";
+import { useCallback, useEffect, useState } from "react";
+import {
+    ActivityIndicator,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 
 export default function ResidentDashboard() {
@@ -18,12 +26,58 @@ export default function ResidentDashboard() {
   const { signOut } = useAuth();
   const [loading, setLoading] = useState(true);
   const [residentData, setResidentData] = useState<any>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   useFocusEffect(
     useCallback(() => {
       fetchResidentData();
     }, []),
   );
+
+  // Auto-logout listener if password changes
+  useEffect(() => {
+    if (!residentData?.adminUID || !residentData?.id) return;
+
+    const unitDocRef = doc(
+      db,
+      `artifacts/${appId}/public/data/societies/${residentData.adminUID}/Residents`,
+      residentData.id,
+    );
+
+    const unsubscribe = onSnapshot(unitDocRef, (doc) => {
+      if (doc.exists()) {
+        const data = doc.data();
+        // If password in DB is different from what we logged in with (resident_session), force logout
+        if (data.password && data.password !== residentData.password) {
+          console.log("Password changed by admin. Logging out...");
+          signOut();
+        }
+      } else {
+        // If document deleted
+        signOut();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [residentData?.adminUID, residentData?.id, residentData?.password]);
+
+  // Notifications listener
+  useEffect(() => {
+    if (!residentData?.adminUID || !residentData?.id) return;
+
+    const notifRef = collection(
+      db,
+      `artifacts/${appId}/public/data/societies/${residentData.adminUID}/Residents/${residentData.id}/notifications`,
+    );
+    const q = query(notifRef, orderBy("createdAt", "desc"));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setNotifications(msgs);
+    });
+
+    return () => unsubscribe();
+  }, [residentData?.adminUID, residentData?.id]);
 
   const fetchResidentData = async () => {
     try {
@@ -77,6 +131,19 @@ export default function ResidentDashboard() {
           </View>
         </View>
 
+        {/* Notifications Section */}
+        {notifications.length > 0 && (
+          <View style={styles.notificationsContainer}>
+            <Text style={styles.sectionTitle}>Notifications</Text>
+            {notifications.map((notif) => (
+              <View key={notif.id} style={styles.notificationCard}>
+                <Ionicons name="notifications" size={20} color="#EF4444" />
+                <Text style={styles.notificationText}>{notif.message}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
           <View style={styles.iconContainer}>
@@ -93,22 +160,22 @@ export default function ResidentDashboard() {
         {/* Profile Completion Banner */}
         {(!residentData?.residentMobile ||
           residentData?.residentName === "Resident") && (
-            <TouchableOpacity
-              style={styles.profileBanner}
-              onPress={() => router.push("/resident/residentform")}
-            >
-              <View style={styles.bannerContent}>
-                <Ionicons name="alert-circle" size={24} color="#F59E0B" />
-                <View style={styles.bannerTextContainer}>
-                  <Text style={styles.bannerTitle}>Complete Your Profile</Text>
-                  <Text style={styles.bannerSub}>
-                    Add your contact details and family info
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
+          <TouchableOpacity
+            style={styles.profileBanner}
+            onPress={() => router.push("/resident/residentform")}
+          >
+            <View style={styles.bannerContent}>
+              <Ionicons name="alert-circle" size={24} color="#F59E0B" />
+              <View style={styles.bannerTextContainer}>
+                <Text style={styles.bannerTitle}>Complete Your Profile</Text>
+                <Text style={styles.bannerSub}>
+                  Add your contact details and family info
+                </Text>
               </View>
-            </TouchableOpacity>
-          )}
+              <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
+            </View>
+          </TouchableOpacity>
+        )}
 
         {/* Stats Section */}
         <View style={styles.statsContainer}>
@@ -142,7 +209,14 @@ export default function ResidentDashboard() {
               <Ionicons name="notifications" size={24} color="#DB2777" />
             </View>
             <Text style={styles.actionLabel}>Notice Board</Text>
-            <Text style={[styles.actionSub, { color: "#DB2777", fontWeight: "700" }]}>Coming Soon</Text>
+            <Text
+              style={[
+                styles.actionSub,
+                { color: "#DB2777", fontWeight: "700" },
+              ]}
+            >
+              Coming Soon
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -427,5 +501,25 @@ const styles = StyleSheet.create({
     color: "#64748B",
     lineHeight: 18,
     fontWeight: "600",
+  },
+  notificationsContainer: {
+    marginBottom: 24,
+  },
+  notificationCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF2F2",
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    marginBottom: 8,
+  },
+  notificationText: {
+    color: "#991B1B",
+    fontSize: 13,
+    fontWeight: "600",
+    marginLeft: 10,
+    flex: 1,
   },
 });

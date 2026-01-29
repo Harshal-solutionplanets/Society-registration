@@ -4,6 +4,8 @@ const cors = require("cors");
 const bodyParser = require("body-parser");
 const { google } = require("googleapis");
 const admin = require("firebase-admin");
+const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 
 const app = express();
 app.use(cors());
@@ -347,9 +349,9 @@ app.post("/api/drive/archive-resident-staff", async (req, res) => {
         });
         const drive = google.drive({ version: "v3", auth: oauth2Client });
 
-        // Find/Create "Archived" folder
+        // Find/Create "Archived Staff" folder
         const archiveSearch = await drive.files.list({
-          q: `name = 'Archived' and '${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+          q: `name = 'Archived Staff' and '${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
           fields: "files(id)",
         });
 
@@ -359,7 +361,7 @@ app.post("/api/drive/archive-resident-staff", async (req, res) => {
         } else {
           const folderRes = await drive.files.create({
             resource: {
-              name: "Archived",
+              name: "Archived Staff",
               mimeType: "application/vnd.google-apps.folder",
               parents: [parentFolderId],
             },
@@ -390,7 +392,7 @@ app.post("/api/drive/archive-resident-staff", async (req, res) => {
       .doc(adminUID)
       .collection("Residents")
       .doc(unitId)
-      .collection("Archived Staff")
+      .collection("ArchivedStaff")
       .doc(staffId);
 
     await archivedDocRef.set({
@@ -443,6 +445,156 @@ app.get("/api/auth/google/refresh", async (req, res) => {
 
     res.json({ accessToken: credentials.access_token });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Forgot Password Logic
+ */
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER || "your-noreply-email@gmail.com",
+    pass: process.env.EMAIL_PASS || "your-app-password",
+  },
+});
+
+app.post("/api/auth/forgot-password", async (req, res) => {
+  const { email, appId } = req.body;
+  if (!email) return res.status(400).json({ error: "Email is required" });
+
+  try {
+    const societyId = appId || "dev-society-id";
+    // 1. Verify if user is an admin by checking society collection
+    // Note: We search by email field in societies collection
+    const societiesRef = db
+      .collection("artifacts")
+      .doc(societyId)
+      .collection("public")
+      .doc("data")
+      .collection("societies");
+
+    const snapshot = await societiesRef.where("adminEmail", "==", email).get();
+
+    if (snapshot.empty) {
+      return res
+        .status(404)
+        .json({ error: "This email is not registered as a society admin." });
+    }
+
+    // 2. Generate 4-digit OTP
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+    // 3. Store in Firestore
+    await db
+      .collection("artifacts")
+      .doc(societyId)
+      .collection("temp_otps")
+      .doc(email)
+      .set({
+        otp,
+        expiresAt,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    // 4. Send Email
+    const mailOptions = {
+      from: `"Society Management" <${process.env.EMAIL_USER || "noreply@societyapp.com"}>`,
+      to: email,
+      subject: "Password Reset OTP",
+      text: `Your OTP for password reset is ${otp}. It is valid for 5 minutes.`,
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+          <h2 style="color: #3B82F6;">Password Reset Request</h2>
+          <p>You requested to reset your password. Use the OTP below to proceed:</p>
+          <div style="font-size: 24px; font-weight: bold; background: #F1F5F9; padding: 15px; text-align: center; border-radius: 8px; letter-spacing: 5px;">
+            ${otp}
+          </div>
+          <p style="color: #64748B; font-size: 14px; margin-top: 20px;">
+            This OTP is valid for <b>5 minutes</b>. If you didn't request this, please ignore this email.
+          </p>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.json({ success: true, message: "OTP sent to email" });
+  } catch (error) {
+    console.error("Forgot Password Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/auth/verify-otp", async (req, res) => {
+  const { email, otp, appId } = req.body;
+  if (!email || !otp) return res.status(400).json({ error: "Missing fields" });
+
+  try {
+    const societyId = appId || "dev-society-id";
+    const otpDoc = await db
+      .collection("artifacts")
+      .doc(societyId)
+      .collection("temp_otps")
+      .doc(email)
+      .get();
+
+    if (!otpDoc.exists)
+      return res.status(400).json({ error: "OTP not found or expired" });
+
+    const data = otpDoc.data();
+    if (data.otp !== otp) return res.status(400).json({ error: "Invalid OTP" });
+    if (Date.now() > data.expiresAt)
+      return res.status(400).json({ error: "OTP expired" });
+
+    res.json({ success: true, message: "OTP verified" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/auth/reset-password", async (req, res) => {
+  const { email, otp, newPassword, appId } = req.body;
+  if (!email || !otp || !newPassword)
+    return res.status(400).json({ error: "Missing fields" });
+
+  try {
+    const societyId = appId || "dev-society-id";
+    const otpDoc = await db
+      .collection("artifacts")
+      .doc(societyId)
+      .collection("temp_otps")
+      .doc(email)
+      .get();
+
+    if (!otpDoc.exists)
+      return res.status(400).json({ error: "Invalid session" });
+
+    const data = otpDoc.data();
+    if (data.otp !== otp || Date.now() > data.expiresAt) {
+      return res.status(400).json({ error: "OTP invalid or expired" });
+    }
+
+    // 1. Get User by Email in Firebase Auth
+    const userRecord = await admin.auth().getUserByEmail(email);
+
+    // 2. Update Password
+    await admin.auth().updateUser(userRecord.uid, {
+      password: newPassword,
+    });
+
+    // 3. Cleanup
+    await db
+      .collection("artifacts")
+      .doc(societyId)
+      .collection("temp_otps")
+      .doc(email)
+      .delete();
+
+    res.json({ success: true, message: "Password updated successfully" });
+  } catch (error) {
+    console.error("Reset Password Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -2,7 +2,15 @@ import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  setDoc,
+  where,
+} from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -97,6 +105,12 @@ export default function AdminSetup() {
   const [showDropdowns, setShowDropdowns] = useState<Record<string, boolean>>(
     {},
   );
+  const [formErrors, setFormErrors] = useState({
+    pincode: "",
+    adminContact: "",
+    googleLocation: "",
+    registrationNo: "",
+  });
 
   const [societyRef, setSocietyRef] = useState<any>(null);
 
@@ -143,6 +157,82 @@ export default function AdminSetup() {
   };
 
   const handleInputChange = (field: string, value: string) => {
+    // Clear error when user changes input
+    if (formErrors[field as keyof typeof formErrors]) {
+      setFormErrors((prev) => ({ ...prev, [field]: "" }));
+    }
+
+    if (field === "registrationNo") {
+      const normalized = value.toUpperCase(); // We will trim on submit for better typing experience, or just trim here if it doesn't break space-in-middle
+      // Actually trim() on live input can prevent spaces in the middle.
+      // User might want "SR / 1234". Let's just .toUpperCase() here.
+      setFormData((prev) => ({ ...prev, [field]: normalized }));
+      return;
+    }
+
+    // Enforce 6-digit limit for pincode
+    if (field === "pincode") {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      if (sanitized.length > 6) return;
+
+      setFormData((prev) => ({ ...prev, [field]: sanitized }));
+
+      // Inline validation
+      if (sanitized.length > 0 && sanitized.length < 6) {
+        setFormErrors((prev) => ({
+          ...prev,
+          pincode: "Pincode must be 6 digits",
+        }));
+      }
+      return;
+    }
+
+    // Enforce 10-digit limit for contact number
+    if (field === "adminContact") {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      if (sanitized.length > 10) return;
+
+      setFormData((prev) => ({ ...prev, [field]: sanitized }));
+
+      // Inline validation
+      if (sanitized.length > 0 && sanitized.length < 10) {
+        setFormErrors((prev) => ({
+          ...prev,
+          adminContact: "Contact must be 10 digits",
+        }));
+      }
+      return;
+    }
+
+    // Google Maps URL validation - Strictly original google links
+    if (field === "googleLocation") {
+      setFormData((prev) => ({ ...prev, [field]: value }));
+      if (value.length === 0) {
+        setFormErrors((prev) => ({ ...prev, googleLocation: "" }));
+      } else {
+        const googleMapsRegex =
+          /^(https?:\/\/)?(www\.)?(google\.com\/maps|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+$/;
+        if (!googleMapsRegex.test(value)) {
+          setFormErrors((prev) => ({
+            ...prev,
+            googleLocation:
+              "Invalid Google Maps URL. Use original shared link.",
+          }));
+        } else {
+          setFormErrors((prev) => ({ ...prev, googleLocation: "" }));
+        }
+      }
+      return;
+    }
+
+    // Limit wing count to 3 digits
+    if (field === "wingCount") {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      if (sanitized.length > 3) return;
+      setFormData((prev) => ({ ...prev, [field]: sanitized }));
+      return;
+    }
+
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -197,6 +287,22 @@ export default function AdminSetup() {
   };
 
   const handleAdvanceInputChange = (field: string, value: string) => {
+    // Global limit for any numeric field in advance form (preventing accidental massive numbers)
+    // Most counts won't exceed 4 digits (9999)
+    const numericFields = [
+      "fireExtinguisherCount",
+      "liftCount",
+      "waterTankCount",
+      "cctvCount",
+      "completionYear",
+    ];
+    if (numericFields.includes(field)) {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      const limit = field === "completionYear" ? 4 : 4;
+      if (sanitized.length > limit) return;
+      value = sanitized;
+    }
+
     setAdvanceFormData((prev) => {
       const updatedData = { ...prev, [field]: value };
 
@@ -225,16 +331,74 @@ export default function AdminSetup() {
   };
 
   const handleSetup = async () => {
-    const { societyName, wingCount, pincode, adminName } = formData;
+    const {
+      societyName,
+      wingCount,
+      pincode,
+      adminName,
+      adminContact,
+      googleLocation,
+      registrationNo,
+    } = formData;
+
+    const normalizedRegNo = (registrationNo || "").trim().toUpperCase();
 
     // Validation for essential fields
-    if (!societyName || !wingCount || !pincode || !adminName) {
+    if (
+      !societyName ||
+      !wingCount ||
+      !pincode ||
+      !adminName ||
+      !normalizedRegNo
+    ) {
       Toast.show({
         type: "error",
         text1: "Required Fields",
-        text2: "Please fill in all essential fields.",
+        text2: "Please fill in all essential fields including Registration No.",
       });
       return;
+    }
+
+    // Final validation check before submission
+    if (
+      formErrors.pincode ||
+      formErrors.adminContact ||
+      formErrors.googleLocation
+    ) {
+      Toast.show({
+        type: "error",
+        text1: "Validation Error",
+        text2: "Please fix the errors in the form before submitting.",
+      });
+      return;
+    }
+
+    // Doubly ensure values are correct length (in case user just left it incomplete)
+    if (pincode.length !== 6) {
+      setFormErrors((prev) => ({
+        ...prev,
+        pincode: "Pincode must be 6 digits",
+      }));
+      return;
+    }
+    if (adminContact && adminContact.length !== 10) {
+      setFormErrors((prev) => ({
+        ...prev,
+        adminContact: "Contact must be 10 digits",
+      }));
+      return;
+    }
+
+    if (googleLocation) {
+      const googleMapsRegex =
+        /^(https?:\/\/)?(www\.)?(google\.com\/maps|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+$/;
+      if (!googleMapsRegex.test(googleLocation)) {
+        setFormErrors((prev) => ({
+          ...prev,
+          googleLocation: "Invalid Google Maps URL. Use original shared link.",
+        }));
+        return;
+      }
     }
 
     if (!user || !user.email) {
@@ -257,6 +421,35 @@ export default function AdminSetup() {
 
     setIsSubmitting(true);
     try {
+      // 0. Uniqueness check for Registration No
+      const societiesRef = collection(
+        db,
+        `artifacts/${appId}/public/data/societies`,
+      );
+      const q = query(
+        societiesRef,
+        where("registrationNo", "==", normalizedRegNo),
+      );
+      const querySnapshot = await getDocs(q);
+
+      // Check if any document OTHER than the current user's has this registration number
+      const isDuplicate = querySnapshot.docs.some((doc) => doc.id !== user.uid);
+
+      if (isDuplicate) {
+        setIsSubmitting(false);
+        setFormErrors((prev) => ({
+          ...prev,
+          registrationNo: "Registration Number already exists",
+        }));
+        Toast.show({
+          type: "error",
+          text1: "Registration Failed",
+          text2:
+            "A society with this Registration Number already exists in our system.",
+        });
+        return;
+      }
+
       let realFolderId = null;
 
       if (!isEditMode) {
@@ -301,6 +494,7 @@ export default function AdminSetup() {
       // 2. Save everything to Firestore
       const updateData: any = {
         ...formData,
+        registrationNo: normalizedRegNo, // Ensure saved normalized
         advanceDetails: advanceFormData,
         wingCount: parseInt(wingCount),
         adminUserId: user.uid,
@@ -420,6 +614,13 @@ export default function AdminSetup() {
         value={advanceFormData[field as keyof typeof advanceFormData] as string}
         onChangeText={(val) => handleAdvanceInputChange(field, val)}
         keyboardType={keyboardType}
+        maxLength={
+          keyboardType === "numeric"
+            ? field === "completionYear"
+              ? 4
+              : 4
+            : undefined
+        }
       />
     </View>
   );
@@ -949,32 +1150,43 @@ export default function AdminSetup() {
                 <View style={styles.flex1}>
                   <Text style={styles.label}>Pincode *</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[
+                      styles.input,
+                      formErrors.pincode ? styles.inputError : null,
+                    ]}
                     placeholder="411057"
                     placeholderTextColor="#94A3B8"
                     value={formData.pincode}
                     onChangeText={(val) => handleInputChange("pincode", val)}
                     keyboardType="numeric"
+                    maxLength={6}
                   />
+                  {formErrors.pincode ? (
+                    <Text style={styles.errorText}>{formErrors.pincode}</Text>
+                  ) : null}
                 </View>
                 <View style={styles.flex1}>
                   <Text style={styles.label}>Wings/Blocks *</Text>
                   <TextInput
                     style={[styles.input, isEditMode && styles.inputDisabled]}
-                    placeholder="e.g. 3"
+                    placeholder="e.g. 5"
                     placeholderTextColor="#94A3B8"
                     value={formData.wingCount}
                     onChangeText={(val) => handleInputChange("wingCount", val)}
                     keyboardType="numeric"
+                    maxLength={3}
                     editable={!isEditMode}
                   />
                 </View>
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Society Registration No.</Text>
+                <Text style={styles.label}>Society Registration No. *</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    formErrors.registrationNo ? styles.inputError : null,
+                  ]}
                   placeholder="e.g. SR/12345/2026"
                   placeholderTextColor="#94A3B8"
                   value={formData.registrationNo}
@@ -982,12 +1194,20 @@ export default function AdminSetup() {
                     handleInputChange("registrationNo", val)
                   }
                 />
+                {formErrors.registrationNo ? (
+                  <Text style={styles.errorText}>
+                    {formErrors.registrationNo}
+                  </Text>
+                ) : null}
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Google Maps Location URL</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    formErrors.googleLocation ? styles.inputError : null,
+                  ]}
                   placeholder="https://goo.gl/maps/..."
                   placeholderTextColor="#94A3B8"
                   value={formData.googleLocation}
@@ -995,6 +1215,11 @@ export default function AdminSetup() {
                     handleInputChange("googleLocation", val)
                   }
                 />
+                {formErrors.googleLocation ? (
+                  <Text style={styles.errorText}>
+                    {formErrors.googleLocation}
+                  </Text>
+                ) : null}
               </View>
 
               <View style={styles.divider} />
@@ -1015,13 +1240,22 @@ export default function AdminSetup() {
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Admin Contact</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[
+                    styles.input,
+                    formErrors.adminContact ? styles.inputError : null,
+                  ]}
                   placeholder="e.g. 9876543210"
                   placeholderTextColor="#94A3B8"
                   value={formData.adminContact}
                   onChangeText={(val) => handleInputChange("adminContact", val)}
                   keyboardType="phone-pad"
+                  maxLength={10}
                 />
+                {formErrors.adminContact ? (
+                  <Text style={styles.errorText}>
+                    {formErrors.adminContact}
+                  </Text>
+                ) : null}
               </View>
             </>
           ) : (
@@ -1165,11 +1399,13 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 16,
     marginBottom: 20,
   },
   flex1: {
     flex: 1,
+    minWidth: "45%",
   },
   divider: {
     height: 1,
@@ -1331,12 +1567,15 @@ const styles = StyleSheet.create({
   },
   compactRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     marginBottom: 12,
   },
   advanceInputGroup: {
     position: "relative",
     marginBottom: 4,
+    flex: 1,
+    minWidth: 140,
   },
   compactLabel: {
     fontSize: 12,
@@ -1397,5 +1636,16 @@ const styles = StyleSheet.create({
     height: 1.5,
     backgroundColor: "#E2E8F0",
     marginVertical: 16,
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 11,
+    marginTop: 4,
+    marginLeft: 4,
+    fontWeight: "600",
+  },
+  inputError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FFF1F2",
   },
 });

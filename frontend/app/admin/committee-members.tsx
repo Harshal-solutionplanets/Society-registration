@@ -22,6 +22,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -41,6 +42,7 @@ interface CommitteeMember {
   flatNo: string;
   floor: string;
   level: string; // 'society' or wingId
+  nonResidentAddress?: string;
 }
 
 const COMMITTEE_POSTS = [
@@ -58,6 +60,7 @@ const COMMITTEE_POSTS = [
 export default function CommitteeMembers() {
   const router = useRouter();
   const { user } = useAuth();
+  const { width } = useWindowDimensions();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -73,6 +76,7 @@ export default function CommitteeMembers() {
   const [wing, setWing] = useState("");
   const [flatNo, setFlatNo] = useState("");
   const [floor, setFloor] = useState("");
+  const [nonResidentAddress, setNonResidentAddress] = useState("");
   const [showPostDropdown, setShowPostDropdown] = useState(false);
   const [showWingDropdown, setShowWingDropdown] = useState(false);
   const [showFloorDropdown, setShowFloorDropdown] = useState(false);
@@ -80,12 +84,23 @@ export default function CommitteeMembers() {
 
   const [floorsList, setFloorsList] = useState<string[]>([]);
   const [flatsList, setFlatsList] = useState<string[]>([]);
-  const [selectedAdditionalWings, setSelectedAdditionalWings] = useState<string[]>([]);
+  const [additionalWingPosts, setAdditionalWingPosts] = useState<
+    Record<string, string>
+  >({});
+  const [showAdditionalPostDropdown, setShowAdditionalPostDropdown] = useState<
+    Record<string, boolean>
+  >({});
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState("");
+  const [formErrors, setFormErrors] = useState({
+    phone: "",
+    email: "",
+  });
 
   // Auto-fill logic state
-  const [lastSavedByPost, setLastSavedByPost] = useState<Record<string, any>>({});
+  const [lastSavedByPost, setLastSavedByPost] = useState<Record<string, any>>(
+    {},
+  );
   const [showSuggestion, setShowSuggestion] = useState(false);
   const [suggestedData, setSuggestedData] = useState<any>(null);
 
@@ -142,10 +157,9 @@ export default function CommitteeMembers() {
       } else {
         const wingObj = wings.find((w) => w.id === selectedLevel);
         if (!wingObj) return;
-        const sanitizedWingName = wingObj.name.replace(/\s+/g, "");
         membersRef = collection(
           db,
-          `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members`,
+          `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingObj.id}/wing_committee_members`,
         );
       }
 
@@ -164,6 +178,7 @@ export default function CommitteeMembers() {
     setWing(selectedWing.name);
     setFloor("");
     setFlatNo("");
+    setNonResidentAddress("");
     setFloorsList([]);
     setFlatsList([]);
     setShowWingDropdown(false);
@@ -193,6 +208,7 @@ export default function CommitteeMembers() {
     setFlatNo("N/A");
     setFloorsList(["N/A"]);
     setFlatsList(["N/A"]);
+    setNonResidentAddress("");
     setShowWingDropdown(false);
   };
 
@@ -221,26 +237,157 @@ export default function CommitteeMembers() {
     }
   };
 
+  const handlePhoneChange = (val: string) => {
+    // Allow digits only (optional)
+    const sanitized = val.replace(/[^0-9]/g, "");
+    if (sanitized.length > 10) return;
+    setPhone(sanitized);
+    // Validation removed as per request
+    setFormErrors((prev) => ({ ...prev, phone: "" }));
+  };
+
+  const handleEmailChange = (val: string) => {
+    setEmail(val);
+    if (val.length > 0) {
+      if (!val.toLowerCase().endsWith("@gmail.com")) {
+        setFormErrors((prev) => ({
+          ...prev,
+          email: "Only @gmail.com is allowed",
+        }));
+      } else {
+        setFormErrors((prev) => ({ ...prev, email: "" }));
+      }
+    } else {
+      setFormErrors((prev) => ({ ...prev, email: "" }));
+    }
+  };
+
   const handleAddMember = async () => {
     if (!user) return;
-    if (!name || !post || !phone || !email || !flatNo || !floor || !wing) {
-      Alert.alert("Error", "Please fill all fields");
+
+    // Validation check
+    if (phone.length !== 10) {
+      setFormErrors((prev) => ({ ...prev, phone: "Phone must be 10 digits" }));
       return;
+    }
+    if (email && !email.toLowerCase().endsWith("@gmail.com")) {
+      setFormErrors((prev) => ({
+        ...prev,
+        email: "Only @gmail.com is allowed",
+      }));
+      return;
+    }
+
+    // Phone number is now optional
+    if (!name || !post || !wing) {
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Please fill all required fields",
+      });
+      return;
+    }
+
+    if (wing === "Non-Resident") {
+      if (!nonResidentAddress.trim()) {
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: "Please enter complete address",
+        });
+        return;
+      }
+    } else if (!flatNo) {
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Please select flat",
+      });
+      return;
+    }
+
+    // Validate Resident Match (if not Non-Resident)
+    if (wing !== "Non-Resident") {
+      const targetWing = wings.find((w) => w.name === wing);
+      if (!targetWing) {
+        Toast.show({ type: "error", text1: "Invalid Wing" });
+        return;
+      }
+
+      // Fix: Uppercase ID for Resident Path to match likely storage format
+      const wingIdSanitized = targetWing.id.replace(/\s+/g, "_").toUpperCase();
+      const resId = `${wingIdSanitized}-${floor}-${flatNo}`;
+      const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${resId}`;
+
+      try {
+        const residentDoc = await getDoc(doc(db, residentPath));
+        if (!residentDoc.exists()) {
+          console.error(
+            "Resident ID not found:",
+            resId,
+            "using path:",
+            residentPath,
+          );
+          Toast.show({
+            type: "error",
+            text1: "Unit Not Registered",
+            text2: "No resident found in this unit.",
+          });
+          return;
+        }
+
+        const resData = residentDoc.data();
+        const primaryName = resData.residentName || "";
+        // Check both 'members' (legacy) and 'familyDetails' (new form)
+        const familyMembers = resData.familyDetails || resData.members || [];
+
+        const isPrimary =
+          primaryName.trim().toLowerCase() === name.trim().toLowerCase();
+
+        // Robust check for family members (handle object structure)
+        const isFamily =
+          Array.isArray(familyMembers) &&
+          familyMembers.some(
+            (m: any) =>
+              (m.name || "").trim().toLowerCase() === name.trim().toLowerCase(),
+          );
+
+        if (!isPrimary && !isFamily) {
+          // Notification Removed
+          Toast.show({
+            type: "error",
+            text1: "Person Mismatch",
+            text2: "Person not found in this unit (Primary or Family).",
+          });
+          return;
+        }
+      } catch (err) {
+        console.error("Validation error:", err);
+        Toast.show({ type: "error", text1: "Validation Failed" });
+        return;
+      }
     }
 
     setSaving(true);
     try {
-      const memberId = name;
+      const formattedName = name
+        .toLowerCase()
+        .split(" ")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+
+      const memberId = formattedName;
       const memberData: CommitteeMember = {
         id: memberId,
-        name,
+        name: formattedName,
         post,
         phone,
         email,
         wing,
-        flatNo,
-        floor,
+        flatNo: wing === "Non-Resident" ? "N/A" : flatNo,
+        floor: wing === "Non-Resident" ? "N/A" : floor,
         level: selectedLevel,
+        nonResidentAddress: wing === "Non-Resident" ? nonResidentAddress : "",
       };
 
       let memberPath = "";
@@ -249,8 +396,7 @@ export default function CommitteeMembers() {
       } else {
         const wingObj = wings.find((w) => w.id === selectedLevel);
         if (!wingObj) throw new Error("Wing not found");
-        const sanitizedWingName = wingObj.name.replace(/\s+/g, "");
-        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members/${memberId}`;
+        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingObj.id}/wing_committee_members/${memberId}`;
       }
 
       // Handle name change during edit (delete old record if ID changes)
@@ -261,8 +407,7 @@ export default function CommitteeMembers() {
         } else {
           const wingObj = wings.find((w) => w.id === selectedLevel);
           if (wingObj) {
-            const sanitizedWingName = wingObj.name.replace(/\s+/g, "");
-            oldPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members/${editId}`;
+            oldPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingObj.id}/wing_committee_members/${editId}`;
           }
         }
         if (oldPath) await deleteDoc(doc(db, oldPath));
@@ -275,13 +420,20 @@ export default function CommitteeMembers() {
         return [...filtered, memberData];
       });
 
-      // Save to additional wings if selected
-      for (const additionalWingId of selectedAdditionalWings) {
-        const addWingObj = wings.find(w => w.id === additionalWingId);
-        if (addWingObj) {
-          const sanitizedAddWingName = addWingObj.name.replace(/\s+/g, "");
-          const addMemberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedAddWingName}/wing_committee_members/${memberId}`;
-          await setDoc(doc(db, addMemberPath), { ...memberData, level: additionalWingId });
+      // Save to additional wings if selected (with their specific posts)
+      for (const [additionalWingId, additionalPost] of Object.entries(
+        additionalWingPosts,
+      )) {
+        if (additionalPost) {
+          const addWingObj = wings.find((w) => w.id === additionalWingId);
+          if (addWingObj) {
+            const addMemberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${addWingObj.id}/wing_committee_members/${memberId}`;
+            await setDoc(doc(db, addMemberPath), {
+              ...memberData,
+              post: additionalPost,
+              level: additionalWingId,
+            });
+          }
         }
       }
 
@@ -293,12 +445,14 @@ export default function CommitteeMembers() {
       setWing("");
       setFlatNo("");
       setFloor("");
-      setSelectedAdditionalWings([]);
+      setNonResidentAddress(""); // Reset non-resident adr
+      setAdditionalWingPosts({});
+      setShowAdditionalPostDropdown({});
 
       // Save to auto-fill store
       setLastSavedByPost((prev: Record<string, any>) => ({
         ...prev,
-        [post]: { name, phone, email, floor, flatNo }
+        [post]: { name, phone, email, floor, flatNo },
       }));
 
       setIsEditing(false);
@@ -320,14 +474,23 @@ export default function CommitteeMembers() {
     if (!user) return;
 
     const confirmMessage = `Are you sure you want to remove ${member.name}?`;
-    const confirmDelete = Platform.OS === 'web'
-      ? window.confirm(confirmMessage)
-      : await new Promise<boolean>((resolve) => {
-        Alert.alert("Delete Member", confirmMessage, [
-          { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
-          { text: "Delete", style: "destructive", onPress: () => resolve(true) }
-        ]);
-      });
+    const confirmDelete =
+      Platform.OS === "web"
+        ? window.confirm(confirmMessage)
+        : await new Promise<boolean>((resolve) => {
+            Alert.alert("Delete Member", confirmMessage, [
+              {
+                text: "Cancel",
+                style: "cancel",
+                onPress: () => resolve(false),
+              },
+              {
+                text: "Delete",
+                style: "destructive",
+                onPress: () => resolve(true),
+              },
+            ]);
+          });
 
     if (!confirmDelete) return;
 
@@ -338,8 +501,7 @@ export default function CommitteeMembers() {
       } else {
         const wingObj = wings.find((w) => w.id === selectedLevel);
         if (!wingObj) throw new Error("Wing not found");
-        const sanitizedWingName = wingObj.name.replace(/\s+/g, "");
-        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${sanitizedWingName}/wing_committee_members/${member.id}`;
+        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingObj.id}/wing_committee_members/${member.id}`;
       }
 
       await deleteDoc(doc(db, memberPath));
@@ -361,6 +523,7 @@ export default function CommitteeMembers() {
     setWing(member.wing);
     setFloor(member.floor);
     setFlatNo(member.flatNo);
+    setNonResidentAddress(member.nonResidentAddress || "");
     setIsEditing(true);
     setEditId(member.id);
 
@@ -397,11 +560,7 @@ export default function CommitteeMembers() {
 
         <View style={styles.levelSelector}>
           <Text style={styles.sectionLabel}>Select committee</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.scrollSelector}
-          >
+          <View style={styles.wingsGrid}>
             <TouchableOpacity
               style={[
                 styles.levelBtn,
@@ -426,62 +585,72 @@ export default function CommitteeMembers() {
               </Text>
             </TouchableOpacity>
             {/* Configured Wings */}
-            {wings.filter(w => w.isConfigured).map((w: Wing) => (
-              <TouchableOpacity
-                key={w.id}
-                style={[
-                  styles.levelBtn,
-                  selectedLevel === w.id && styles.levelBtnActive,
-                ]}
-                onPress={() => {
-                  setSelectedLevel(w.id);
-                  handleWingSelect(w);
-                }}
-              >
-                <Text
+            {wings
+              .filter((w) => w.isConfigured)
+              .map((w: Wing) => (
+                <TouchableOpacity
+                  key={w.id}
                   style={[
-                    styles.levelBtnText,
-                    selectedLevel === w.id && styles.levelBtnTextActive,
+                    styles.levelBtn,
+                    selectedLevel === w.id && styles.levelBtnActive,
                   ]}
+                  onPress={() => {
+                    setSelectedLevel(w.id);
+                    handleWingSelect(w);
+                  }}
                 >
-                  {w.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    style={[
+                      styles.levelBtnText,
+                      selectedLevel === w.id && styles.levelBtnTextActive,
+                    ]}
+                  >
+                    {w.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             {/* Other Wings */}
-            {wings.filter(w => !w.isConfigured).map((w: Wing) => (
-              <TouchableOpacity
-                key={w.id}
-                style={[
-                  styles.levelBtn,
-                  selectedLevel === w.id && styles.levelBtnActive,
-                ]}
-                onPress={() => {
-                  setSelectedLevel(w.id);
-                  handleWingSelect(w);
-                }}
-              >
-                <Text
+            {wings
+              .filter((w) => !w.isConfigured)
+              .map((w: Wing) => (
+                <TouchableOpacity
+                  key={w.id}
                   style={[
-                    styles.levelBtnText,
-                    selectedLevel === w.id && styles.levelBtnTextActive,
+                    styles.levelBtn,
+                    selectedLevel === w.id && styles.levelBtnActive,
                   ]}
+                  onPress={() => {
+                    setSelectedLevel(w.id);
+                    handleWingSelect(w);
+                  }}
                 >
-                  {w.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+                  <Text
+                    style={[
+                      styles.levelBtnText,
+                      selectedLevel === w.id && styles.levelBtnTextActive,
+                    ]}
+                  >
+                    {w.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+          </View>
         </View>
 
         <View style={styles.formSection}>
-          <Text style={styles.sectionTitle}>{isEditing ? "Edit Member" : "Add New Member"}</Text>
+          <Text style={styles.sectionTitle}>
+            {isEditing ? "Edit Member" : "Add New Member"}
+          </Text>
 
           {showSuggestion && (
             <View style={styles.suggestionBanner}>
               <View style={styles.suggestionInfo}>
-                <Text style={styles.suggestionTitle}>Use details from previous wing?</Text>
-                <Text style={styles.suggestionText}>We found previous details for {post}: {suggestedData?.name}</Text>
+                <Text style={styles.suggestionTitle}>
+                  Use details from previous wing?
+                </Text>
+                <Text style={styles.suggestionText}>
+                  We found previous details for {post}: {suggestedData?.name}
+                </Text>
               </View>
               <View style={styles.suggestionActions}>
                 <TouchableOpacity
@@ -504,14 +673,62 @@ export default function CommitteeMembers() {
               </View>
             </View>
           )}
-          <TextInput
-            style={styles.input}
-            placeholder="Name"
-            value={name}
-            onChangeText={setName}
-          />
+          <View
+            style={{
+              flexDirection: width > 768 ? "row" : "column",
+              gap: 10,
+              width: "100%",
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Name"
+                value={name}
+                onChangeText={setName}
+              />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Phone Number</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  formErrors.phone ? styles.inputError : null,
+                ]}
+                placeholder="e.g. 9876543210"
+                value={phone}
+                onChangeText={handlePhoneChange}
+                keyboardType="phone-pad"
+                maxLength={10}
+              />
+              {formErrors.phone ? (
+                <Text style={styles.errorText}>{formErrors.phone}</Text>
+              ) : null}
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Email</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  formErrors.email ? styles.inputError : null,
+                ]}
+                placeholder="e.g. member@gmail.com"
+                value={email}
+                onChangeText={handleEmailChange}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              {formErrors.email ? (
+                <Text style={styles.errorText}>{formErrors.email}</Text>
+              ) : null}
+            </View>
+          </View>
 
           <View style={{ zIndex: 1000, position: "relative" }}>
+            <Text style={styles.label}>Committee member Position</Text>
             <TouchableOpacity
               style={styles.dropdownButton}
               onPress={() => setShowPostDropdown(!showPostDropdown)}
@@ -589,25 +806,29 @@ export default function CommitteeMembers() {
                     keyboardShouldPersistTaps="handled"
                   >
                     {/* Configured Wings */}
-                    {wings.filter(w => w.isConfigured).map((w: Wing) => (
-                      <TouchableOpacity
-                        key={w.id}
-                        style={styles.dropdownItem}
-                        onPress={() => handleWingSelect(w)}
-                      >
-                        <Text style={styles.dropdownItemText}>{w.name}</Text>
-                      </TouchableOpacity>
-                    ))}
+                    {wings
+                      .filter((w) => w.isConfigured)
+                      .map((w: Wing) => (
+                        <TouchableOpacity
+                          key={w.id}
+                          style={styles.dropdownItem}
+                          onPress={() => handleWingSelect(w)}
+                        >
+                          <Text style={styles.dropdownItemText}>{w.name}</Text>
+                        </TouchableOpacity>
+                      ))}
                     {/* Other Wings */}
-                    {wings.filter(w => !w.isConfigured).map((w: Wing) => (
-                      <TouchableOpacity
-                        key={w.id}
-                        style={styles.dropdownItem}
-                        onPress={() => handleWingSelect(w)}
-                      >
-                        <Text style={styles.dropdownItemText}>{w.name}</Text>
-                      </TouchableOpacity>
-                    ))}
+                    {wings
+                      .filter((w) => !w.isConfigured)
+                      .map((w: Wing) => (
+                        <TouchableOpacity
+                          key={w.id}
+                          style={styles.dropdownItem}
+                          onPress={() => handleWingSelect(w)}
+                        >
+                          <Text style={styles.dropdownItemText}>{w.name}</Text>
+                        </TouchableOpacity>
+                      ))}
                     {/* Non-Resident Option */}
                     <TouchableOpacity
                       style={styles.dropdownItem}
@@ -620,154 +841,250 @@ export default function CommitteeMembers() {
               )}
             </View>
 
-            {/* Floor Dropdown */}
-            <View style={{ flex: 1, position: "relative" }}>
-              <TouchableOpacity
-                style={[styles.dropdownButton, { marginBottom: 0 }]}
-                onPress={() => {
-                  if (!wing)
-                    return Toast.show({
-                      type: "info",
-                      text1: "Select Wing First",
-                    });
-                  setShowFloorDropdown(!showFloorDropdown);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.dropdownButtonText,
-                    { fontSize: 13 },
-                    !floor && { color: "#94A3B8" },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {floor !== "" ? `Flr ${floor}` : "Floor"}
-                </Text>
-              </TouchableOpacity>
-              {showFloorDropdown && (
-                <View style={[styles.dropdownListContainer, { top: 48 }]}>
-                  <ScrollView
-                    style={styles.dropdownList}
-                    nestedScrollEnabled={true}
-                    keyboardShouldPersistTaps="handled"
+            {/* Floor and Flat Dropdowns OR Address for Non-Resident */}
+            {wing === "Non-Resident" ? (
+              <View style={{ flex: 2 }}>
+                <TextInput
+                  style={[styles.input, { marginBottom: 0 }]}
+                  placeholder="Complete address of a non-resident committee member"
+                  value={nonResidentAddress}
+                  onChangeText={setNonResidentAddress}
+                  multiline
+                />
+              </View>
+            ) : (
+              <>
+                {/* Floor Dropdown */}
+                <View style={{ flex: 1, position: "relative" }}>
+                  <TouchableOpacity
+                    style={[styles.dropdownButton, { marginBottom: 0 }]}
+                    onPress={() => {
+                      if (!wing)
+                        return Toast.show({
+                          type: "info",
+                          text1: "Select Wing First",
+                        });
+                      setShowFloorDropdown(!showFloorDropdown);
+                    }}
                   >
-                    {floorsList.map((f: string) => (
-                      <TouchableOpacity
-                        key={f}
-                        style={styles.dropdownItem}
-                        onPress={() => handleFloorSelect(f)}
+                    <Text
+                      style={[
+                        styles.dropdownButtonText,
+                        { fontSize: 13 },
+                        !floor && { color: "#94A3B8" },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {floor !== "" ? `Flr ${floor}` : "Floor"}
+                    </Text>
+                  </TouchableOpacity>
+                  {showFloorDropdown && (
+                    <View style={[styles.dropdownListContainer, { top: 48 }]}>
+                      <ScrollView
+                        style={styles.dropdownList}
+                        nestedScrollEnabled={true}
+                        keyboardShouldPersistTaps="handled"
                       >
-                        <Text style={styles.dropdownItemText}>
-                          {f === "0" ? "Ground" : `Floor ${f}`}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
+                        {floorsList.map((f: string) => (
+                          <TouchableOpacity
+                            key={f}
+                            style={styles.dropdownItem}
+                            onPress={() => handleFloorSelect(f)}
+                          >
+                            <Text style={styles.dropdownItemText}>
+                              {f === "0" ? "Ground" : `Floor ${f}`}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
                 </View>
-              )}
-            </View>
 
-            {/* Flat Dropdown */}
-            <View style={{ flex: 1, position: "relative" }}>
-              <TouchableOpacity
-                style={[styles.dropdownButton, { marginBottom: 0 }]}
-                onPress={() => {
-                  if (!floor)
-                    return Toast.show({
-                      type: "info",
-                      text1: "Select Floor First",
-                    });
-                  setShowFlatDropdown(!showFlatDropdown);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.dropdownButtonText,
-                    { fontSize: 13 },
-                    !flatNo && { color: "#94A3B8" },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {flatNo || "Flat"}
-                </Text>
-              </TouchableOpacity>
-              {showFlatDropdown && (
-                <View style={[styles.dropdownListContainer, { top: 48 }]}>
-                  <ScrollView
-                    style={styles.dropdownList}
-                    nestedScrollEnabled={true}
-                    keyboardShouldPersistTaps="handled"
+                {/* Flat Dropdown */}
+                <View style={{ flex: 1, position: "relative" }}>
+                  <TouchableOpacity
+                    style={[styles.dropdownButton, { marginBottom: 0 }]}
+                    onPress={() => {
+                      if (!floor)
+                        return Toast.show({
+                          type: "info",
+                          text1: "Select Floor First",
+                        });
+                      setShowFlatDropdown(!showFlatDropdown);
+                    }}
                   >
-                    {flatsList.map((flat: string) => (
-                      <TouchableOpacity
-                        key={flat}
-                        style={styles.dropdownItem}
-                        onPress={() => {
-                          setFlatNo(flat);
-                          setShowFlatDropdown(false);
-                        }}
+                    <Text
+                      style={[
+                        styles.dropdownButtonText,
+                        { fontSize: 13 },
+                        !flatNo && { color: "#94A3B8" },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {flatNo || "Flat"}
+                    </Text>
+                  </TouchableOpacity>
+                  {showFlatDropdown && (
+                    <View style={[styles.dropdownListContainer, { top: 48 }]}>
+                      <ScrollView
+                        style={styles.dropdownList}
+                        nestedScrollEnabled={true}
+                        keyboardShouldPersistTaps="handled"
                       >
-                        <Text style={styles.dropdownItemText}>{flat}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
+                        {flatsList.map((flat: string) => (
+                          <TouchableOpacity
+                            key={flat}
+                            style={styles.dropdownItem}
+                            onPress={() => {
+                              setFlatNo(flat);
+                              setShowFlatDropdown(false);
+                            }}
+                          >
+                            <Text style={styles.dropdownItemText}>{flat}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
                 </View>
-              )}
-            </View>
+              </>
+            )}
           </View>
 
           {/* Additional Wings Multi-select Section */}
-          <View style={styles.additionalWingsSection}>
-            <Text style={styles.additionalWingsLabel}>
-              Is this person a member or secretary of any other wing?
+          <View
+            style={[
+              styles.additionalWingsSection,
+              Object.values(showAdditionalPostDropdown).some((v) => v) && {
+                zIndex: 3000,
+              },
+              { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+            ]}
+          >
+            <Text style={[styles.additionalWingsLabel, { width: "100%" }]}>
+              Is this person a committee member of any other wing?
             </Text>
-            <View style={styles.checkboxContainer}>
-              {wings
-                .filter((w) => w.id !== selectedLevel)
-                .map((w) => (
+            {wings
+              .filter((w) => w.id !== selectedLevel)
+              .map((w) => (
+                <View
+                  key={w.id}
+                  style={[
+                    styles.additionalWingItem,
+                    showAdditionalPostDropdown[w.id] && { zIndex: 1000 },
+                    { width: width > 768 ? "32%" : "100%" },
+                  ]}
+                >
                   <TouchableOpacity
-                    key={w.id}
                     style={styles.checkboxRow}
                     onPress={() => {
-                      setSelectedAdditionalWings((prev) =>
-                        prev.includes(w.id)
-                          ? prev.filter((id) => id !== w.id)
-                          : [...prev, w.id],
-                      );
+                      if (additionalWingPosts[w.id] !== undefined) {
+                        // Remove this wing
+                        setAdditionalWingPosts((prev) => {
+                          const newPosts = { ...prev };
+                          delete newPosts[w.id];
+                          return newPosts;
+                        });
+                        setShowAdditionalPostDropdown((prev) => {
+                          const newDropdowns = { ...prev };
+                          delete newDropdowns[w.id];
+                          return newDropdowns;
+                        });
+                      } else {
+                        // Add this wing with empty post
+                        setAdditionalWingPosts((prev) => ({
+                          ...prev,
+                          [w.id]: "",
+                        }));
+                      }
                     }}
                   >
                     <View
                       style={[
                         styles.checkbox,
-                        selectedAdditionalWings.includes(w.id) &&
-                        styles.checkboxActive,
+                        additionalWingPosts[w.id] !== undefined &&
+                          styles.checkboxActive,
                       ]}
                     >
-                      {selectedAdditionalWings.includes(w.id) && (
+                      {additionalWingPosts[w.id] !== undefined && (
                         <View style={styles.checkboxTick} />
                       )}
                     </View>
                     <Text style={styles.checkboxLabel}>{w.name}</Text>
                   </TouchableOpacity>
-                ))}
-            </View>
+
+                  {/* Post dropdown for this wing */}
+                  {additionalWingPosts[w.id] !== undefined && (
+                    <View style={styles.additionalWingPostContainer}>
+                      <Text style={styles.additionalWingPostLabel}>
+                        Committee member post
+                      </Text>
+                      <View style={{ zIndex: 1000, position: "relative" }}>
+                        <TouchableOpacity
+                          style={styles.dropdownButton}
+                          onPress={() =>
+                            setShowAdditionalPostDropdown((prev) => ({
+                              ...prev,
+                              [w.id]: !prev[w.id],
+                            }))
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.dropdownButtonText,
+                              !additionalWingPosts[w.id] && {
+                                color: "#94A3B8",
+                              },
+                            ]}
+                          >
+                            {additionalWingPosts[w.id] || "Select Post"}
+                          </Text>
+                          <Text style={styles.dropdownArrow}>▼</Text>
+                        </TouchableOpacity>
+                        {showAdditionalPostDropdown[w.id] && (
+                          <View style={styles.dropdownListContainer}>
+                            <ScrollView style={styles.dropdownList}>
+                              {COMMITTEE_POSTS.map((p) => (
+                                <TouchableOpacity
+                                  key={p}
+                                  style={[
+                                    styles.dropdownItem,
+                                    additionalWingPosts[w.id] === p &&
+                                      styles.dropdownItemSelected,
+                                  ]}
+                                  onPress={() => {
+                                    setAdditionalWingPosts((prev) => ({
+                                      ...prev,
+                                      [w.id]: p,
+                                    }));
+                                    setShowAdditionalPostDropdown((prev) => ({
+                                      ...prev,
+                                      [w.id]: false,
+                                    }));
+                                  }}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.dropdownItemText,
+                                      additionalWingPosts[w.id] === p &&
+                                        styles.dropdownItemTextSelected,
+                                    ]}
+                                  >
+                                    {p}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </ScrollView>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  )}
+                </View>
+              ))}
           </View>
 
-          <TextInput
-            style={[styles.input, { marginTop: 12 }]}
-            placeholder="Phone Number"
-            value={phone}
-            onChangeText={setPhone}
-            keyboardType="phone-pad"
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
           <TouchableOpacity
             style={[styles.addBtn, saving && styles.disabledBtn]}
             onPress={handleAddMember}
@@ -776,7 +1093,9 @@ export default function CommitteeMembers() {
             {saving ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.addBtnText}>{isEditing ? "Update Member" : "Add Member"}</Text>
+              <Text style={styles.addBtnText}>
+                {isEditing ? "Update Member" : "Add Member"}
+              </Text>
             )}
           </TouchableOpacity>
           {isEditing && (
@@ -815,8 +1134,8 @@ export default function CommitteeMembers() {
                 <View style={styles.memberInfo}>
                   <Text style={styles.memberName}>{member.name}</Text>
                   <Text style={styles.memberPost}>
-                    {member.post} • {member.wing || "Wing N/A"} • Floor{" "}
-                    {member.floor} • Flat {member.flatNo}
+                    {member.post} • {member.wing || "Wing N/A"} - Flat{" "}
+                    {member.flatNo}
                   </Text>
                   <Text style={styles.memberContact}>{member.phone}</Text>
                 </View>
@@ -886,6 +1205,11 @@ const styles = StyleSheet.create({
   },
   scrollSelector: {
     flexDirection: "row",
+  },
+  wingsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
   },
   levelBtn: {
     paddingHorizontal: 20,
@@ -980,6 +1304,8 @@ const styles = StyleSheet.create({
   },
   deleteBtn: {
     padding: 8,
+    backgroundColor: "#FEE2E2",
+    borderRadius: 6,
   },
   deleteBtnText: {
     color: "#FF3B30",
@@ -1016,7 +1342,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   emptyText: {
-    color: "#999",
+    color: "#94A3B8",
+    fontSize: 14,
+    textAlign: "center",
   },
   additionalWingsSection: {
     marginTop: 16,
@@ -1132,8 +1460,8 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 16,
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "space-between",
-    alignItems: "center",
   },
   suggestionInfo: {
     flex: 1,
@@ -1176,5 +1504,41 @@ const styles = StyleSheet.create({
     color: "#0369A1",
     fontSize: 12,
     fontWeight: "700",
+  },
+  inputGroup: {
+    marginBottom: 12,
+  },
+  label: {
+    fontSize: 14,
+    color: "#495057",
+    marginBottom: 6,
+    fontWeight: "500",
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 11,
+    marginTop: 4,
+    marginLeft: 4,
+    fontWeight: "600",
+  },
+  inputError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FFF1F2",
+  },
+  additionalWingItem: {
+    marginBottom: 12,
+    backgroundColor: "#FAFAFA",
+    borderRadius: 8,
+    padding: 8,
+  },
+  additionalWingPostContainer: {
+    marginTop: 8,
+    marginLeft: 26,
+  },
+  additionalWingPostLabel: {
+    fontSize: 12,
+    color: "#666",
+    marginBottom: 4,
+    fontWeight: "500",
   },
 });

@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -89,6 +90,23 @@ export default function WingSetup() {
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshAccessToken = async () => {
+    if (!user) return null;
+    try {
+      const backendUrl =
+        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const res = await fetch(
+        `${backendUrl}/api/auth/google/refresh?adminUID=${user.uid}&appId=${appId}`,
+      );
+      if (!res.ok) throw new Error("Refresh failed");
+      const data = await res.json();
+      return data.accessToken;
+    } catch (error) {
+      console.error("DEBUG: Token refresh failed:", error);
+      return null;
     }
   };
 
@@ -363,7 +381,7 @@ export default function WingSetup() {
       );
       const societyData = societyDoc.data();
       const rootFolderId = societyData?.driveFolderId;
-      const token =
+      let token =
         societyData?.driveAccessToken ||
         (typeof window !== "undefined"
           ? sessionStorage.getItem("driveToken")
@@ -375,20 +393,46 @@ export default function WingSetup() {
         );
       }
 
+      // Test & Refresh Token if needed
+      try {
+        const testRes = await fetch(
+          "https://www.googleapis.com/drive/v3/about?fields=user",
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (testRes.status === 401) {
+          console.log("DEBUG: Token expired, refreshing...");
+          const newToken = await refreshAccessToken();
+          if (newToken) {
+            token = newToken;
+          }
+        }
+      } catch (err) {
+        console.warn("Token validation failed, attempting refresh anyway...");
+        const newToken = await refreshAccessToken();
+        if (newToken) token = newToken;
+      }
+
       let wingFolderId = existingWingData?.driveFolderId;
       if (!wingFolderId) {
         wingFolderId = await createDriveFolder(
           wingName,
           rootFolderId as string,
-          token,
+          token as string,
         );
+      } else if (initialName !== wingName) {
+        // Redundant check? initialName is set on mount
+        console.log(`Renaming wing folder from ${initialName} to ${wingName}`);
+        await renameDriveFolder(wingFolderId, wingName, token as string);
       }
 
       const batch = writeBatch(db);
       const updatedFloors = [...floors];
 
       const isRenaming = wingId && initialName !== wingName;
-      const wingPrefix = wingIdToUse.toUpperCase();
+      // Standardize wingIdToUse - use underscores consistently
+      const wingPrefix = (wingIdToUse as string)
+        .replace(/\s+/g, "_")
+        .toUpperCase();
       let unitsGenerated = 0;
 
       console.log(
@@ -505,13 +549,13 @@ export default function WingSetup() {
               wingId: wingIdToUse,
               floorNumber: floor.floorNumber,
               unitNumber: unitNumber,
-              residentUsername: residentUsername,
-              residentPassword: residentPassword,
               residentUID: existingData?.residentUID || null,
               status: existingData?.residenceStatus || "VACANT",
               driveFolderId: flatFolderId || "",
               createdAt: existingData?.createdAt || new Date().toISOString(),
               updatedAt: new Date().toISOString(),
+              residentPassword: deleteField(),
+              residentUsername: deleteField(),
             };
 
             batch.set(doc(db, societyUnitPath), unitPayload, { merge: true });

@@ -2,24 +2,25 @@ import { appId, auth, db } from "@/configs/firebaseConfig";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
-    createUserWithEmailAndPassword,
-    GoogleAuthProvider,
-    signInWithEmailAndPassword,
-    signInWithPopup,
-    signOut,
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -30,6 +31,24 @@ export default function AdminAuth() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [emailError, setEmailError] = useState("");
+
+  // Forgot Password States
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [isForgotLoading, setIsForgotLoading] = useState(false);
+
+  const handleEmailChange = (val: string) => {
+    setEmail(val);
+    if (!isLogin && val.length > 0) {
+      if (!val.toLowerCase().endsWith("@gmail.com")) {
+        setEmailError("Only @gmail.com leads are allowed");
+      } else {
+        setEmailError("");
+      }
+    } else {
+      setEmailError("");
+    }
+  };
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -39,11 +58,7 @@ export default function AdminAuth() {
 
     // Validate email domain for registration BEFORE any Firebase calls
     if (!isLogin && !email.toLowerCase().endsWith("@gmail.com")) {
-      Toast.show({
-        type: "error",
-        text1: "Invalid Email Domain",
-        text2: "Only @gmail.com accounts are allowed for admin registration.",
-      });
+      setEmailError("Only @gmail.com leads are allowed");
       return;
     }
 
@@ -147,6 +162,41 @@ export default function AdminAuth() {
     }
   };
 
+  // Forgot Password Handlers
+  const handleForgotPassword = async () => {
+    if (!email) {
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2: "Enter your registered admin email.",
+      });
+      return;
+    }
+
+    setIsForgotLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      Toast.show({
+        type: "success",
+        text1: "Email Sent",
+        text2: "Please check your inbox for reset instructions.",
+      });
+      setShowForgotPassword(false);
+    } catch (err: any) {
+      console.error(err);
+      Toast.show({
+        type: "error",
+        text1: "Error",
+        text2:
+          err.code === "auth/user-not-found"
+            ? "Account not found."
+            : "Failed to send reset email.",
+      });
+    } finally {
+      setIsForgotLoading(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -184,14 +234,17 @@ export default function AdminAuth() {
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Email Address</Text>
             <TextInput
-              style={styles.input}
-              placeholder="admin@example.com"
+              style={[styles.input, emailError ? styles.inputError : null]}
+              placeholder="admin@gmail.com"
               placeholderTextColor="#94A3B8"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={handleEmailChange}
               keyboardType="email-address"
               autoCapitalize="none"
             />
+            {emailError ? (
+              <Text style={styles.errorText}>{emailError}</Text>
+            ) : null}
           </View>
 
           <View style={styles.inputGroup}>
@@ -217,6 +270,15 @@ export default function AdminAuth() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {isLogin && (
+            <TouchableOpacity
+              style={styles.forgotLink}
+              onPress={() => setShowForgotPassword(true)}
+            >
+              <Text style={styles.forgotLinkText}>Forgot Password?</Text>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
@@ -263,6 +325,49 @@ export default function AdminAuth() {
           <Text style={styles.backButtonText}>Back to Home</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Forgot Password Modal Content (Simplified as conditional Overlay or replacement) */}
+      {showForgotPassword && (
+        <View style={[StyleSheet.absoluteFill, styles.overlay]}>
+          <View style={styles.forgotCard}>
+            <View style={styles.forgotHeader}>
+              <Text style={styles.forgotTitle}>Reset Password</Text>
+              <TouchableOpacity onPress={() => setShowForgotPassword(false)}>
+                <Ionicons name="close" size={24} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <View>
+              <Text style={styles.forgotDesc}>
+                Enter your registered admin email to receive a password reset
+                link.
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="admin@gmail.com"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                style={[
+                  styles.button,
+                  isForgotLoading && styles.buttonDisabled,
+                ]}
+                onPress={handleForgotPassword}
+                disabled={isForgotLoading}
+              >
+                {isForgotLoading ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text style={styles.buttonText}>Send Reset Email</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -419,5 +524,60 @@ const styles = StyleSheet.create({
     color: "#EF4444",
     fontSize: 14,
     fontWeight: "700",
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 11,
+    marginTop: 4,
+    marginLeft: 4,
+    fontWeight: "600",
+  },
+  inputError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FFF1F2",
+  },
+  forgotLink: {
+    alignSelf: "flex-end",
+    marginTop: -10,
+    marginBottom: 20,
+    marginRight: 4,
+  },
+  forgotLinkText: {
+    color: "#3B82F6",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  overlay: {
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    zIndex: 1000,
+    justifyContent: "center",
+    padding: 24,
+  },
+  forgotCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.2,
+    shadowRadius: 30,
+    elevation: 10,
+  },
+  forgotHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  forgotTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  forgotDesc: {
+    fontSize: 14,
+    color: "#64748B",
+    lineHeight: 20,
+    marginBottom: 20,
   },
 });

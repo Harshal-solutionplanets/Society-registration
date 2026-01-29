@@ -192,6 +192,7 @@ const deleteFileFromDrive = async (
     const searchData = await searchRes.json();
     if (searchData.files && searchData.files.length > 0) {
       const fileId = searchData.files[0].id;
+      console.log(`DEBUG: Deleting existing file: ${fileName} (${fileId})`);
       await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
@@ -214,6 +215,11 @@ const moveFolder = async (
     );
     const fileData = await fileRes.json();
     const previousParents = fileData.parents ? fileData.parents.join(",") : "";
+
+    console.log(
+      `DEBUG: Moving file ${fileId} from ${previousParents} to ${destinationId}`,
+    );
+
     const moveRes = await fetch(
       `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${destinationId}&removeParents=${previousParents}`,
       {
@@ -255,6 +261,11 @@ export default function SocietyStaff() {
   const [idCard, setIdCard] = useState<string | null>(null);
   const [addressProof, setAddressProof] = useState<string | null>(null);
 
+  const [formErrors, setFormErrors] = useState({
+    phone: "",
+    email: "",
+  });
+
   useEffect(() => {
     if (user) {
       fetchStaff();
@@ -281,29 +292,6 @@ export default function SocietyStaff() {
     }
   };
 
-  const handlePickImage = async (type: "photo" | "idCard" | "addressProof") => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      quality: 0.5,
-      base64: true,
-    });
-
-    if (!result.canceled) {
-      const asset = result.assets[0];
-
-      if (asset.base64 && asset.base64.length > 682666) {
-        Alert.alert("Error", "File size too large. Maximum limit is 500KB.");
-        return;
-      }
-
-      const base64Image = `data:image/jpeg;base64,${asset.base64}`;
-      if (type === "photo") setPhoto(base64Image);
-      else if (type === "idCard") setIdCard(base64Image);
-      else if (type === "addressProof") setAddressProof(base64Image);
-    }
-  };
-
   const refreshAccessToken = async () => {
     if (!user) return null;
     try {
@@ -321,24 +309,155 @@ export default function SocietyStaff() {
     }
   };
 
+  const handleDocumentChange = async (
+    type: "photo" | "idCard" | "addressProof",
+    action: "pick" | "delete",
+  ) => {
+    let newValue = null;
+
+    if (action === "pick") {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: "images",
+        allowsEditing: true,
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled) {
+        const asset = result.assets[0];
+        if (asset.base64 && asset.base64.length > 682666) {
+          Alert.alert("Error", "File size too large. Maximum limit is 500KB.");
+          return;
+        }
+        newValue = `data:image/jpeg;base64,${asset.base64}`;
+      } else {
+        return;
+      }
+    }
+
+    // Update state immediately
+    if (type === "photo") setPhoto(newValue);
+    else if (type === "idCard") setIdCard(newValue);
+    else if (type === "addressProof") setAddressProof(newValue);
+
+    // If we are editing an existing record, sync "turant"
+    if (editingId && user) {
+      const fileName =
+        type === "photo"
+          ? "Photo.jpg"
+          : type === "idCard"
+            ? "ID_Card.jpg"
+            : "Address_Proof.jpg";
+      try {
+        // 1. Update Firestore
+        const updateObj = {
+          [type]: newValue || "",
+          updatedAt: new Date().toISOString(),
+        };
+        const staffPath = `artifacts/${appId}/public/data/societies/${user.uid}/Staff/${editingId}`;
+        await setDoc(doc(db, staffPath), updateObj, { merge: true });
+
+        // 2. Drive Update (if token/folder present)
+        const societyDoc = await getDoc(
+          doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+        );
+        const societyData = societyDoc.data();
+        let token = societyData?.driveAccessToken;
+
+        const existingMember = members.find((m) => m.id === editingId);
+        const staffFolderId = existingMember?.driveFolderId;
+
+        if (token && staffFolderId) {
+          // Test token
+          const testRes = await fetch(
+            "https://www.googleapis.com/drive/v3/about?fields=user",
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            },
+          );
+          if (testRes.status === 401) {
+            token = await refreshAccessToken();
+          }
+
+          if (token) {
+            await deleteFileFromDrive(fileName, staffFolderId, token);
+            if (newValue) {
+              await uploadImageToDrive(
+                newValue,
+                fileName,
+                staffFolderId,
+                token,
+              );
+            }
+          }
+        }
+
+        Toast.show({
+          type: "success",
+          text1: "Auto-synced",
+          text2: `${type} updated in cloud.`,
+        });
+      } catch (err: any) {
+        console.error("Immediate sync failed:", err);
+      }
+    }
+  };
+
+  const handlePhoneChange = (val: string) => {
+    const sanitized = val.replace(/[^0-9]/g, "");
+    if (sanitized.length > 10) return;
+    setPhone(sanitized);
+    if (sanitized.length > 0 && sanitized.length < 10) {
+      setFormErrors((prev) => ({ ...prev, phone: "Phone must be 10 digits" }));
+    } else {
+      setFormErrors((prev) => ({ ...prev, phone: "" }));
+    }
+  };
+
+  const handleEmailChange = (val: string) => {
+    setEmail(val);
+    if (val.length > 0) {
+      if (!val.toLowerCase().endsWith("@gmail.com")) {
+        setFormErrors((prev) => ({
+          ...prev,
+          email: "Only @gmail.com leads are allowed",
+        }));
+      } else {
+        setFormErrors((prev) => ({ ...prev, email: "" }));
+      }
+    } else {
+      setFormErrors((prev) => ({ ...prev, email: "" }));
+    }
+  };
+
   const handleAddOrUpdateStaff = async () => {
     if (!user) return;
 
-    if (!name || !position || !shift || !phone) {
+    // Validation check
+    if (!name || !position || !phone) {
       Toast.show({
         type: "error",
         text1: "Required Fields Missing",
-        text2: "Please fill Name, Position, Shift and Phone Number.",
+        text2: "Please fill Name, Position and Phone Number.",
       });
       return;
     }
 
+    if (phone.length !== 10) {
+      setFormErrors((prev) => ({ ...prev, phone: "Phone must be 10 digits" }));
+      return;
+    }
+
+    if (email && !email.toLowerCase().endsWith("@gmail.com")) {
+      setFormErrors((prev) => ({
+        ...prev,
+        email: "Only @gmail.com leads are allowed",
+      }));
+      return;
+    }
+
     if (position === "Other" && !otherPosition) {
-      Toast.show({
-        type: "error",
-        text1: "Position Missing",
-        text2: "Please specify the other position.",
-      });
+      Alert.alert("Error", "Please specify the other position.");
       return;
     }
 
@@ -365,7 +484,9 @@ export default function SocietyStaff() {
       if (token) {
         const testRes = await fetch(
           "https://www.googleapis.com/drive/v3/about?fields=user",
-          { headers: { Authorization: `Bearer ${token}` } },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
         );
         if (testRes.status === 401) {
           token = await refreshAccessToken();
@@ -403,22 +524,20 @@ export default function SocietyStaff() {
           }
         }
 
-        // 3. Document Operations (Upload/Overwrite/Delete)
+        // 3. Document Operations
         const handleDocOp = async (
           currentBase64: string | null,
           originalValue: string | null | undefined,
           fileName: string,
         ) => {
           if (!currentBase64 && originalValue && editingId) {
-            // User deleted existing doc
-            await deleteFileFromDrive(fileName, staffFolderId, token);
+            await deleteFileFromDrive(fileName, staffFolderId, token!);
           } else if (currentBase64 && currentBase64.startsWith("data:image")) {
-            // User uploaded NEW or UPDATED doc
             await uploadImageToDrive(
               currentBase64,
               fileName,
               staffFolderId,
-              token,
+              token!,
             );
           }
         };
@@ -438,7 +557,7 @@ export default function SocietyStaff() {
         if (photo || idCard || addressProof) {
           Alert.alert(
             "Notice",
-            "Google Drive not linked or folder missing. Documents saved locally only.",
+            "Google Drive not linked. Documents saved locally only.",
           );
         }
       }
@@ -497,9 +616,7 @@ export default function SocietyStaff() {
   const handleDeleteStaff = async (member: StaffMember) => {
     if (!user) return;
 
-    // Use window.confirm for web compatibility
     const confirmMessage = `Are you sure you want to remove ${member.name}? This will archive their documents and data.`;
-
     const confirmDelete =
       Platform.OS === "web"
         ? window.confirm(confirmMessage)
@@ -523,85 +640,67 @@ export default function SocietyStaff() {
     try {
       setSaving(true);
       console.log("DEBUG: Starting archive process for", member.name);
-      let driveArchived = false;
 
-      // 2. Try to move Drive folder to "Archived Staff" folder (NON-CRITICAL)
+      // 1. Archive to Firestore "ArchivedStaff" collection
+      const archivedStaffPath = `artifacts/${appId}/public/data/societies/${user.uid}/ArchivedStaff/${member.id}`;
+      await setDoc(doc(db, archivedStaffPath), {
+        ...member,
+        archivedAt: new Date().toISOString(),
+        archivedBy: user.uid,
+      });
+
+      // 2. Drive archive folder move
+      let driveArchived = false;
       const societyDoc = await getDoc(
         doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
       );
       const societyData = societyDoc.data();
       let token = societyData?.driveAccessToken;
 
-      if (token) {
-        const testRes = await fetch(
-          "https://www.googleapis.com/drive/v3/about?fields=user",
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
-        if (testRes.status === 401) {
-          token = await refreshAccessToken();
-        }
-      }
-
-      console.log("DEBUG: Archive Token present?", !!token);
-      console.log("DEBUG: Member Folder ID:", member.driveFolderId);
-
       if (token && member.driveFolderId && societyData?.driveFolderId) {
         try {
-          const archiveFolderId = await findOrCreateFolder(
-            "Archived Staff",
-            societyData.driveFolderId,
-            token,
+          // Test token
+          const testRes = await fetch(
+            "https://www.googleapis.com/drive/v3/about?fields=user",
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            },
           );
-          console.log("DEBUG: Archive Drive Folder ID:", archiveFolderId);
-          await moveFolder(member.driveFolderId, archiveFolderId, token);
-          console.log("DEBUG: Documents moved to Archived Staff in Drive");
-          driveArchived = true;
-        } catch (driveError: any) {
-          console.warn(
-            "DEBUG: Drive archiving failed (token may be expired):",
-            driveError.message,
-          );
-          // Don't throw - continue with Firestore operations
+          if (testRes.status === 401) {
+            token = await refreshAccessToken();
+          }
+
+          if (token) {
+            const archiveFolderId = await findOrCreateFolder(
+              "Archived Staff",
+              societyData.driveFolderId,
+              token,
+            );
+            await moveFolder(member.driveFolderId, archiveFolderId, token);
+            driveArchived = true;
+          }
+        } catch (driveErr: any) {
+          console.warn("Drive archiving failed:", driveErr.message);
         }
       }
 
-      // 3. Metadata Archiving in Firestore
-      const archivedPath = `artifacts/${appId}/public/data/societies/${user.uid}/Archived Staff/${member.id}`;
-      await setDoc(doc(db, archivedPath), {
-        ...member,
-        archivedAt: new Date().toISOString(),
-        driveArchived,
-      });
-
-      // 4. Delete from active "Staff" collection
+      // 3. Delete from active collection
       const staffPath = `artifacts/${appId}/public/data/societies/${user.uid}/Staff/${member.id}`;
       await deleteDoc(doc(db, staffPath));
 
-      // 5. Update UI
-      setMembers((prev: StaffMember[]) =>
-        prev.filter((m: StaffMember) => m.id !== member.id),
-      );
+      // 4. UI Update
+      setMembers((prev) => prev.filter((m) => m.id !== member.id));
 
-      // 5. Show appropriate success message
-      if (driveArchived) {
-        Toast.show({
-          type: "success",
-          text1: "Staff Archived Successfully",
-          text2: "Data moved to ArchivedStaff collection and Drive folder",
-        });
-      } else {
-        Toast.show({
-          type: "info",
-          text1: "Staff Removed (Partial Archive)",
-          text2:
-            "Firestore archived. Drive failed - re-login with Google to fix.",
-        });
-      }
+      Toast.show({
+        type: driveArchived ? "success" : "info",
+        text1: driveArchived ? "Staff Archived" : "Staff Removed (Local)",
+        text2: driveArchived
+          ? "Data and Drive documents moved."
+          : "Firestore archived. Drive folder could not be moved.",
+      });
     } catch (error: any) {
-      console.error("DEBUG: Archive/Delete failed:", error);
-      Alert.alert("Error", error.message || "Failed to archive staff member");
+      console.error("Archive failed:", error);
+      Alert.alert("Error", "Failed to archive staff.");
     } finally {
       setSaving(false);
     }
@@ -610,19 +709,16 @@ export default function SocietyStaff() {
   const handleEditStaff = (member: StaffMember) => {
     setEditingId(member.id);
     setName(member.name);
-
     const isOther =
       !STAFF_POSITIONS.includes(member.position) && member.position !== "Other";
     setPosition(isOther ? "Other" : member.position);
     setOtherPosition(isOther ? member.position : "");
-
     setPhone(member.phone);
     setEmail(member.email);
     setShift(member.shift);
     setPhoto(member.photo || null);
     setIdCard(member.idCard || null);
     setAddressProof(member.addressProof || null);
-    // Scroll to top or just focus? For mobile, users will see the form.
   };
 
   if (loading) {
@@ -740,7 +836,7 @@ export default function SocietyStaff() {
               <Text style={styles.label}>Specify Position</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g. Supervisor, CCTV Expert"
+                placeholder="e.g. Supervisor"
                 value={otherPosition}
                 onChangeText={setOtherPosition}
               />
@@ -750,58 +846,54 @@ export default function SocietyStaff() {
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Phone Number *</Text>
             <TextInput
-              style={styles.input}
-              placeholder="e.g. 9876543210"
+              style={[
+                styles.input,
+                formErrors.phone ? styles.inputError : null,
+              ]}
+              placeholder="10 digit number"
               value={phone}
-              onChangeText={setPhone}
+              onChangeText={handlePhoneChange}
               keyboardType="phone-pad"
+              maxLength={10}
             />
+            {formErrors.phone ? (
+              <Text style={styles.errorText}>{formErrors.phone}</Text>
+            ) : null}
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email (Optional)</Text>
+            <Text style={styles.label}>Email (Optional, @gmail.com)</Text>
             <TextInput
-              style={styles.input}
-              placeholder="e.g. ramesh@example.com"
+              style={[
+                styles.input,
+                formErrors.email ? styles.inputError : null,
+              ]}
+              placeholder="ramesh@gmail.com"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={handleEmailChange}
               keyboardType="email-address"
               autoCapitalize="none"
             />
+            {formErrors.email ? (
+              <Text style={styles.errorText}>{formErrors.email}</Text>
+            ) : null}
           </View>
 
           <View style={styles.uploadSection}>
-            <Text style={styles.label}>Required Documents (Max 500KB)</Text>
+            <Text style={styles.label}>Documents (Max 500KB)</Text>
             <View style={styles.uploadRow}>
-              {/* Photo */}
-              <View style={styles.uploadContainer}>
+              <View style={styles.uploadWrapper}>
                 <TouchableOpacity
                   style={styles.uploadBox}
-                  onPress={() => !photo && handlePickImage("photo")}
-                  activeOpacity={photo ? 1 : 0.7}
+                  onPress={() =>
+                    !photo && handleDocumentChange("photo", "pick")
+                  }
                 >
                   {photo ? (
-                    <>
-                      <Image
-                        source={{ uri: photo }}
-                        style={styles.previewImage}
-                        resizeMode="cover"
-                      />
-                      <View style={styles.uploadActionButtons}>
-                        <TouchableOpacity
-                          style={[styles.actionBtn, styles.editActionBtn]}
-                          onPress={() => handlePickImage("photo")}
-                        >
-                          <Ionicons name="pencil" size={14} color="#fff" />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.actionBtn, styles.deleteActionBtn]}
-                          onPress={() => setPhoto(null)}
-                        >
-                          <Ionicons name="trash" size={14} color="#fff" />
-                        </TouchableOpacity>
-                      </View>
-                    </>
+                    <Image
+                      source={{ uri: photo }}
+                      style={styles.previewImage}
+                    />
                   ) : (
                     <View style={styles.uploadPlaceholder}>
                       <Text style={styles.uploadIcon}>👤</Text>
@@ -809,101 +901,123 @@ export default function SocietyStaff() {
                     </View>
                   )}
                 </TouchableOpacity>
+                {photo && (
+                  <View style={styles.overlayControls}>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.editOverlay]}
+                      onPress={() => handleDocumentChange("photo", "pick")}
+                    >
+                      <Ionicons name="create" size={14} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.deleteOverlay]}
+                      onPress={() => handleDocumentChange("photo", "delete")}
+                    >
+                      <Ionicons name="trash" size={14} color="white" />
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
 
-              {/* ID Card */}
-              <View style={styles.uploadContainer}>
-                <TouchableOpacity
-                  style={styles.uploadBox}
-                  onPress={() => !idCard && handlePickImage("idCard")}
-                  activeOpacity={idCard ? 1 : 0.7}
-                >
-                  {idCard ? (
-                    <>
-                      <Image
-                        source={{ uri: idCard }}
-                        style={styles.previewImage}
-                        resizeMode="cover"
-                      />
-                      <View style={styles.uploadActionButtons}>
-                        <TouchableOpacity
-                          style={[styles.actionBtn, styles.editActionBtn]}
-                          onPress={() => handlePickImage("idCard")}
-                        >
-                          <Ionicons name="pencil" size={14} color="#fff" />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.actionBtn, styles.deleteActionBtn]}
-                          onPress={() => setIdCard(null)}
-                        >
-                          <Ionicons name="trash" size={14} color="#fff" />
-                        </TouchableOpacity>
-                      </View>
-                    </>
-                  ) : (
-                    <View style={styles.uploadPlaceholder}>
-                      <Text style={styles.uploadIcon}>💳</Text>
-                      <Text style={styles.uploadLabel}>Photo ID card</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              </View>
-
-              {/* Address Proof */}
-              <View style={styles.uploadContainer}>
+              <View style={styles.uploadWrapper}>
                 <TouchableOpacity
                   style={styles.uploadBox}
                   onPress={() =>
-                    !addressProof && handlePickImage("addressProof")
+                    !idCard && handleDocumentChange("idCard", "pick")
                   }
-                  activeOpacity={addressProof ? 1 : 0.7}
                 >
-                  {addressProof ? (
-                    <>
-                      <Image
-                        source={{ uri: addressProof }}
-                        style={styles.previewImage}
-                        resizeMode="cover"
-                      />
-                      <View style={styles.uploadActionButtons}>
-                        <TouchableOpacity
-                          style={[styles.actionBtn, styles.editActionBtn]}
-                          onPress={() => handlePickImage("addressProof")}
-                        >
-                          <Ionicons name="pencil" size={14} color="#fff" />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.actionBtn, styles.deleteActionBtn]}
-                          onPress={() => setAddressProof(null)}
-                        >
-                          <Ionicons name="trash" size={14} color="#fff" />
-                        </TouchableOpacity>
-                      </View>
-                    </>
+                  {idCard ? (
+                    <Image
+                      source={{ uri: idCard }}
+                      style={styles.previewImage}
+                    />
                   ) : (
                     <View style={styles.uploadPlaceholder}>
-                      <Text style={styles.uploadIcon}>🏠</Text>
-                      <Text style={styles.uploadLabel}>Address Proof</Text>
+                      <Text style={styles.uploadIcon}>💳</Text>
+                      <Text style={styles.uploadLabel}>ID Card</Text>
                     </View>
                   )}
                 </TouchableOpacity>
+                {idCard && (
+                  <View style={styles.overlayControls}>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.editOverlay]}
+                      onPress={() => handleDocumentChange("idCard", "pick")}
+                    >
+                      <Ionicons name="create" size={14} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.deleteOverlay]}
+                      onPress={() => handleDocumentChange("idCard", "delete")}
+                    >
+                      <Ionicons name="trash" size={14} color="white" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.uploadWrapper}>
+                <TouchableOpacity
+                  style={styles.uploadBox}
+                  onPress={() =>
+                    !addressProof &&
+                    handleDocumentChange("addressProof", "pick")
+                  }
+                >
+                  {addressProof ? (
+                    <Image
+                      source={{ uri: addressProof }}
+                      style={styles.previewImage}
+                    />
+                  ) : (
+                    <View style={styles.uploadPlaceholder}>
+                      <Text style={styles.uploadIcon}>🏠</Text>
+                      <Text style={styles.uploadLabel}>Address</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {addressProof && (
+                  <View style={styles.overlayControls}>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.editOverlay]}
+                      onPress={() =>
+                        handleDocumentChange("addressProof", "pick")
+                      }
+                    >
+                      <Ionicons name="create" size={14} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.overlayBtn, styles.deleteOverlay]}
+                      onPress={() =>
+                        handleDocumentChange("addressProof", "delete")
+                      }
+                    >
+                      <Ionicons name="trash" size={14} color="white" />
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             </View>
           </View>
 
           <TouchableOpacity
-            style={[styles.addBtn, saving && styles.disabledBtn]}
+            style={[
+              styles.addBtn,
+              (saving || !!formErrors.phone || !!formErrors.email) &&
+                styles.disabledBtn,
+            ]}
             onPress={handleAddOrUpdateStaff}
-            disabled={saving}
+            disabled={saving || !!formErrors.phone || !!formErrors.email}
           >
             {saving ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.addBtnText}>
-                {editingId ? "Update Member" : "Add Member"}
+                {editingId ? "Update Staff" : "Add Staff Member"}
               </Text>
             )}
           </TouchableOpacity>
+
           {editingId && (
             <TouchableOpacity
               style={styles.cancelBtn}
@@ -914,12 +1028,10 @@ export default function SocietyStaff() {
                 setPhone("");
                 setEmail("");
                 setShift("Day");
-                setOtherPosition("");
                 setPhoto(null);
                 setIdCard(null);
                 setAddressProof(null);
               }}
-              disabled={saving}
             >
               <Text style={styles.cancelBtnText}>Cancel Edit</Text>
             </TouchableOpacity>
@@ -927,52 +1039,48 @@ export default function SocietyStaff() {
         </View>
 
         <View style={styles.listSection}>
-          <Text style={styles.sectionTitle}>Active Staff Members</Text>
-          {members.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>No staff members added yet.</Text>
-            </View>
-          ) : (
-            members.map((member: StaffMember) => (
-              <View key={member.id} style={styles.memberCard}>
-                <View style={styles.memberRow}>
-                  {member.photo ? (
-                    <Image
-                      source={{ uri: member.photo }}
-                      style={styles.memberAvatar}
-                    />
-                  ) : (
-                    <View style={styles.memberAvatarPlaceholder}>
-                      <Text style={styles.avatarInitial}>
-                        {member.name.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                  )}
-                  <View style={styles.memberInfo}>
-                    <Text style={styles.memberName}>{member.name}</Text>
-                    <Text style={styles.memberSubText}>
-                      {member.position} • {member.shift} Shift
+          <Text style={styles.sectionTitle}>
+            Active Staff ({members.length})
+          </Text>
+          {members.map((member) => (
+            <View key={member.id} style={styles.memberCard}>
+              <View style={styles.memberHeader}>
+                {member.photo ? (
+                  <Image
+                    source={{ uri: member.photo }}
+                    style={styles.memberAvatar}
+                  />
+                ) : (
+                  <View style={[styles.memberAvatar, styles.placeholderAvatar]}>
+                    <Text style={styles.avatarText}>
+                      {member.name.charAt(0).toUpperCase()}
                     </Text>
-                    <Text style={styles.memberSubText}>📞 {member.phone}</Text>
                   </View>
-                </View>
-                <View style={styles.cardActions}>
-                  <TouchableOpacity
-                    style={styles.editBtn}
-                    onPress={() => handleEditStaff(member)}
-                  >
-                    <Text style={styles.editBtnText}>Edit</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.deleteBtn}
-                    onPress={() => handleDeleteStaff(member)}
-                  >
-                    <Text style={styles.deleteBtnText}>Remove</Text>
-                  </TouchableOpacity>
+                )}
+                <View style={styles.memberInfo}>
+                  <Text style={styles.memberName}>{member.name}</Text>
+                  <Text style={styles.memberMeta}>
+                    {member.position} • {member.shift}
+                  </Text>
+                  <Text style={styles.memberContact}>📞 {member.phone}</Text>
                 </View>
               </View>
-            ))
-          )}
+              <View style={styles.memberActions}>
+                <TouchableOpacity
+                  onPress={() => handleEditStaff(member)}
+                  style={styles.editBtn}
+                >
+                  <Text style={styles.editBtnText}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleDeleteStaff(member)}
+                  style={styles.deleteBtn}
+                >
+                  <Text style={styles.deleteBtnText}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -980,59 +1088,27 @@ export default function SocietyStaff() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F1F5F9",
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  header: {
-    padding: 24,
-    paddingTop: 64,
-    backgroundColor: "#FFFFFF",
-  },
-  backBtn: {
-    marginBottom: 12,
-  },
-  backBtnText: {
-    fontSize: 16,
-    color: "#3B82F6",
-    fontWeight: "600",
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
+  container: { flex: 1, backgroundColor: "#F1F5F9" },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  header: { padding: 24, paddingTop: 60, backgroundColor: "#fff" },
+  backBtn: { marginBottom: 12 },
+  backBtnText: { color: "#3B82F6", fontSize: 16, fontWeight: "600" },
+  title: { fontSize: 26, fontWeight: "800", color: "#0F172A" },
   formSection: {
     margin: 20,
-    padding: 24,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
+    padding: 20,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    elevation: 4,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "700",
     color: "#1E293B",
-    marginBottom: 20,
-  },
-  inputGroup: {
     marginBottom: 16,
   },
-  label: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#475569",
-    marginBottom: 8,
-  },
+  inputGroup: { marginBottom: 16 },
+  label: { fontSize: 13, fontWeight: "600", color: "#475569", marginBottom: 6 },
   input: {
     backgroundColor: "#F8FAFC",
     borderWidth: 1,
@@ -1040,13 +1116,15 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
     fontSize: 16,
-    color: "#1E293B",
   },
-  row: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 16,
+  inputError: { borderColor: "#EF4444", backgroundColor: "#FFF1F2" },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: "600",
   },
+  row: { flexDirection: "row", gap: 12, marginBottom: 16 },
   dropdownButton: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1057,218 +1135,109 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
   },
-  dropdownText: {
-    fontSize: 15,
-    color: "#1E293B",
-  },
+  dropdownText: { fontSize: 15, color: "#1E293B" },
   dropdownListContainer: {
     position: "absolute",
     top: 75,
     left: 0,
     right: 0,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#fff",
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
     elevation: 10,
     zIndex: 2000,
-    maxHeight: 200,
+    maxHeight: 180,
   },
-  dropdownList: {
-    padding: 4,
-  },
+  dropdownList: { padding: 4 },
   dropdownItem: {
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-  uploadSection: {
-    marginBottom: 24,
-  },
-  uploadRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  uploadContainer: {
-    flex: 1,
-    aspectRatio: 1,
-  },
+  uploadSection: { marginBottom: 20 },
+  uploadRow: { flexDirection: "row", gap: 10 },
+  uploadWrapper: { flex: 1, aspectRatio: 1, position: "relative" },
   uploadBox: {
     flex: 1,
     backgroundColor: "#F8FAFC",
-    borderWidth: 2,
+    borderWidth: 1,
     borderStyle: "dashed",
     borderColor: "#CBD5E1",
-    borderRadius: 16,
+    borderRadius: 12,
     overflow: "hidden",
-    position: "relative",
-  },
-  uploadPlaceholder: {
-    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 8,
   },
-  uploadIcon: {
-    fontSize: 24,
-    marginBottom: 4,
+  uploadPlaceholder: { alignItems: "center" },
+  uploadIcon: { fontSize: 22, marginBottom: 2 },
+  uploadLabel: { fontSize: 10, color: "#64748B", fontWeight: "600" },
+  previewImage: { width: "100%", height: "100%" },
+  overlayControls: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    flexDirection: "row",
+    gap: 4,
   },
-  uploadLabel: {
-    fontSize: 10,
-    color: "#64748B",
-    textAlign: "center",
-    fontWeight: "600",
-  },
-  previewImage: {
-    width: "100%",
-    height: "100%",
-  },
-  addBtn: {
-    backgroundColor: "#3B82F6",
-    borderRadius: 14,
-    padding: 16,
+  overlayBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#3B82F6",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  addBtnText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  cancelBtn: {
-    marginTop: 12,
-    padding: 12,
-    alignItems: "center",
-  },
-  cancelBtnText: {
-    color: "#64748B",
-    fontWeight: "600",
-  },
-  disabledBtn: {
-    opacity: 0.6,
-  },
-  listSection: {
-    paddingHorizontal: 20,
-  },
-  memberCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
     elevation: 2,
   },
-  memberRow: {
-    flexDirection: "row",
+  editOverlay: { backgroundColor: "#3B82F6" },
+  deleteOverlay: { backgroundColor: "#EF4444" },
+  addBtn: {
+    backgroundColor: "#0F172A",
+    borderRadius: 12,
+    padding: 16,
     alignItems: "center",
   },
-  memberAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginRight: 16,
+  addBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  disabledBtn: { opacity: 0.5 },
+  cancelBtn: { marginTop: 12, padding: 8, alignItems: "center" },
+  cancelBtnText: { color: "#64748B", fontWeight: "600" },
+  listSection: { paddingHorizontal: 20 },
+  memberCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    elevation: 2,
   },
-  memberAvatarPlaceholder: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#E2E8F0",
+  memberHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  memberAvatar: { width: 50, height: 50, borderRadius: 25 },
+  placeholderAvatar: {
+    backgroundColor: "#F1F5F9",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
   },
-  avatarInitial: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#64748B",
-  },
-  memberInfo: {
-    flex: 1,
-  },
-  memberName: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1E293B",
-  },
-  memberSubText: {
-    fontSize: 14,
-    color: "#64748B",
+  avatarText: { fontSize: 20, fontWeight: "700" },
+  memberInfo: { flex: 1 },
+  memberName: { fontSize: 16, fontWeight: "700", color: "#1E293B" },
+  memberMeta: {
+    fontSize: 13,
+    color: "#3B82F6",
+    fontWeight: "600",
     marginTop: 2,
   },
-  cardActions: {
+  memberContact: { fontSize: 12, color: "#64748B", marginTop: 2 },
+  memberActions: {
     flexDirection: "row",
-    gap: 12,
-    marginTop: 16,
+    justifyContent: "flex-end",
+    gap: 16,
+    marginTop: 12,
+    paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
-    paddingTop: 16,
   },
-  editBtn: {
-    flex: 1,
-    backgroundColor: "#F1F5F9",
-    padding: 10,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  editBtnText: {
-    color: "#1E293B",
-    fontWeight: "600",
-  },
-  deleteBtn: {
-    flex: 1,
-    backgroundColor: "#FEF2F2",
-    padding: 10,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  deleteBtnText: {
-    color: "#EF4444",
-    fontWeight: "600",
-  },
-  emptyState: {
-    padding: 40,
-    alignItems: "center",
-  },
-  emptyText: {
-    color: "#94A3B8",
-    fontSize: 16,
-  },
-  uploadActionButtons: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    flexDirection: "row",
-    gap: 6,
-    zIndex: 20,
-  },
-  actionBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  editActionBtn: {
-    backgroundColor: "#3B82F6",
-  },
-  deleteActionBtn: {
-    backgroundColor: "#EF4444",
-  },
+  editBtn: { padding: 4 },
+  editBtnText: { color: "#3B82F6", fontWeight: "700" },
+  deleteBtn: { padding: 4 },
+  deleteBtnText: { color: "#EF4444", fontWeight: "700" },
 });

@@ -1,4 +1,4 @@
-import { appId, auth, db } from "@/configs/firebaseConfig";
+import { auth } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { linkResidentToUser, mockResidentSignIn } from "@/utils/authUtils";
 import { Ionicons } from "@expo/vector-icons";
@@ -6,16 +6,16 @@ import { Redirect, useRouter } from "expo-router";
 import { signInAnonymously } from "firebase/auth";
 import { useState } from "react";
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -77,7 +77,7 @@ export default function Index() {
       Toast.show({
         type: "error",
         text1: "Login Failed",
-        text2: error.message || "Invalid credentials or connection issue",
+        text2: "Invalid login credentials. Please contact society admin.",
       });
     } finally {
       setIsLoggingIn(false);

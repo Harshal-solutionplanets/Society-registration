@@ -15,12 +15,14 @@ import {
   ActivityIndicator,
   Alert,
   GestureResponderEvent,
+  Linking,
   Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -53,6 +55,9 @@ export default function AdminDashboard() {
   const [loading, setLoading] = React.useState(true);
   const [societyData, setSocietyData] = React.useState<any>(null);
   const [wings, setWings] = React.useState<Wing[]>([]);
+
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
 
   const fetchData = React.useCallback(async () => {
     if (!user) return;
@@ -129,6 +134,24 @@ export default function AdminDashboard() {
       }
     }, [user, authLoading, fetchData]),
   );
+
+  const handleLinkDrive = async () => {
+    try {
+      if (!user) return;
+      const backendUrl =
+        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const res = await fetch(
+        `${backendUrl}/api/auth/google/url?adminUID=${user.uid}&appId=${appId}`,
+      );
+      const data = await res.json();
+      if (data.url) {
+        Linking.openURL(data.url);
+      }
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Error", "Could not start Google Drive linking.");
+    }
+  };
 
   const handleAddWing = async () => {
     if (!user || !societyData) return;
@@ -293,34 +316,66 @@ export default function AdminDashboard() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.headerCard}>
-          <View style={styles.headerLeft}>
+        <View style={[styles.headerCard, isMobile && styles.headerCardMobile]}>
+          <View
+            style={[styles.headerLeft, isMobile && styles.headerLeftMobile]}
+          >
             <Text style={styles.societyName}>
               {societyData?.societyName || "Admin Hub"}
             </Text>
             <Text style={styles.welcomeText}>Welcome Admin</Text>
           </View>
-          <View style={styles.headerRight}>
+          <View
+            style={[styles.headerRight, isMobile && styles.headerRightMobile]}
+          >
             <TouchableOpacity
-              style={styles.headerBtn}
+              style={[styles.headerBtn, isMobile && styles.headerBtnMobile]}
               onPress={() => router.push("/admin/setup")}
             >
-              <Text style={styles.headerBtnText}>Profile</Text>
+              <Text
+                style={[
+                  styles.headerBtnText,
+                  isMobile && styles.headerBtnTextMobile,
+                ]}
+              >
+                Profile
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.headerBtn}
+              style={[styles.headerBtn, isMobile && styles.headerBtnMobile]}
               onPress={() => router.push("/admin/committee-members")}
             >
-              <Text style={styles.headerBtnText}>Committee</Text>
+              <Text
+                style={[
+                  styles.headerBtnText,
+                  isMobile && styles.headerBtnTextMobile,
+                ]}
+              >
+                Committee
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.headerBtn}
+              style={[styles.headerBtn, isMobile && styles.headerBtnMobile]}
               onPress={() => router.push("/admin/society-staff")}
             >
-              <Text style={styles.headerBtnText}>Staff</Text>
+              <Text
+                style={[
+                  styles.headerBtnText,
+                  isMobile && styles.headerBtnTextMobile,
+                ]}
+              >
+                Staff
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
-              <Text style={styles.logoutText}>Logout</Text>
+            <TouchableOpacity
+              style={[styles.logoutBtn, isMobile && styles.logoutBtnMobile]}
+              onPress={signOut}
+            >
+              <Text
+                style={[styles.logoutText, isMobile && styles.logoutTextMobile]}
+              >
+                Logout
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -345,11 +400,13 @@ export default function AdminDashboard() {
         <View style={styles.wingsGrid}>
           {sortedWings.map((wingInfo) => {
             const isConfigured = (wingInfo.floorCount || 0) > 0;
+            const cardWidth = isMobile ? "48%" : "31.3%";
             return (
               <TouchableOpacity
                 key={wingInfo.id}
                 style={[
                   styles.wingCard,
+                  { width: cardWidth },
                   isConfigured
                     ? styles.wingCardConfigured
                     : styles.wingCardPending,
@@ -399,13 +456,7 @@ export default function AdminDashboard() {
                         : styles.wingLetterPending,
                     ]}
                   >
-                    {wingInfo.totalFlats ||
-                      wingInfo.floors?.reduce(
-                        (sum: number, f: any) => sum + (f.flatCount || 0),
-                        0,
-                      ) ||
-                      0}{" "}
-                    Units
+                    {wingInfo.name}
                   </Text>
                   <Text
                     style={[
@@ -415,7 +466,13 @@ export default function AdminDashboard() {
                         : styles.wingNamePending,
                     ]}
                   >
-                    {wingInfo.name}
+                    {wingInfo.totalFlats ||
+                      wingInfo.floors?.reduce(
+                        (sum: number, f: any) => sum + (f.flatCount || 0),
+                        0,
+                      ) ||
+                      0}{" "}
+                    Units
                   </Text>
                   <View
                     style={[
@@ -497,13 +554,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E2E8F0",
   },
+  headerCardMobile: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+    padding: 16,
+  },
   headerLeft: {
     flex: 1,
+  },
+  headerLeftMobile: {
+    width: "100%",
+    marginBottom: 12,
   },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  headerRightMobile: {
+    width: "100%",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  buttonRow: {
+    flexDirection: "row",
+    gap: 8,
+    width: "100%",
+    flexWrap: "wrap",
   },
   societyName: {
     fontSize: 22,
@@ -530,16 +607,31 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 12,
   },
+  headerBtnMobile: {
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  headerBtnTextMobile: {
+    fontSize: 10,
+  },
   logoutBtn: {
     backgroundColor: "#FEF2F2",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
   },
+  logoutBtnMobile: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
   logoutText: {
     color: "#EF4444",
     fontWeight: "700",
     fontSize: 13,
+  },
+  logoutTextMobile: {
+    fontSize: 10,
   },
   statsContainer: {
     flexDirection: "row",
@@ -584,10 +676,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
+    justifyContent: "space-between",
     marginBottom: 24,
   },
   wingCard: {
-    width: "31.3%",
     backgroundColor: "#FFFFFF",
     borderRadius: 10,
     padding: 10,
