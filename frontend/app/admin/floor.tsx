@@ -122,7 +122,7 @@ export default function FloorDetail() {
     fetchFloorFolderId();
     fetchSocietyName();
 
-    const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}`;
+    const societyPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingId}/${floorNumber}`;
     const q = query(collection(db, societyPath));
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -205,7 +205,7 @@ export default function FloorDetail() {
     if (!user) return;
     try {
       const societyDoc = await getDoc(
-        doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+        doc(db, `artifacts/${appId}/public/data/societies`, user?.uid),
       );
       if (societyDoc.exists()) {
         setSocietyName(societyDoc.data().societyName || "");
@@ -218,7 +218,7 @@ export default function FloorDetail() {
   const fetchFloorFolderId = async () => {
     if (!user) return;
     try {
-      const wingPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}`;
+      const wingPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingId}`;
       const wingDoc = await getDoc(doc(db, wingPath));
       if (wingDoc.exists()) {
         const data = wingDoc.data();
@@ -338,8 +338,8 @@ export default function FloorDetail() {
       };
 
       // Update both locations (using unitId as stable doc ID)
-      const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
-      const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${unitId}`;
+      const societyPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
+      const residentPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${unitId}`;
 
       await setDoc(doc(db, societyPath), updatePayload, { merge: true });
       await setDoc(doc(db, residentPath), updatePayload, { merge: true });
@@ -361,7 +361,16 @@ export default function FloorDetail() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/admin/wing-setup");
+            }
+          }}
+          style={styles.backBtn}
+        >
           <Text style={styles.backBtnText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>
@@ -392,12 +401,6 @@ export default function FloorDetail() {
                   <View style={styles.flatHeader}>
                     <Text style={styles.flatNumber}>{flat.unitName}</Text>
                     <View style={styles.headerRight}>
-                      <TouchableOpacity
-                        style={styles.editIconBtn}
-                        onPress={() => handleEditFlat(flat)}
-                      >
-                        <Text style={styles.editIcon}>✏️</Text>
-                      </TouchableOpacity>
                       <View
                         style={[
                           styles.statusBadge,
@@ -473,12 +476,20 @@ export default function FloorDetail() {
                         <Text style={styles.credLabel}>Username:</Text>
                         <Text style={styles.credValue}>{flat.username}</Text>
                       </View>
-                      <TouchableOpacity
-                        style={styles.viewBtn}
-                        onPress={() => handleViewCredentials(flat)}
-                      >
-                        <Text style={styles.viewBtnText}>View Details</Text>
-                      </TouchableOpacity>
+                      <View style={styles.cardActions}>
+                        <TouchableOpacity
+                          style={styles.viewBtn}
+                          onPress={() => handleViewCredentials(flat)}
+                        >
+                          <Text style={styles.viewBtnText}>View Details</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.editBtn}
+                          onPress={() => handleEditFlat(flat)}
+                        >
+                          <Text style={styles.editBtnText}>Edit Details</Text>
+                        </TouchableOpacity>
+                      </View>
                     </>
                   ) : !flat.residentName && !flat.residentMobile ? (
                     <View style={styles.noCredsContainer}>
@@ -706,6 +717,7 @@ export default function FloorDetail() {
                   onChangeText={setEditResidentMobile}
                   placeholder="Enter Mobile Number"
                   keyboardType="phone-pad"
+                  maxLength={10}
                 />
               </View>
 
@@ -911,11 +923,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     padding: 10,
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
+    gap: 12,
   },
   flatPanel: {
     backgroundColor: "#fff",
-    marginVertical: 6,
     padding: 15,
     borderRadius: 12,
     borderWidth: 1,
@@ -1032,11 +1044,29 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     alignItems: "center",
+    flex: 1,
   },
   viewBtnText: {
     color: "#fff",
     fontSize: 12,
     fontWeight: "bold",
+  },
+  editBtn: {
+    backgroundColor: "#007AFF",
+    padding: 10,
+    borderRadius: 8,
+    alignItems: "center",
+    flex: 1,
+  },
+  editBtnText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  cardActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 5,
   },
   disabledBtn: {
     opacity: 0.6,

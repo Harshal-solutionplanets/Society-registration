@@ -1,13 +1,13 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeApp } from "firebase/app";
+import {
+    browserLocalPersistence,
+    getAuth,
+    setPersistence,
+} from "firebase/auth";
 
 // 1. Define the unique App ID for database scoping
-// In a dev environment, we use a fallback; in production, this comes from global variables.
-// Safely check for the global variable and provide a fallback
-export const appId = typeof __app_id !== 'undefined' 
-  ? __app_id 
-  : 'dev-society-id'; // This fallback is used for your local development
+export const appId =
+  typeof __app_id !== "undefined" ? __app_id : "dev-society-id";
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -23,4 +23,12 @@ const app = initializeApp(firebaseConfig);
 
 // 3. Export Instances
 export const auth = getAuth(app);
+
+// Set persistence to LOCAL to survive redirects
+setPersistence(auth, browserLocalPersistence).catch((error) => {
+  console.error("Auth persistence error:", error);
+});
+
+import { getFirestore } from "firebase/firestore";
+
 export const db = getFirestore(app);

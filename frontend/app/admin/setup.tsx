@@ -1,7 +1,8 @@
-import { appId, db } from "@/configs/firebaseConfig";
+import { appId, auth, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { signInWithCustomToken } from "firebase/auth";
 import {
   collection,
   doc,
@@ -13,6 +14,7 @@ import {
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -27,7 +29,12 @@ import Toast from "react-native-toast-message";
 
 export default function AdminSetup() {
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { setupEmail, setupSessionId } = useLocalSearchParams<{
+    setupEmail: string;
+    setupSessionId: string;
+  }>();
+
+  const { user, signOut, refreshUser } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -42,8 +49,6 @@ export default function AdminSetup() {
     adminName: "",
     adminContact: "",
   });
-  const [isDriveLinked, setIsDriveLinked] = useState(false);
-
   const [advanceFormData, setAdvanceFormData] = useState({
     // Fire Safety
     fireNocStatus: "", // Valid, Expired, Never Applied
@@ -112,22 +117,38 @@ export default function AdminSetup() {
     registrationNo: "",
   });
 
+  const [originalSocietyName, setOriginalSocietyName] = useState("");
+  const [driveData, setDriveData] = useState({
+    driveFolderId: "",
+    driveAccessToken: "",
+  });
+
   const [societyRef, setSocietyRef] = useState<any>(null);
 
   useEffect(() => {
     if (user) {
       fetchSocietyData();
+    } else if (setupSessionId) {
+      setLoading(false);
+    } else {
+      // Not logged in and no setup session? Go back to landing
+      setLoading(false);
     }
-  }, [user]);
+  }, [user, setupSessionId]);
 
   const fetchSocietyData = async () => {
     if (!user) return;
     try {
       const societyDoc = await getDoc(
-        doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+        doc(db, `artifacts/${appId}/public/data/societies`, user?.uid),
       );
       if (societyDoc.exists()) {
         const data = societyDoc.data();
+        setOriginalSocietyName(data.societyName || "");
+        setDriveData({
+          driveFolderId: data.driveFolderId || "",
+          driveAccessToken: data.driveAccessToken || "",
+        });
         setFormData({
           societyName: data.societyName || "",
           societyAddress: data.societyAddress || "",
@@ -138,16 +159,38 @@ export default function AdminSetup() {
           adminName: data.adminName || "",
           adminContact: data.adminContact || "",
         });
-        setIsDriveLinked(!!data.isDriveLinked);
         if (data.advanceDetails) {
           setAdvanceFormData(data.advanceDetails);
         }
-        setIsEditMode(true);
+        // Only consider it 'Edit Mode' if the initial setup (folder creation) is done
+        if (data.driveFolderId) {
+          setIsEditMode(true);
+        }
       }
     } catch (error) {
       console.error("Error fetching society data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshAccessToken = async () => {
+    if (!user) return null;
+    try {
+      const isWeb = Platform.OS === "web";
+      const backendUrl = isWeb
+        ? window.location.origin + "/api"
+        : process.env.EXPO_PUBLIC_BACKEND_URL ||
+          "https://asia-south1-zonect-8d847.cloudfunctions.net/api";
+      const res = await fetch(
+        `${backendUrl}/auth/google/refresh?adminUID=${user?.uid}&appId=${appId}`,
+      );
+      if (!res.ok) throw new Error("Refresh failed");
+      const data = await res.json();
+      return data.accessToken;
+    } catch (error) {
+      console.error("DEBUG: Token refresh failed:", error);
+      return null;
     }
   };
 
@@ -225,65 +268,35 @@ export default function AdminSetup() {
       return;
     }
 
-    // Limit wing count to 3 digits
+    // Wings/Blocks - strictly integer range 1 to 30
     if (field === "wingCount") {
       const sanitized = value.replace(/[^0-9]/g, "");
-      if (sanitized.length > 3) return;
+      if (sanitized === "") {
+        setFormData((prev) => ({ ...prev, [field]: "" }));
+        return;
+      }
+      const numValue = parseInt(sanitized);
+      if (numValue < 1 && sanitized !== "") {
+        Toast.show({
+          type: "error",
+          text1: "Invalid Wing Count",
+          text2: "Minimum 1 wing required.",
+        });
+        return;
+      }
+      if (numValue > 30) {
+        Toast.show({
+          type: "error",
+          text1: "Invalid Wing Count",
+          text2: "Maximum 30 wings allowed.",
+        });
+        return;
+      }
       setFormData((prev) => ({ ...prev, [field]: sanitized }));
       return;
     }
 
     setFormData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleLinkDrive = async () => {
-    if (!user) return;
-    try {
-      const backendUrl =
-        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
-      const res = await fetch(
-        `${backendUrl}/api/auth/google/url?adminUID=${user.uid}&appId=${appId}`,
-      );
-      const { url } = await res.json();
-      if (url) {
-        if (Platform.OS === "web") {
-          const authWindow = window.open(url, "_blank", "width=600,height=700");
-
-          // Poll for drive status update
-          const checkStatus = setInterval(async () => {
-            const societyDoc = await getDoc(
-              doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
-            );
-            if (societyDoc.exists() && societyDoc.data().isDriveLinked) {
-              setIsDriveLinked(true);
-              if (authWindow) authWindow.close();
-              clearInterval(checkStatus);
-              Toast.show({
-                type: "success",
-                text1: "Drive Linked",
-                text2: "Google Drive connected successfully!",
-              });
-            }
-          }, 3000);
-
-          // Stop polling after 5 minutes
-          setTimeout(() => clearInterval(checkStatus), 300000);
-        } else {
-          Toast.show({
-            type: "info",
-            text1: "Notice",
-            text2: "Drive Linking is currently supported on Web only.",
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Link Drive Error:", error);
-      Toast.show({
-        type: "error",
-        text1: "Error",
-        text2: "Could not connect to backend server.",
-      });
-    }
   };
 
   const handleAdvanceInputChange = (field: string, value: string) => {
@@ -389,6 +402,16 @@ export default function AdminSetup() {
       return;
     }
 
+    const wings = parseInt(formData.wingCount);
+    if (isNaN(wings) || wings < 1 || wings > 30) {
+      Toast.show({
+        type: "error",
+        text1: "Invalid Wing Count",
+        text2: "Please enter a value between 1 and 30.",
+      });
+      return;
+    }
+
     if (googleLocation) {
       const googleMapsRegex =
         /^(https?:\/\/)?(www\.)?(google\.com\/maps|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+$/;
@@ -401,7 +424,16 @@ export default function AdminSetup() {
       }
     }
 
-    if (!user || !user.email) {
+    if (!isEditMode && (!setupEmail || !setupSessionId)) {
+      Toast.show({
+        type: "error",
+        text1: "Session Expired",
+        text2: "Please start the Google Sign-up process again.",
+      });
+      return;
+    }
+
+    if (isEditMode && !user) {
       Toast.show({
         type: "error",
         text1: "Error",
@@ -410,21 +442,24 @@ export default function AdminSetup() {
       return;
     }
 
-    if (!isDriveLinked) {
-      Toast.show({
-        type: "error",
-        text1: "Drive Not Linked",
-        text2: "Please connect your Google Drive first.",
-      });
-      return;
-    }
-
     setIsSubmitting(true);
+
+    // ========== FIREBASE CONNECTION DIAGNOSTICS ==========
+    console.log("========== FIREBASE DIAGNOSTICS ==========");
+    console.log("[Config] AppId:", appId || "dev-society-id");
+    console.log("[Config] Database instance:", db);
+    console.log("[Auth] Current User UID:", user?.uid);
+    console.log("[Auth] Current User Email:", user?.email);
+    console.log("[Setup] isEditMode:", isEditMode);
+    console.log("==========================================");
+
+    console.log("[Setup] Starting registration process...");
     try {
+      const stableAppId = appId || "dev-society-id";
       // 0. Uniqueness check for Registration No
       const societiesRef = collection(
         db,
-        `artifacts/${appId}/public/data/societies`,
+        `artifacts/${stableAppId}/public/data/societies`,
       );
       const q = query(
         societiesRef,
@@ -433,7 +468,9 @@ export default function AdminSetup() {
       const querySnapshot = await getDocs(q);
 
       // Check if any document OTHER than the current user's has this registration number
-      const isDuplicate = querySnapshot.docs.some((doc) => doc.id !== user.uid);
+      const isDuplicate = querySnapshot.docs.some(
+        (doc) => doc.id !== user?.uid,
+      );
 
       if (isDuplicate) {
         setIsSubmitting(false);
@@ -452,69 +489,105 @@ export default function AdminSetup() {
 
       let realFolderId = null;
 
-      if (!isEditMode) {
-        // Fetch the stored driveAccessToken from when they linked drive
-        const societyDoc = await getDoc(
-          doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
-        );
-        const token = societyDoc.data()?.driveAccessToken;
+      if (isEditMode) {
+        console.log("[Setup] Updating existing society profile...");
 
-        if (!token)
-          throw new Error(
-            "Drive access token missing. Please link drive again.",
-          );
+        // Rename Drive Folder if name changed
+        if (
+          societyName !== originalSocietyName &&
+          driveData.driveFolderId &&
+          driveData.driveAccessToken
+        ) {
+          console.log("[Setup] Society name changed. Syncing with Drive...");
+          let token = driveData.driveAccessToken;
+          try {
+            // 1. Verify token
+            const testRes = await fetch(
+              "https://www.googleapis.com/drive/v3/about?fields=user",
+              { headers: { Authorization: `Bearer ${token}` } },
+            );
+            if (testRes.status === 401) {
+              console.log("[Setup] Token expired, refreshing...");
+              token = await refreshAccessToken();
+            }
 
-        // 1. Create the physical folder in Google Drive only during initial setup
-        const driveResponse = await fetch(
-          "https://www.googleapis.com/drive/v3/files",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              name: `${societyName.toUpperCase()}-DRIVE`,
-              mimeType: "application/vnd.google-apps.folder",
-            }),
-          },
-        );
+            if (token) {
+              // 2. Patch Folder Name
+              const renameRes = await fetch(
+                `https://www.googleapis.com/drive/v3/files/${driveData.driveFolderId}`,
+                {
+                  method: "PATCH",
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({ name: societyName }),
+                },
+              );
 
-        if (!driveResponse.ok) {
-          const errorData = await driveResponse.json();
-          throw new Error(
-            errorData.error?.message || "Failed to create Google Drive folder",
-          );
+              if (renameRes.ok) {
+                console.log("[Setup] Drive folder renamed successfully.");
+              } else {
+                const err = await renameRes.json();
+                console.warn("[Setup] Drive rename failed:", err);
+              }
+            }
+          } catch (driveErr) {
+            console.warn("[Setup] Drive sync error (non-critical):", driveErr);
+          }
         }
 
-        const driveData = await driveResponse.json();
-        realFolderId = driveData.id;
+        // Use existing edit logic
+        const updateData: any = {
+          ...formData,
+          registrationNo: normalizedRegNo,
+          advanceDetails: advanceFormData,
+          wingCount: parseInt(wingCount),
+          updatedAt: new Date().toISOString(),
+        };
+
+        await setDoc(
+          doc(db, `artifacts/${stableAppId}/public/data/societies`, user!.uid),
+          updateData,
+          { merge: true },
+        );
+      } else {
+        console.log("[Setup] Finalizing new society through backend...");
+        // NEW FLOW: Call the centralized finalize endpoint to create Auth user + Drive folder
+        const isWeb = Platform.OS === "web";
+        const backendUrl = isWeb
+          ? window.location.origin + "/api"
+          : process.env.EXPO_PUBLIC_BACKEND_URL ||
+            "https://asia-south1-zonect-8d847.cloudfunctions.net/api";
+
+        const response = await fetch(`${backendUrl}/finalize-setup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            setupSessionId,
+            appId: stableAppId,
+            formData: {
+              ...formData,
+              registrationNo: normalizedRegNo,
+              wingCount: parseInt(wingCount),
+            },
+            advanceData: advanceFormData,
+          }),
+        });
+
+        const result = await response.json();
+        if (!response.ok)
+          throw new Error(result.error || "Finalization failed");
+
+        // 2. Sign in with the Custom Token returned by backend
+        console.log("[Setup] Setup complete, signing in...");
+        await signInWithCustomToken(auth, result.token);
       }
 
-      // 2. Save everything to Firestore
-      const updateData: any = {
-        ...formData,
-        registrationNo: normalizedRegNo, // Ensure saved normalized
-        advanceDetails: advanceFormData,
-        wingCount: parseInt(wingCount),
-        adminUserId: user.uid,
-        adminEmail: user.email,
-        updatedAt: new Date().toISOString(),
-      };
+      console.log("[Setup] Process successful.");
 
-      if (!isEditMode) {
-        updateData.driveEmail = user.email;
-        updateData.driveFolderId = realFolderId;
-        updateData.isDriveLinked = true;
-        updateData.role = "ADMIN";
-        updateData.createdAt = new Date().toISOString();
-      }
-
-      await setDoc(
-        doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
-        updateData,
-        { merge: true },
-      );
+      // Refresh global auth state so _layout knows setup is done
+      await refreshUser();
 
       Toast.show({
         type: "success",
@@ -523,7 +596,18 @@ export default function AdminSetup() {
           ? "Profile updated!"
           : "Society and Drive folder created!",
       });
-      router.replace("/admin/dashboard");
+
+      console.log("[Setup] Redirecting to dashboard...");
+
+      // Attempt router navigation
+      router.replace({ pathname: "/admin/dashboard" });
+
+      // Safety fallback: if router hangs on web, force reload
+      setTimeout(() => {
+        if (window.location.pathname !== "/admin/dashboard") {
+          window.location.href = "/admin/dashboard";
+        }
+      }, 2000);
     } catch (error: any) {
       console.error("Setup error:", error);
       Toast.show({
@@ -1025,6 +1109,15 @@ export default function AdminSetup() {
     </View>
   );
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+        <Text style={styles.loadingText}>Fetching Society Data...</Text>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -1085,40 +1178,6 @@ export default function AdminSetup() {
         <View style={styles.card}>
           {activeTab === "basic" ? (
             <>
-              <Text style={styles.sectionHeader}>GOOGLE DRIVE CONNECTION</Text>
-              <View style={styles.driveStatusCard}>
-                <View style={styles.driveIconRow}>
-                  <View
-                    style={[
-                      styles.statusIndicator,
-                      {
-                        backgroundColor: isDriveLinked ? "#22C55E" : "#EF4444",
-                      },
-                    ]}
-                  />
-                  <Text style={styles.driveStatusText}>
-                    {isDriveLinked
-                      ? "Google Drive Connected"
-                      : "Google Drive Not Connected"}
-                  </Text>
-                </View>
-                <Text style={styles.driveHelpText}>
-                  We need permission to create folders for staff documentation
-                  in your Google Drive.
-                </Text>
-                {!isDriveLinked && (
-                  <TouchableOpacity
-                    style={styles.connectDriveBtn}
-                    onPress={handleLinkDrive}
-                  >
-                    <Text style={styles.connectDriveBtnText}>
-                      Connect Google Drive
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              <View style={styles.divider} />
               <Text style={styles.sectionHeader}>SOCIETY INFORMATION</Text>
 
               <View style={styles.inputGroup}>
@@ -1265,11 +1324,10 @@ export default function AdminSetup() {
           <TouchableOpacity
             style={[
               styles.primaryButton,
-              (isSubmitting || (!isEditMode && !isDriveLinked)) &&
-                styles.buttonDisabled,
+              isSubmitting && styles.buttonDisabled,
             ]}
             onPress={handleSetup}
-            disabled={isSubmitting || (!isEditMode && !isDriveLinked)}
+            disabled={isSubmitting}
           >
             <Text style={styles.buttonText}>
               {isSubmitting
@@ -1443,48 +1501,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textDecorationLine: "underline",
   },
-  driveStatusCard: {
-    backgroundColor: "#F8FAFC",
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    marginBottom: 8,
-  },
-  driveIconRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  statusIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 10,
-  },
-  driveStatusText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#0F172A",
-  },
-  driveHelpText: {
-    fontSize: 13,
-    color: "#64748B",
-    lineHeight: 18,
-    marginBottom: 16,
-  },
-  connectDriveBtn: {
-    backgroundColor: "#3B82F6",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  connectDriveBtnText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
   tabContainer: {
     flexDirection: "row",
     backgroundColor: "#E2E8F0",
@@ -1647,5 +1663,17 @@ const styles = StyleSheet.create({
   inputError: {
     borderColor: "#EF4444",
     backgroundColor: "#FFF1F2",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: "#64748B",
+    fontWeight: "600",
   },
 });

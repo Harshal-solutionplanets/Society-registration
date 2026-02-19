@@ -10,10 +10,12 @@ import {
   getDocs,
   writeBatch,
 } from "firebase/firestore";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -32,6 +34,54 @@ interface FloorData {
   driveFolderId?: string;
   floorName?: string;
 }
+
+const BuildingLoader = () => {
+  const liftAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(liftAnim, {
+          toValue: -10,
+          duration: 700,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
+        Animated.timing(liftAnim, {
+          toValue: 0,
+          duration: 700,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
+      ]),
+    ).start();
+  }, [liftAnim]);
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Animated.View style={{ transform: [{ translateY: liftAnim }] }}>
+        <Ionicons name="business" size={24} color="#fff" />
+      </Animated.View>
+      <Text
+        style={{
+          color: "#fff",
+          fontWeight: "700",
+          marginLeft: 10,
+          fontSize: 16,
+          letterSpacing: 0.5,
+        }}
+      >
+        Constructing Wing...
+      </Text>
+    </View>
+  );
+};
 
 export default function WingSetup() {
   const params = useLocalSearchParams();
@@ -68,7 +118,7 @@ export default function WingSetup() {
   const fetchWingData = async () => {
     if (!user) return;
     try {
-      const wingPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingId}`;
+      const wingPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingId}`;
       const wingDoc = await getDoc(doc(db, wingPath));
 
       if (wingDoc.exists()) {
@@ -96,10 +146,13 @@ export default function WingSetup() {
   const refreshAccessToken = async () => {
     if (!user) return null;
     try {
-      const backendUrl =
-        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const isWeb = Platform.OS === "web";
+      const backendUrl = isWeb
+        ? window.location.origin + "/api"
+        : process.env.EXPO_PUBLIC_BACKEND_URL ||
+          "https://asia-south1-zonect-8d847.cloudfunctions.net/api";
       const res = await fetch(
-        `${backendUrl}/api/auth/google/refresh?adminUID=${user.uid}&appId=${appId}`,
+        `${backendUrl}/auth/google/refresh?adminUID=${user?.uid}&appId=${appId}`,
       );
       if (!res.ok) throw new Error("Refresh failed");
       const data = await res.json();
@@ -377,7 +430,7 @@ export default function WingSetup() {
     setSaving(true);
     try {
       const societyDoc = await getDoc(
-        doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+        doc(db, `artifacts/${appId}/public/data/societies`, user?.uid),
       );
       const societyData = societyDoc.data();
       const rootFolderId = societyData?.driveFolderId;
@@ -387,13 +440,21 @@ export default function WingSetup() {
           ? sessionStorage.getItem("driveToken")
           : null);
 
+      // If we have a folder but no token, try to refresh immediately
+      if (rootFolderId && !token) {
+        console.log(
+          "DEBUG: Token missing from DB, attempting proactive refresh...",
+        );
+        token = await refreshAccessToken();
+      }
+
       if (!rootFolderId || !token) {
         throw new Error(
           "Google Drive not linked or session expired. Please log in again.",
         );
       }
 
-      // Test & Refresh Token if needed
+      // Test & Refresh Token if it's expired (already has 401 check)
       try {
         const testRes = await fetch(
           "https://www.googleapis.com/drive/v3/about?fields=user",
@@ -404,9 +465,12 @@ export default function WingSetup() {
           const newToken = await refreshAccessToken();
           if (newToken) {
             token = newToken;
+          } else {
+            throw new Error("Could not refresh Drive access. Please re-login.");
           }
         }
-      } catch (err) {
+      } catch (err: any) {
+        if (err.message.includes("re-login")) throw err;
         console.warn("Token validation failed, attempting refresh anyway...");
         const newToken = await refreshAccessToken();
         if (newToken) token = newToken;
@@ -419,10 +483,6 @@ export default function WingSetup() {
           rootFolderId as string,
           token as string,
         );
-      } else if (initialName !== wingName) {
-        // Redundant check? initialName is set on mount
-        console.log(`Renaming wing folder from ${initialName} to ${wingName}`);
-        await renameDriveFolder(wingFolderId, wingName, token as string);
       }
 
       const batch = writeBatch(db);
@@ -443,7 +503,7 @@ export default function WingSetup() {
       );
 
       for (const floorNum of deletedFloors) {
-        const floorPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingIdToUse}/${floorNum}`;
+        const floorPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${floorNum}`;
         const unitsRef = collection(db, floorPath);
         const unitsSnap = await getDocs(unitsRef);
         unitsSnap.forEach((unitDoc) => {
@@ -451,7 +511,7 @@ export default function WingSetup() {
           batch.delete(
             doc(
               db,
-              `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${unitDoc.id}`,
+              `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${unitDoc.id}`,
             ),
           );
         });
@@ -473,12 +533,27 @@ export default function WingSetup() {
             token as string,
           );
           updatedFloors[i] = { ...floor, driveFolderId: floorFolderId };
+        } else {
+          // Check if floor name changed and sync with Drive
+          const oldFloor = existingWingData?.floors?.find(
+            (f: any) => f.floorNumber === floor.floorNumber,
+          );
+          if (oldFloor && oldFloor.floorName !== currentFloorName) {
+            console.log(
+              `Syncing Drive: Renaming floor from ${oldFloor.floorName} to ${currentFloorName}`,
+            );
+            await renameDriveFolder(
+              floorFolderId,
+              currentFloorName,
+              token as string,
+            );
+          }
         }
 
         // FETCH ALL UNITS FOR THIS FLOOR IN ONE GO
         const floorUnitsRef = collection(
           db,
-          `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingIdToUse}/${floor.floorNumber}`,
+          `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${floor.floorNumber}`,
         );
         const floorUnitsSnap = await getDocs(floorUnitsRef);
         const existingUnitsMap: Record<string, any> = {};
@@ -496,8 +571,8 @@ export default function WingSetup() {
           const unitId = `${wingPrefixForId}-${floor.floorNumber}-${unitNumber}`;
 
           const existingData = existingUnitsMap[unitId];
-          const societyUnitPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingIdToUse}/${floor.floorNumber}/${unitId}`;
-          const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${unitId}`;
+          const societyUnitPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${floor.floorNumber}/${unitId}`;
+          const residentPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${unitId}`;
 
           if (!existingData || !existingData.username) {
             // GENERATE CREDENTIALS (for new units OR units missing credentials)
@@ -587,7 +662,7 @@ export default function WingSetup() {
       }
 
       // Use the ORIGINAL wingId for the path - don't create new collection
-      const wingPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingIdToUse}`;
+      const wingPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}`;
       const totalFlatsInWing = updatedFloors.reduce(
         (sum, f) => sum + f.flatCount,
         0,
@@ -616,10 +691,10 @@ export default function WingSetup() {
       await batch.commit();
       Toast.show({
         type: "success",
-        text1: "Wing Saved Successfully",
-        text2: `${wingName}: ${unitsGenerated} new units created.`,
+        text1: "Wing structure Saved",
+        text2: `${wingName}: ${unitsGenerated} units synchronized successfully.`,
       });
-      router.back();
+      // Removed router.back() to keep user on same page as requested
     } catch (error: any) {
       console.error("Error saving wing:", error);
       Alert.alert(
@@ -661,7 +736,13 @@ export default function WingSetup() {
       >
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace("/admin/dashboard");
+              }
+            }}
             style={styles.backBtn}
           >
             <Text style={styles.backBtnText}>← Back</Text>
@@ -792,10 +873,10 @@ export default function WingSetup() {
                           router.push({
                             pathname: "/admin/floor",
                             params: {
-                              wingId: wingIdToUse, // CRITICAL: Use the original wingId to find the data!
+                              wingId: wingIdToUse,
                               wingName: wingName,
-                              floorNumber: floor.floorNumber,
-                              flatCount: floor.flatCount,
+                              floorNumber: floor.floorNumber.toString(),
+                              flatCount: floor.flatCount.toString(),
                               floorName:
                                 floor.floorName ||
                                 (floor.floorNumber === 0
@@ -834,7 +915,7 @@ export default function WingSetup() {
             disabled={saving}
           >
             {saving ? (
-              <ActivityIndicator color="#fff" />
+              <BuildingLoader />
             ) : (
               <Text style={styles.saveBtnText}>Save Wing Structure</Text>
             )}

@@ -3,7 +3,8 @@ import { COLLECTIONS } from "@/constants/Config";
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import { useRouter } from "expo-router";
 import {
   collection,
@@ -284,21 +285,45 @@ export default function ResidentStaff() {
     let newValue = null;
 
     if (action === "pick") {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
-        quality: 0.5,
-        base64: true,
-      });
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ["image/*", "application/pdf"],
+          copyToCacheDirectory: true,
+        });
 
-      if (!result.canceled) {
-        const asset = result.assets[0];
-        if (asset.base64 && asset.base64.length > 300000) {
-          Alert.alert("Error", "File size too large. Maximum limit is 220KB.");
+        if (!result.canceled) {
+          const asset = result.assets[0];
+
+          // Size Check (220KB = 225280 bytes)
+          if (asset.size && asset.size > 225280) {
+            Alert.alert(
+              "Error",
+              "File size too large. Maximum limit is 220KB.",
+            );
+            return;
+          }
+
+          let base64String = "";
+          if (Platform.OS === "web") {
+            const response = await fetch(asset.uri);
+            const blob = await response.blob();
+            base64String = (await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            })) as string;
+          } else {
+            const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            base64String = `data:${asset.mimeType || "image/jpeg"};base64,${base64}`;
+          }
+          newValue = base64String;
+        } else {
           return;
         }
-        newValue = `data:image/jpeg;base64,${asset.base64}`;
-      } else {
+      } catch (err) {
+        console.warn("Picker Error:", err);
         return;
       }
     }
@@ -311,12 +336,15 @@ export default function ResidentStaff() {
     // If we are editing an existing record, sync "turant" (immediately)
     if (editingId && sessionData && user) {
       const { adminUID, id: unitId, driveFolderId: flatFolderId } = sessionData;
+      // Determine file extension based on content type
+      const isPdf = newValue?.startsWith("data:application/pdf");
+      const ext = isPdf ? ".pdf" : ".jpg";
       const fileName =
         type === "photo"
-          ? "Photo.jpg"
+          ? `Photo${ext}`
           : type === "idCard"
-            ? "ID_Card.jpg"
-            : "Address_Proof.jpg";
+            ? `ID_Card${ext}`
+            : `Address_Proof${ext}`;
 
       try {
         // 1. Update Firestore (Society & Local)
@@ -331,9 +359,28 @@ export default function ResidentStaff() {
         await setDoc(doc(db, societyPath), updateObj, { merge: true });
         await setDoc(doc(db, localPath), updateObj, { merge: true });
 
-        // 2. Drive Update (if photo picked)
-        if (flatFolderId && newValue) {
-          await uploadImageToDrive(newValue, fileName, flatFolderId);
+        // 2. Drive Update (if photo picked or deleted)
+        if (flatFolderId) {
+          const baseName =
+            type === "photo"
+              ? "Photo"
+              : type === "idCard"
+                ? "ID_Card"
+                : "Address_Proof";
+          const staffFolderId = staffList.find(
+            (s) => s.id === editingId,
+          )?.driveFolderId;
+
+          // Exhaustive Cleanup: Clear ALL extensions (via backend)
+          await deleteResFile(`${baseName}.jpg`, flatFolderId, staffFolderId);
+          await deleteResFile(`${baseName}.pdf`, flatFolderId, staffFolderId);
+          await deleteResFile(`${baseName}.png`, flatFolderId, staffFolderId);
+          await deleteResFile(`${baseName}.jpeg`, flatFolderId, staffFolderId);
+
+          if (newValue) {
+            // Upload new file (original form)
+            await uploadImageToDrive(newValue, fileName, flatFolderId);
+          }
         }
 
         Toast.show({
@@ -433,10 +480,53 @@ export default function ResidentStaff() {
           const handleResDocOp = async (
             currentBase64: string | null,
             originalValue: string | null | undefined,
-            fileName: string,
+            docType: "photo" | "idCard" | "addressProof",
           ) => {
-            // 1. If we have a photo, upload it (Create or Overwrite)
-            if (currentBase64 && currentBase64.startsWith("data:image")) {
+            // Determine correct file extension based on content type
+            const isPdf = currentBase64?.startsWith("data:application/pdf");
+            const ext = isPdf ? ".pdf" : ".jpg";
+            const fileName =
+              docType === "photo"
+                ? `Photo${ext}`
+                : docType === "idCard"
+                  ? `ID_Card${ext}`
+                  : `Address_Proof${ext}`;
+
+            const baseFileName =
+              docType === "photo"
+                ? "Photo"
+                : docType === "idCard"
+                  ? "ID_Card"
+                  : "Address_Proof";
+
+            // Exhaustive Cleanup: Delete ALL potential extensions before upload/removal
+            await deleteResFile(
+              `${baseFileName}.jpg`,
+              flatFolderId,
+              staffFolderId,
+            ).catch(() => {});
+            await deleteResFile(
+              `${baseFileName}.pdf`,
+              flatFolderId,
+              staffFolderId,
+            ).catch(() => {});
+            await deleteResFile(
+              `${baseFileName}.png`,
+              flatFolderId,
+              staffFolderId,
+            ).catch(() => {});
+            await deleteResFile(
+              `${baseFileName}.jpeg`,
+              flatFolderId,
+              staffFolderId,
+            ).catch(() => {});
+
+            // 1. If we have a document (original form), upload it
+            if (
+              currentBase64 &&
+              (currentBase64.startsWith("data:image") ||
+                currentBase64.startsWith("data:application/pdf"))
+            ) {
               const fid = await uploadImageToDrive(
                 currentBase64,
                 fileName,
@@ -444,18 +534,14 @@ export default function ResidentStaff() {
               );
               if (!staffFolderId) staffFolderId = fid; // Capture created folder ID
             }
-            // 2. If no photo now, but had one before -> Delete
-            else if (!currentBase64 && originalValue && staffFolderId) {
-              await deleteResFile(fileName, flatFolderId, staffFolderId);
-            }
           };
 
-          await handleResDocOp(photo, existingMember?.photo, "Photo.jpg");
-          await handleResDocOp(idCard, existingMember?.idCard, "ID_Card.jpg");
+          await handleResDocOp(photo, existingMember?.photo, "photo");
+          await handleResDocOp(idCard, existingMember?.idCard, "idCard");
           await handleResDocOp(
             addressProof,
             existingMember?.addressProof,
-            "Address_Proof.jpg",
+            "addressProof",
           );
 
           console.log(
@@ -534,7 +620,6 @@ export default function ResidentStaff() {
     setPhoto(staff.photo || null);
     setIdCard(staff.idCard || null);
     setAddressProof(staff.addressProof || null);
-    resetForm();
   };
 
   const handleDelete = async (staffId: string) => {
@@ -802,11 +887,33 @@ export default function ResidentStaff() {
                   activeOpacity={photo ? 1 : 0.7}
                 >
                   {photo ? (
-                    <Image
-                      source={{ uri: photo }}
-                      style={styles.previewImage}
-                      resizeMode="cover"
-                    />
+                    photo.startsWith("data:application/pdf") ? (
+                      <View
+                        style={[
+                          styles.previewImage,
+                          {
+                            justifyContent: "center",
+                            alignItems: "center",
+                            backgroundColor: "#F1F5F9",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="document-text"
+                          size={32}
+                          color="#EF4444"
+                        />
+                        <Text style={{ fontSize: 10, color: "#334155" }}>
+                          PDF
+                        </Text>
+                      </View>
+                    ) : (
+                      <Image
+                        source={{ uri: photo }}
+                        style={styles.previewImage}
+                        resizeMode="cover"
+                      />
+                    )
                   ) : (
                     <View style={styles.uploadPlaceholder}>
                       <Text style={styles.uploadIcon}>👤</Text>
@@ -842,15 +949,37 @@ export default function ResidentStaff() {
                   activeOpacity={idCard ? 1 : 0.7}
                 >
                   {idCard ? (
-                    <Image
-                      source={{ uri: idCard }}
-                      style={styles.previewImage}
-                      resizeMode="cover"
-                    />
+                    idCard.startsWith("data:application/pdf") ? (
+                      <View
+                        style={[
+                          styles.previewImage,
+                          {
+                            justifyContent: "center",
+                            alignItems: "center",
+                            backgroundColor: "#F1F5F9",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="document-text"
+                          size={32}
+                          color="#EF4444"
+                        />
+                        <Text style={{ fontSize: 10, color: "#334155" }}>
+                          PDF
+                        </Text>
+                      </View>
+                    ) : (
+                      <Image
+                        source={{ uri: idCard }}
+                        style={styles.previewImage}
+                        resizeMode="cover"
+                      />
+                    )
                   ) : (
                     <View style={styles.uploadPlaceholder}>
                       <Text style={styles.uploadIcon}>💳</Text>
-                      <Text style={styles.uploadLabel}>ID Card</Text>
+                      <Text style={styles.uploadLabel}>Photo ID Proof</Text>
                     </View>
                   )}
                 </TouchableOpacity>
@@ -883,15 +1012,37 @@ export default function ResidentStaff() {
                   activeOpacity={addressProof ? 1 : 0.7}
                 >
                   {addressProof ? (
-                    <Image
-                      source={{ uri: addressProof }}
-                      style={styles.previewImage}
-                      resizeMode="cover"
-                    />
+                    addressProof.startsWith("data:application/pdf") ? (
+                      <View
+                        style={[
+                          styles.previewImage,
+                          {
+                            justifyContent: "center",
+                            alignItems: "center",
+                            backgroundColor: "#F1F5F9",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="document-text"
+                          size={32}
+                          color="#EF4444"
+                        />
+                        <Text style={{ fontSize: 10, color: "#334155" }}>
+                          PDF
+                        </Text>
+                      </View>
+                    ) : (
+                      <Image
+                        source={{ uri: addressProof }}
+                        style={styles.previewImage}
+                        resizeMode="cover"
+                      />
+                    )
                   ) : (
                     <View style={styles.uploadPlaceholder}>
                       <Text style={styles.uploadIcon}>🏠</Text>
-                      <Text style={styles.uploadLabel}>Address</Text>
+                      <Text style={styles.uploadLabel}>Address Proof</Text>
                     </View>
                   )}
                 </TouchableOpacity>
@@ -958,11 +1109,30 @@ export default function ResidentStaff() {
             <View key={staff.id} style={styles.card}>
               <View style={styles.cardMain}>
                 {staff.photo ? (
-                  <Image
-                    source={{ uri: staff.photo }}
-                    style={styles.listAvatar}
-                    resizeMode="cover"
-                  />
+                  staff.photo.startsWith("data:application/pdf") ? (
+                    <View
+                      style={[
+                        styles.listAvatar,
+                        {
+                          justifyContent: "center",
+                          alignItems: "center",
+                          backgroundColor: "#FEE2E2",
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name="document-text"
+                        size={24}
+                        color="#EF4444"
+                      />
+                    </View>
+                  ) : (
+                    <Image
+                      source={{ uri: staff.photo }}
+                      style={styles.listAvatar}
+                      resizeMode="cover"
+                    />
+                  )
                 ) : (
                   <View style={styles.listAvatarPlaceholder}>
                     <Text style={styles.avatarText}>

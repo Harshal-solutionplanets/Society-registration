@@ -129,7 +129,7 @@ export default function CommitteeMembers() {
   const fetchInitialData = async () => {
     if (!user) return;
     try {
-      const societyPath = `artifacts/${appId}/public/data/societies/${user.uid}`;
+      const societyPath = `artifacts/${appId}/public/data/societies/${user?.uid}`;
       const wingsRef = collection(db, `${societyPath}/wings`);
       const wingsSnapshot = await getDocs(wingsRef);
       const fetchedWings = wingsSnapshot.docs.map((doc) => ({
@@ -152,14 +152,14 @@ export default function CommitteeMembers() {
       if (selectedLevel === "society") {
         membersRef = collection(
           db,
-          `artifacts/${appId}/public/data/societies/${user.uid}/society_committee_members`,
+          `artifacts/${appId}/public/data/societies/${user?.uid}/society_committee_members`,
         );
       } else {
         const wingObj = wings.find((w) => w.id === selectedLevel);
         if (!wingObj) return;
         membersRef = collection(
           db,
-          `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingObj.id}/wing_committee_members`,
+          `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingObj.id}/wing_committee_members`,
         );
       }
 
@@ -175,6 +175,7 @@ export default function CommitteeMembers() {
   };
 
   const handleWingSelect = async (selectedWing: Wing) => {
+    if (!user) return;
     setWing(selectedWing.name);
     setFloor("");
     setFlatNo("");
@@ -186,7 +187,7 @@ export default function CommitteeMembers() {
     try {
       const wingRef = doc(
         db,
-        `artifacts/${appId}/public/data/societies/${user.uid}/wings/${selectedWing.id}`,
+        `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${selectedWing.id}`,
       );
       const wingDoc = await getDoc(wingRef);
       if (wingDoc.exists()) {
@@ -222,7 +223,7 @@ export default function CommitteeMembers() {
       const selectedWingObj = wings.find((w: Wing) => w.name === wing);
       if (!selectedWingObj) return;
 
-      const flatsPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${selectedWingObj.id}/${selectedFloor}`;
+      const flatsPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${selectedWingObj.id}/${selectedFloor}`;
       const snapshot = await getDocs(collection(db, flatsPath));
       const flatNames = snapshot.docs
         .map((doc) => doc.data().unitName)
@@ -317,7 +318,7 @@ export default function CommitteeMembers() {
       // Fix: Uppercase ID for Resident Path to match likely storage format
       const wingIdSanitized = targetWing.id.replace(/\s+/g, "_").toUpperCase();
       const resId = `${wingIdSanitized}-${floor}-${flatNo}`;
-      const residentPath = `artifacts/${appId}/public/data/societies/${user.uid}/Residents/${resId}`;
+      const residentPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${resId}`;
 
       try {
         const residentDoc = await getDoc(doc(db, residentPath));
@@ -357,7 +358,7 @@ export default function CommitteeMembers() {
           Toast.show({
             type: "error",
             text1: "Person Mismatch",
-            text2: "Person not found in this unit (Primary or Family).",
+            text2: `Person ${name} not found in this unit ${resId} of ${wing}.`,
           });
           return;
         }
@@ -392,22 +393,22 @@ export default function CommitteeMembers() {
 
       let memberPath = "";
       if (selectedLevel === "society") {
-        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/society_committee_members/${memberId}`;
+        memberPath = `artifacts/${appId}/public/data/societies/${user?.uid}/society_committee_members/${memberId}`;
       } else {
         const wingObj = wings.find((w) => w.id === selectedLevel);
         if (!wingObj) throw new Error("Wing not found");
-        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingObj.id}/wing_committee_members/${memberId}`;
+        memberPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingObj.id}/wing_committee_members/${memberId}`;
       }
 
       // Handle name change during edit (delete old record if ID changes)
       if (isEditing && editId !== memberId) {
         let oldPath = "";
         if (selectedLevel === "society") {
-          oldPath = `artifacts/${appId}/public/data/societies/${user.uid}/society_committee_members/${editId}`;
+          oldPath = `artifacts/${appId}/public/data/societies/${user?.uid}/society_committee_members/${editId}`;
         } else {
           const wingObj = wings.find((w) => w.id === selectedLevel);
           if (wingObj) {
-            oldPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingObj.id}/wing_committee_members/${editId}`;
+            oldPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingObj.id}/wing_committee_members/${editId}`;
           }
         }
         if (oldPath) await deleteDoc(doc(db, oldPath));
@@ -427,7 +428,7 @@ export default function CommitteeMembers() {
         if (additionalPost) {
           const addWingObj = wings.find((w) => w.id === additionalWingId);
           if (addWingObj) {
-            const addMemberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${addWingObj.id}/wing_committee_members/${memberId}`;
+            const addMemberPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${addWingObj.id}/wing_committee_members/${memberId}`;
             await setDoc(doc(db, addMemberPath), {
               ...memberData,
               post: additionalPost,
@@ -497,11 +498,11 @@ export default function CommitteeMembers() {
     try {
       let memberPath = "";
       if (selectedLevel === "society") {
-        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/society_committee_members/${member.id}`;
+        memberPath = `artifacts/${appId}/public/data/societies/${user?.uid}/society_committee_members/${member.id}`;
       } else {
         const wingObj = wings.find((w) => w.id === selectedLevel);
         if (!wingObj) throw new Error("Wing not found");
-        memberPath = `artifacts/${appId}/public/data/societies/${user.uid}/wings/${wingObj.id}/wing_committee_members/${member.id}`;
+        memberPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingObj.id}/wing_committee_members/${member.id}`;
       }
 
       await deleteDoc(doc(db, memberPath));
@@ -558,84 +559,86 @@ export default function CommitteeMembers() {
           <Text style={styles.title}>Committee Members</Text>
         </View>
 
-        <View style={styles.levelSelector}>
-          <Text style={styles.sectionLabel}>Select committee</Text>
-          <View style={styles.wingsGrid}>
-            <TouchableOpacity
-              style={[
-                styles.levelBtn,
-                selectedLevel === "society" && styles.levelBtnActive,
-              ]}
-              onPress={() => {
-                setSelectedLevel("society");
-                setWing("");
-                setFloor("");
-                setFlatNo("");
-                setFloorsList([]);
-                setFlatsList([]);
-              }}
-            >
-              <Text
+        {wings.length > 1 && (
+          <View style={styles.levelSelector}>
+            <Text style={styles.sectionLabel}>Select committee</Text>
+            <View style={styles.wingsGrid}>
+              <TouchableOpacity
                 style={[
-                  styles.levelBtnText,
-                  selectedLevel === "society" && styles.levelBtnTextActive,
+                  styles.levelBtn,
+                  selectedLevel === "society" && styles.levelBtnActive,
                 ]}
+                onPress={() => {
+                  setSelectedLevel("society");
+                  setWing("");
+                  setFloor("");
+                  setFlatNo("");
+                  setFloorsList([]);
+                  setFlatsList([]);
+                }}
               >
-                Complete Society
-              </Text>
-            </TouchableOpacity>
-            {/* Configured Wings */}
-            {wings
-              .filter((w) => w.isConfigured)
-              .map((w: Wing) => (
-                <TouchableOpacity
-                  key={w.id}
+                <Text
                   style={[
-                    styles.levelBtn,
-                    selectedLevel === w.id && styles.levelBtnActive,
+                    styles.levelBtnText,
+                    selectedLevel === "society" && styles.levelBtnTextActive,
                   ]}
-                  onPress={() => {
-                    setSelectedLevel(w.id);
-                    handleWingSelect(w);
-                  }}
                 >
-                  <Text
+                  Complete Society
+                </Text>
+              </TouchableOpacity>
+              {/* Configured Wings */}
+              {wings
+                .filter((w) => w.isConfigured)
+                .map((w: Wing) => (
+                  <TouchableOpacity
+                    key={w.id}
                     style={[
-                      styles.levelBtnText,
-                      selectedLevel === w.id && styles.levelBtnTextActive,
+                      styles.levelBtn,
+                      selectedLevel === w.id && styles.levelBtnActive,
                     ]}
+                    onPress={() => {
+                      setSelectedLevel(w.id);
+                      handleWingSelect(w);
+                    }}
                   >
-                    {w.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            {/* Other Wings */}
-            {wings
-              .filter((w) => !w.isConfigured)
-              .map((w: Wing) => (
-                <TouchableOpacity
-                  key={w.id}
-                  style={[
-                    styles.levelBtn,
-                    selectedLevel === w.id && styles.levelBtnActive,
-                  ]}
-                  onPress={() => {
-                    setSelectedLevel(w.id);
-                    handleWingSelect(w);
-                  }}
-                >
-                  <Text
+                    <Text
+                      style={[
+                        styles.levelBtnText,
+                        selectedLevel === w.id && styles.levelBtnTextActive,
+                      ]}
+                    >
+                      {w.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              {/* Other Wings */}
+              {wings
+                .filter((w) => !w.isConfigured)
+                .map((w: Wing) => (
+                  <TouchableOpacity
+                    key={w.id}
                     style={[
-                      styles.levelBtnText,
-                      selectedLevel === w.id && styles.levelBtnTextActive,
+                      styles.levelBtn,
+                      selectedLevel === w.id && styles.levelBtnActive,
                     ]}
+                    onPress={() => {
+                      setSelectedLevel(w.id);
+                      handleWingSelect(w);
+                    }}
                   >
-                    {w.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      style={[
+                        styles.levelBtnText,
+                        selectedLevel === w.id && styles.levelBtnTextActive,
+                      ]}
+                    >
+                      {w.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+            </View>
           </View>
-        </View>
+        )}
 
         <View style={styles.formSection}>
           <Text style={styles.sectionTitle}>
@@ -691,7 +694,7 @@ export default function CommitteeMembers() {
             </View>
 
             <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Phone Number</Text>
+              <Text style={styles.label}>Phone Number *</Text>
               <TextInput
                 style={[
                   styles.input,
@@ -728,7 +731,7 @@ export default function CommitteeMembers() {
           </View>
 
           <View style={{ zIndex: 1000, position: "relative" }}>
-            <Text style={styles.label}>Committee member Position</Text>
+            <Text style={styles.label}>Committee member Position *</Text>
             <TouchableOpacity
               style={styles.dropdownButton}
               onPress={() => setShowPostDropdown(!showPostDropdown)}
@@ -953,137 +956,139 @@ export default function CommitteeMembers() {
           </View>
 
           {/* Additional Wings Multi-select Section */}
-          <View
-            style={[
-              styles.additionalWingsSection,
-              Object.values(showAdditionalPostDropdown).some((v) => v) && {
-                zIndex: 3000,
-              },
-              { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-            ]}
-          >
-            <Text style={[styles.additionalWingsLabel, { width: "100%" }]}>
-              Is this person a committee member of any other wing?
-            </Text>
-            {wings
-              .filter((w) => w.id !== selectedLevel)
-              .map((w) => (
-                <View
-                  key={w.id}
-                  style={[
-                    styles.additionalWingItem,
-                    showAdditionalPostDropdown[w.id] && { zIndex: 1000 },
-                    { width: width > 768 ? "32%" : "100%" },
-                  ]}
-                >
-                  <TouchableOpacity
-                    style={styles.checkboxRow}
-                    onPress={() => {
-                      if (additionalWingPosts[w.id] !== undefined) {
-                        // Remove this wing
-                        setAdditionalWingPosts((prev) => {
-                          const newPosts = { ...prev };
-                          delete newPosts[w.id];
-                          return newPosts;
-                        });
-                        setShowAdditionalPostDropdown((prev) => {
-                          const newDropdowns = { ...prev };
-                          delete newDropdowns[w.id];
-                          return newDropdowns;
-                        });
-                      } else {
-                        // Add this wing with empty post
-                        setAdditionalWingPosts((prev) => ({
-                          ...prev,
-                          [w.id]: "",
-                        }));
-                      }
-                    }}
+          {wings.length > 1 && (
+            <View
+              style={[
+                styles.additionalWingsSection,
+                Object.values(showAdditionalPostDropdown).some((v) => v) && {
+                  zIndex: 3000,
+                },
+                { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+              ]}
+            >
+              <Text style={[styles.additionalWingsLabel, { width: "100%" }]}>
+                Is this person a committee member of any other wing?
+              </Text>
+              {wings
+                .filter((w) => w.id !== selectedLevel)
+                .map((w) => (
+                  <View
+                    key={w.id}
+                    style={[
+                      styles.additionalWingItem,
+                      showAdditionalPostDropdown[w.id] && { zIndex: 1000 },
+                      { width: width > 768 ? "32%" : "100%" },
+                    ]}
                   >
-                    <View
-                      style={[
-                        styles.checkbox,
-                        additionalWingPosts[w.id] !== undefined &&
-                          styles.checkboxActive,
-                      ]}
+                    <TouchableOpacity
+                      style={styles.checkboxRow}
+                      onPress={() => {
+                        if (additionalWingPosts[w.id] !== undefined) {
+                          // Remove this wing
+                          setAdditionalWingPosts((prev) => {
+                            const newPosts = { ...prev };
+                            delete newPosts[w.id];
+                            return newPosts;
+                          });
+                          setShowAdditionalPostDropdown((prev) => {
+                            const newDropdowns = { ...prev };
+                            delete newDropdowns[w.id];
+                            return newDropdowns;
+                          });
+                        } else {
+                          // Add this wing with empty post
+                          setAdditionalWingPosts((prev) => ({
+                            ...prev,
+                            [w.id]: "",
+                          }));
+                        }
+                      }}
                     >
-                      {additionalWingPosts[w.id] !== undefined && (
-                        <View style={styles.checkboxTick} />
-                      )}
-                    </View>
-                    <Text style={styles.checkboxLabel}>{w.name}</Text>
-                  </TouchableOpacity>
-
-                  {/* Post dropdown for this wing */}
-                  {additionalWingPosts[w.id] !== undefined && (
-                    <View style={styles.additionalWingPostContainer}>
-                      <Text style={styles.additionalWingPostLabel}>
-                        Committee member post
-                      </Text>
-                      <View style={{ zIndex: 1000, position: "relative" }}>
-                        <TouchableOpacity
-                          style={styles.dropdownButton}
-                          onPress={() =>
-                            setShowAdditionalPostDropdown((prev) => ({
-                              ...prev,
-                              [w.id]: !prev[w.id],
-                            }))
-                          }
-                        >
-                          <Text
-                            style={[
-                              styles.dropdownButtonText,
-                              !additionalWingPosts[w.id] && {
-                                color: "#94A3B8",
-                              },
-                            ]}
-                          >
-                            {additionalWingPosts[w.id] || "Select Post"}
-                          </Text>
-                          <Text style={styles.dropdownArrow}>▼</Text>
-                        </TouchableOpacity>
-                        {showAdditionalPostDropdown[w.id] && (
-                          <View style={styles.dropdownListContainer}>
-                            <ScrollView style={styles.dropdownList}>
-                              {COMMITTEE_POSTS.map((p) => (
-                                <TouchableOpacity
-                                  key={p}
-                                  style={[
-                                    styles.dropdownItem,
-                                    additionalWingPosts[w.id] === p &&
-                                      styles.dropdownItemSelected,
-                                  ]}
-                                  onPress={() => {
-                                    setAdditionalWingPosts((prev) => ({
-                                      ...prev,
-                                      [w.id]: p,
-                                    }));
-                                    setShowAdditionalPostDropdown((prev) => ({
-                                      ...prev,
-                                      [w.id]: false,
-                                    }));
-                                  }}
-                                >
-                                  <Text
-                                    style={[
-                                      styles.dropdownItemText,
-                                      additionalWingPosts[w.id] === p &&
-                                        styles.dropdownItemTextSelected,
-                                    ]}
-                                  >
-                                    {p}
-                                  </Text>
-                                </TouchableOpacity>
-                              ))}
-                            </ScrollView>
-                          </View>
+                      <View
+                        style={[
+                          styles.checkbox,
+                          additionalWingPosts[w.id] !== undefined &&
+                            styles.checkboxActive,
+                        ]}
+                      >
+                        {additionalWingPosts[w.id] !== undefined && (
+                          <View style={styles.checkboxTick} />
                         )}
                       </View>
-                    </View>
-                  )}
-                </View>
-              ))}
-          </View>
+                      <Text style={styles.checkboxLabel}>{w.name}</Text>
+                    </TouchableOpacity>
+
+                    {/* Post dropdown for this wing */}
+                    {additionalWingPosts[w.id] !== undefined && (
+                      <View style={styles.additionalWingPostContainer}>
+                        <Text style={styles.additionalWingPostLabel}>
+                          Committee member post
+                        </Text>
+                        <View style={{ zIndex: 1000, position: "relative" }}>
+                          <TouchableOpacity
+                            style={styles.dropdownButton}
+                            onPress={() =>
+                              setShowAdditionalPostDropdown((prev) => ({
+                                ...prev,
+                                [w.id]: !prev[w.id],
+                              }))
+                            }
+                          >
+                            <Text
+                              style={[
+                                styles.dropdownButtonText,
+                                !additionalWingPosts[w.id] && {
+                                  color: "#94A3B8",
+                                },
+                              ]}
+                            >
+                              {additionalWingPosts[w.id] || "Select Post"}
+                            </Text>
+                            <Text style={styles.dropdownArrow}>▼</Text>
+                          </TouchableOpacity>
+                          {showAdditionalPostDropdown[w.id] && (
+                            <View style={styles.dropdownListContainer}>
+                              <ScrollView style={styles.dropdownList}>
+                                {COMMITTEE_POSTS.map((p) => (
+                                  <TouchableOpacity
+                                    key={p}
+                                    style={[
+                                      styles.dropdownItem,
+                                      additionalWingPosts[w.id] === p &&
+                                        styles.dropdownItemSelected,
+                                    ]}
+                                    onPress={() => {
+                                      setAdditionalWingPosts((prev) => ({
+                                        ...prev,
+                                        [w.id]: p,
+                                      }));
+                                      setShowAdditionalPostDropdown((prev) => ({
+                                        ...prev,
+                                        [w.id]: false,
+                                      }));
+                                    }}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.dropdownItemText,
+                                        additionalWingPosts[w.id] === p &&
+                                          styles.dropdownItemTextSelected,
+                                      ]}
+                                    >
+                                      {p}
+                                    </Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                ))}
+            </View>
+          )}
 
           <TouchableOpacity
             style={[styles.addBtn, saving && styles.disabledBtn]}

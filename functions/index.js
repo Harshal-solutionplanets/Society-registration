@@ -1,4 +1,5 @@
 require("dotenv").config();
+const functions = require("firebase-functions");
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
@@ -47,7 +48,8 @@ if (serviceAccount) {
   process.exit(1);
 }
 
-const db = admin.firestore();
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const db = getFirestore();
 
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
@@ -55,80 +57,184 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_REDIRECT_URI,
 );
 
+const router = express.Router();
+
 /**
  * Health Check / Versioning
  */
-app.get("/api/status", (req, res) => {
+router.get("/status", (req, res) => {
   res.json({
     status: "running",
-    version: "1.0.5",
-    endpoints: ["archive-resident-staff verified"],
+    version: "1.0.6",
+    endpoints: ["multi-path routing enabled"],
   });
 });
 
 /**
- * Step 1: Generate the Auth URL for the Admin to link Google Drive
+ * Step 1: Generate the Auth URL
+ * If it's a SIGN IN, we don't force 'consent' (Google remembers permissions)
  */
-app.get("/api/auth/google/url", (req, res) => {
-  const { adminUID, appId } = req.query;
-  const state = JSON.stringify({ adminUID, appId });
+router.get("/auth/google/url", (req, res) => {
+  const { adminUID, appId, isSignup } = req.query;
+  const state = JSON.stringify({
+    adminUID,
+    appId,
+    isSignup: isSignup === "true",
+  });
+
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
-    prompt: "consent",
-    scope: ["https://www.googleapis.com/auth/drive.file"],
+    // Only force 'consent' for new signups to ensure we get a Refresh Token
+    // For sign-ins, 'select_account' is enough to log back in quickly
+    prompt: isSignup === "true" ? "consent" : "select_account",
+    scope: [
+      "openid",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile",
+      "https://www.googleapis.com/auth/drive.file",
+    ],
     state: state,
   });
-  res.json({ url });
+  res.redirect(url);
 });
 
 /**
- * Step 2: Callback to exchange code for Refresh Token
+ * Step 2: Callback to exchange code and provide unified authentication
  */
-app.get("/api/auth/google/callback", async (req, res) => {
+router.get("/auth/google/callback", async (req, res) => {
   const { code, state } = req.query;
   if (!code) return res.status(400).send("No code provided");
 
   try {
     const { tokens } = await oauth2Client.getToken(code);
-    const { adminUID, appId } = JSON.parse(state);
+    const {
+      adminUID: providedUID,
+      appId: queryAppId,
+      isSignup,
+    } = JSON.parse(state);
+    const targetAppId = queryAppId || "dev-society-id";
 
-    if (tokens.refresh_token) {
-      await db
-        .collection("artifacts")
-        .doc(appId || "dev-society-id")
-        .collection("secure")
-        .doc(adminUID)
-        .set(
-          {
-            refreshToken: tokens.refresh_token,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true },
-        );
+    // 1. Verify Identity
+    const ticket = await oauth2Client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    const email = payload.email?.toLowerCase() || "";
+    const googleUID = payload.sub;
+
+    console.log(`[OAuth] Handshake for ${email}. isSignup: ${isSignup}`);
+
+    // CHECK: Domain Restriction (Only @gmail.com allowed)
+    if (!email.endsWith("@gmail.com")) {
+      console.log(`[OAuth] Access denied for ${email}: Invalid domain.`);
+      return res.send(`
+        <html>
+          <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+            <h2 style="color: #ef4444;">Access Denied</h2>
+            <p>Only official @gmail.com accounts are permitted for society administration.</p>
+            <script>
+              window.opener.postMessage({ 
+                type: 'GOOGLE_AUTH_ERROR', 
+                message: 'Invalid domain. Please use your @gmail.com account.' 
+              }, '*');
+              setTimeout(() => window.close(), 2000);
+            </script>
+          </body>
+        </html>
+      `);
     }
 
-    await db
+    // CHECK: Does this user already have a complete profile?
+    const societyDoc = await db
       .collection("artifacts")
-      .doc(appId || "dev-society-id")
+      .doc(targetAppId)
       .collection("public")
       .doc("data")
       .collection("societies")
-      .doc(adminUID)
-      .set(
-        {
-          driveAccessToken: tokens.access_token,
-          isDriveLinked: true,
-        },
+      .doc(googleUID)
+      .get();
+
+    const isExistingUser = societyDoc.exists && societyDoc.data().societyName;
+
+    // FLOW A: RETURNING USER - Sign them in immediately
+    if (isExistingUser) {
+      console.log(`[OAuth] Returning admin ${email}. Generating login token.`);
+
+      // Update access token in DB (silent refresh)
+      await societyDoc.ref.set(
+        { driveAccessToken: tokens.access_token },
         { merge: true },
       );
+
+      const firebaseToken = await admin
+        .auth()
+        .createCustomToken(googleUID, { email, isGoogleAuth: true });
+
+      return res.send(`
+        <html>
+          <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+            <h2 style="color: #3b82f6;">Welcome back!</h2>
+            <script>
+              window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS', token: '${firebaseToken}' }, '*');
+              setTimeout(() => window.close(), 1000);
+            </script>
+          </body>
+        </html>
+      `);
+    }
+
+    // FLOW B: CHECK: If trying to Login but account doesn't exist
+    if (!isSignup && !isExistingUser) {
+      console.log(`[OAuth] Login failed for ${email}: Account not registered.`);
+      return res.send(`
+        <html>
+          <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+            <h2 style="color: #ef4444;">Login Failed</h2>
+            <p>This Gmail account is not registered as a society admin.</p>
+            <script>
+              window.opener.postMessage({ 
+                type: 'GOOGLE_AUTH_ERROR', 
+                message: 'Account not registered. Please sign up first.' 
+              }, '*');
+              setTimeout(() => window.close(), 1500);
+            </script>
+          </body>
+        </html>
+      `);
+    }
+
+    // FLOW C: NEW USER / SIGNUP - Do NOT create Auth user yet. Save to Pending.
+    console.log(`[OAuth] New admin ${email}. Saving to pending_setups.`);
+
+    // Use a temporary ID for the setup session
+    const setupSessionId = crypto.randomBytes(16).toString("hex");
+
+    await db
+      .collection("artifacts")
+      .doc(targetAppId)
+      .collection("pending_setups")
+      .doc(setupSessionId)
+      .set({
+        email,
+        googleUID,
+        refreshToken: tokens.refresh_token,
+        accessToken: tokens.access_token,
+        createdAt: FieldValue.serverTimestamp(),
+      });
 
     res.send(`
       <html>
         <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-          <h2 style="color: #22C55E;">Google Drive Linked Successfully!</h2>
-          <p>You can close this window and return to the dashboard.</p>
+          <h2 style="color: #10b981;">Drive Linked!</h2>
+          <p>You can now complete the society form.</p>
           <script>
-            setTimeout(() => window.close(), 2500);
+            window.opener.postMessage({ 
+              type: 'GOOGLE_HANDSHAKE_SUCCESS', 
+              email: '${email}',
+              setupSessionId: '${setupSessionId}'
+            }, '*');
+            setTimeout(() => window.close(), 1000);
           </script>
         </body>
       </html>
@@ -140,9 +246,152 @@ app.get("/api/auth/google/callback", async (req, res) => {
 });
 
 /**
+ * Step 3: THE FINALIZE BUTTON
+ * Only creates the Firebase Auth user AND Drive folder AND Society doc now.
+ */
+router.post("/admin/finalize-setup", async (req, res) => {
+  const { setupSessionId, appId, formData, advanceData } = req.body;
+  const targetAppId = appId || "dev-society-id";
+
+  try {
+    // 1. Get the pending tokens
+    const sessionDoc = await db
+      .collection("artifacts")
+      .doc(targetAppId)
+      .collection("pending_setups")
+      .doc(setupSessionId)
+      .get();
+
+    if (!sessionDoc.exists)
+      throw new Error("Invalid or expired setup session.");
+    const session = sessionDoc.data();
+
+    console.log(`[Finalize] Creating account for ${session.email}...`);
+
+    // 2. Create the Firebase Auth User (CLEAN: only happens now!)
+    let userRecord;
+    try {
+      userRecord = await admin.auth().createUser({
+        uid: session.googleUID,
+        email: session.email,
+        emailVerified: true,
+        displayName: formData.adminName,
+      });
+    } catch (e) {
+      if (e.code === "auth/email-already-exists") {
+        userRecord = await admin.auth().getUserByEmail(session.email);
+      } else throw e;
+    }
+
+    // 3. Create the Google Drive Folder
+    const drive = google.drive({ version: "v3", auth: oauth2Client });
+    oauth2Client.setCredentials({ access_token: session.accessToken });
+
+    const driveResponse = await drive.files.create({
+      requestBody: {
+        name: `${formData.societyName.toUpperCase()}-DRIVE`,
+        mimeType: "application/vnd.google-apps.folder",
+      },
+      fields: "id",
+    });
+    const folderId = driveResponse.data.id;
+
+    // 4. Save the Final Society Document
+    const societyData = {
+      ...formData,
+      advanceDetails: advanceData,
+      driveFolderId: folderId,
+      driveAccessToken: session.accessToken, // Store it initially for immediate use
+      isDriveLinked: true,
+      role: "ADMIN",
+      adminEmail: session.email,
+      adminUserId: session.googleUID,
+      createdAt: FieldValue.serverTimestamp(),
+    };
+
+    await db
+      .collection("artifacts")
+      .doc(targetAppId)
+      .collection("public")
+      .doc("data")
+      .collection("societies")
+      .doc(session.googleUID)
+      .set(societyData);
+
+    // 5. Store Refresh Token securely
+    await db
+      .collection("artifacts")
+      .doc(targetAppId)
+      .collection("secure")
+      .doc(session.googleUID)
+      .set({
+        refreshToken: session.refreshToken,
+        email: session.email,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+    // 6. Cleanup session
+    await sessionDoc.ref.delete();
+
+    // 7. Success! Return Custom Token
+    const firebaseToken = await admin
+      .auth()
+      .createCustomToken(session.googleUID);
+    res.json({ success: true, token: firebaseToken });
+  } catch (error) {
+    console.error("Finalize Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Step 4: Refresh Access Token
+ */
+router.get("/auth/google/refresh", async (req, res) => {
+  const { adminUID, appId } = req.query;
+  const targetAppId = appId || "dev-society-id";
+
+  if (!adminUID) return res.status(400).json({ error: "Missing adminUID" });
+
+  try {
+    const tokenDoc = await db
+      .collection("artifacts")
+      .doc(targetAppId)
+      .collection("secure")
+      .doc(adminUID)
+      .get();
+
+    if (!tokenDoc.exists || !tokenDoc.data().refreshToken) {
+      return res.status(404).json({ error: "Refresh token not found." });
+    }
+
+    oauth2Client.setCredentials({
+      refresh_token: tokenDoc.data().refreshToken,
+    });
+
+    const { tokens } = await oauth2Client.refreshAccessToken();
+
+    // Update the society document with new access token
+    await db
+      .collection("artifacts")
+      .doc(targetAppId)
+      .collection("public")
+      .doc("data")
+      .collection("societies")
+      .doc(adminUID)
+      .set({ driveAccessToken: tokens.access_token }, { merge: true });
+
+    res.json({ accessToken: tokens.access_token });
+  } catch (error) {
+    console.error("Refresh Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * Upload Documents
  */
-app.post("/api/drive/upload-resident-staff", async (req, res) => {
+router.post("/drive/upload-resident-staff", async (req, res) => {
   const { adminUID, parentFolderId, staffName, fileName, base64Data, appId } =
     req.body;
   if (!adminUID || !parentFolderId || !staffName || !fileName || !base64Data) {
@@ -161,10 +410,17 @@ app.post("/api/drive/upload-resident-staff", async (req, res) => {
       return res.status(404).json({ error: "Google Drive not linked." });
     }
 
-    oauth2Client.setCredentials({
+    // Creating local client to avoid race conditions
+    const client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI,
+    );
+
+    client.setCredentials({
       refresh_token: tokenDoc.data().refreshToken,
     });
-    const drive = google.drive({ version: "v3", auth: oauth2Client });
+    const drive = google.drive({ version: "v3", auth: client });
 
     // 1. Find/Create/Rename folder
     let staffFolderId = req.body.staffFolderId;
@@ -211,15 +467,28 @@ app.post("/api/drive/upload-resident-staff", async (req, res) => {
       }
     }
 
-    // Search for existing file with same name in staffFolderId
-    const fileSearch = await drive.files.list({
-      q: `name = '${fileName}' and '${staffFolderId}' in parents and trashed = false`,
-      fields: "files(id)",
-    });
+    // 2. EXHAUSTIVE CLEANUP: Delete all existing instances of the document (jpg, pdf, etc.)
+    const baseFileName = fileName.split(".")[0];
+    const extensions = [".jpg", ".jpeg", ".pdf", ".png"];
 
-    // Upload file (Update if exists, else Create)
+    for (const ext of extensions) {
+      const searchName = `${baseFileName}${ext}`;
+      const search = await drive.files.list({
+        q: `name = '${searchName}' and '${staffFolderId}' in parents and trashed = false`,
+        fields: "files(id)",
+      });
+      if (search.data.files && search.data.files.length > 0) {
+        for (const f of search.data.files) {
+          await drive.files.delete({ fileId: f.id }).catch(() => {});
+        }
+      }
+    }
+
+    // 3. UPLOAD: Create new file
+    const mimeMatch = base64Data.match(/^data:(.*);base64,/);
+    const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
     const buffer = Buffer.from(
-      base64Data.replace(/^data:image\/\w+;base64,/, ""),
+      base64Data.replace(/^data:(.*);base64,/, ""),
       "base64",
     );
     const { Readable } = require("stream");
@@ -227,32 +496,19 @@ app.post("/api/drive/upload-resident-staff", async (req, res) => {
     stream.push(buffer);
     stream.push(null);
 
-    let finalFileId;
-    if (fileSearch.data.files && fileSearch.data.files.length > 0) {
-      // Update existing file
-      const fileId = fileSearch.data.files[0].id;
-      const updateRes = await drive.files.update({
-        fileId: fileId,
-        media: { mimeType: "image/jpeg", body: stream },
-      });
-      finalFileId = updateRes.data.id;
-    } else {
-      // Create new file
-      const createRes = await drive.files.create({
-        requestBody: { name: fileName, parents: [staffFolderId] },
-        media: { mimeType: "image/jpeg", body: stream },
-      });
-      finalFileId = createRes.data.id;
-    }
+    const createRes = await drive.files.create({
+      requestBody: { name: fileName, parents: [staffFolderId] },
+      media: { mimeType: mimeType, body: stream },
+    });
 
-    res.json({ success: true, fileId: finalFileId, staffFolderId });
+    res.json({ success: true, fileId: createRes.data.id, staffFolderId });
   } catch (error) {
     console.error("Upload Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post("/api/drive/delete-resident-file", async (req, res) => {
+router.post("/drive/delete-resident-file", async (req, res) => {
   const { adminUID, appId, staffFolderId, fileName } = req.body;
 
   if (!adminUID || !staffFolderId || !fileName) {
@@ -271,30 +527,42 @@ app.post("/api/drive/delete-resident-file", async (req, res) => {
       return res.status(404).json({ error: "Google Drive not linked." });
     }
 
-    const oauth2Client = new google.auth.OAuth2(
+    // Creating local client to avoid race conditions
+    const client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      "postmessage",
+      process.env.GOOGLE_REDIRECT_URI,
     );
 
-    oauth2Client.setCredentials({
+    client.setCredentials({
       refresh_token: tokenDoc.data().refreshToken,
     });
-    const drive = google.drive({ version: "v3", auth: oauth2Client });
+    const drive = google.drive({ version: "v3", auth: client });
 
-    // Search for the file in the specific folder
-    const fileSearch = await drive.files.list({
-      q: `name = '${fileName}' and '${staffFolderId}' in parents and trashed = false`,
-      fields: "files(id)",
-    });
+    // Exhaustive cleanup for deletion
+    const baseFileName = fileName.split(".")[0];
+    const extensions = [".jpg", ".jpeg", ".pdf", ".png"];
+    let deletedCount = 0;
 
-    if (fileSearch.data.files && fileSearch.data.files.length > 0) {
-      const fileId = fileSearch.data.files[0].id;
-      await drive.files.delete({ fileId });
-      res.json({ success: true, message: "File deleted" });
-    } else {
-      res.json({ success: true, message: "File not found (already deleted?)" });
+    for (const ext of extensions) {
+      const searchName = `${baseFileName}${ext}`;
+      const fileSearch = await drive.files.list({
+        q: `name = '${searchName}' and '${staffFolderId}' in parents and trashed = false`,
+        fields: "files(id)",
+      });
+
+      if (fileSearch.data.files && fileSearch.data.files.length > 0) {
+        for (const file of fileSearch.data.files) {
+          await drive.files.delete({ fileId: file.id }).catch(() => {});
+          deletedCount++;
+        }
+      }
     }
+
+    res.json({
+      success: true,
+      message: `Cleanup complete. Deleted ${deletedCount} files.`,
+    });
   } catch (error) {
     console.error("Delete Error:", error);
     res.status(500).json({ error: error.message });
@@ -304,7 +572,7 @@ app.post("/api/drive/delete-resident-file", async (req, res) => {
 /**
  * Archive Staff (The route that was giving 404)
  */
-app.post("/api/drive/archive-resident-staff", async (req, res) => {
+router.post("/drive/archive-resident-staff", async (req, res) => {
   const { adminUID, parentFolderId, staffFolderId, appId, unitId, staffId } =
     req.body;
   console.log("DEBUG: Archive request received for", { staffId, unitId });
@@ -344,10 +612,17 @@ app.post("/api/drive/archive-resident-staff", async (req, res) => {
 
     if (tokenDoc.exists && tokenDoc.data().refreshToken && staffFolderId) {
       try {
-        oauth2Client.setCredentials({
+        // Creating local client to avoid race conditions
+        const client = new google.auth.OAuth2(
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_CLIENT_SECRET,
+          process.env.GOOGLE_REDIRECT_URI,
+        );
+
+        client.setCredentials({
           refresh_token: tokenDoc.data().refreshToken,
         });
-        const drive = google.drive({ version: "v3", auth: oauth2Client });
+        const drive = google.drive({ version: "v3", auth: client });
 
         // Find/Create "Archived Staff" folder
         const archiveSearch = await drive.files.list({
@@ -397,7 +672,7 @@ app.post("/api/drive/archive-resident-staff", async (req, res) => {
 
     await archivedDocRef.set({
       ...staffData,
-      archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+      archivedAt: FieldValue.serverTimestamp(),
       driveArchived,
     });
 
@@ -412,26 +687,35 @@ app.post("/api/drive/archive-resident-staff", async (req, res) => {
 /**
  * Refresh Token
  */
-app.get("/api/auth/google/refresh", async (req, res) => {
-  const { adminUID, appId } = req.query;
+router.get("/auth/google/refresh", async (req, res) => {
+  const { adminUID, appId: queryAppId } = req.query;
+  const targetAppId = queryAppId || "dev-society-id";
   try {
     const tokenDoc = await db
       .collection("artifacts")
-      .doc(appId || "dev-society-id")
+      .doc(targetAppId)
       .collection("secure")
       .doc(adminUID)
       .get();
-    if (!tokenDoc.exists)
-      return res.status(404).json({ error: "No refresh token" });
+    if (!tokenDoc.exists || !tokenDoc.data().refreshToken) {
+      return res.status(404).json({ error: "No refresh token found" });
+    }
 
-    oauth2Client.setCredentials({
+    // Creating local client to avoid race conditions
+    const client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI,
+    );
+
+    client.setCredentials({
       refresh_token: tokenDoc.data().refreshToken,
     });
-    const { credentials } = await oauth2Client.refreshAccessToken();
+    const { credentials } = await client.refreshAccessToken();
 
     await db
       .collection("artifacts")
-      .doc(appId || "dev-society-id")
+      .doc(targetAppId)
       .collection("public")
       .doc("data")
       .collection("societies")
@@ -460,7 +744,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-app.post("/api/auth/forgot-password", async (req, res) => {
+router.post("/auth/forgot-password", async (req, res) => {
   const { email, appId } = req.body;
   if (!email) return res.status(400).json({ error: "Email is required" });
 
@@ -496,7 +780,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
       .set({
         otp,
         expiresAt,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
       });
 
     // 4. Send Email
@@ -527,7 +811,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
   }
 });
 
-app.post("/api/auth/verify-otp", async (req, res) => {
+router.post("/auth/verify-otp", async (req, res) => {
   const { email, otp, appId } = req.body;
   if (!email || !otp) return res.status(400).json({ error: "Missing fields" });
 
@@ -554,7 +838,7 @@ app.post("/api/auth/verify-otp", async (req, res) => {
   }
 });
 
-app.post("/api/auth/reset-password", async (req, res) => {
+router.post("/auth/reset-password", async (req, res) => {
   const { email, otp, newPassword, appId } = req.body;
   if (!email || !otp || !newPassword)
     return res.status(400).json({ error: "Missing fields" });
@@ -599,7 +883,9 @@ app.post("/api/auth/reset-password", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`Backend server running on port ${PORT}`);
-});
+// Mount router on both root and /api to handle all environments (Hosting vs Direct)
+app.use("/", router);
+app.use("/api", router);
+
+// Replace app.listen with exports.api
+exports.api = functions.region("asia-south1").https.onRequest(app);

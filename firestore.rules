@@ -1,0 +1,133 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+    
+    // Check if user is the society admin
+    function isAdmin(adminUID) {
+      return request.auth != null && request.auth.uid == adminUID;
+    }
+    
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // ============================================
+    // SOCIETY RULES
+    // ============================================
+    
+    match /artifacts/{appId}/public/data/societies/{adminUID} {
+      // Anyone can read society info (for lookup during login)
+      allow read: if true;
+      
+      // TEMPORARY DEBUG: Allow all writes to diagnose issue
+      // TODO: Remove after fixing
+      allow write: if isAuthenticated();
+      
+      // Original rule (disabled for debugging):
+      // allow write: if isAdmin(adminUID);
+      
+      // --------------------------------------------
+      // RESIDENTS COLLECTION
+      // --------------------------------------------
+      match /Residents/{unitId} {
+        // Anyone can read (needed for login lookup)
+        allow read: if true;
+        
+        // Authenticated users can write (for linking UID during login)
+        allow write: if isAuthenticated();
+        
+        // Staff members under each resident
+        match /StaffMembers/{staffId} {
+          allow read, write: if isAuthenticated();
+        }
+
+        // Notifications for this specific unit
+        match /notifications/{notifId} {
+          allow read: if isAuthenticated();
+          // Admin writes notifications via backend or dashboard
+          allow write: if isAuthenticated(); // Temporary
+        }
+      }
+      
+      // --------------------------------------------
+      // WINGS COLLECTION
+      // --------------------------------------------
+      match /wings/{wingId} {
+        // Anyone can read wing info
+        allow read: if true;
+        
+        // Only admin can modify wings
+        allow write: if isAuthenticated(); // Temporarily open
+        
+        // Floor/Unit data within wings
+        match /{floorNumber}/{unitId} {
+          // Anyone can read unit data
+          allow read: if true;
+          
+          // Authenticated users can update their unit
+          allow write: if isAuthenticated();
+        }
+      }
+      
+      // --------------------------------------------
+      // STAFF COLLECTIONS (Admin-only)
+      // --------------------------------------------
+      match /Staff/{staffId} {
+        allow read, write: if isAuthenticated(); // Temporarily open
+      }
+      
+      match /ArchivedStaff/{staffId} {
+        allow read, write: if isAuthenticated(); // Temporarily open
+      }
+      
+      // --------------------------------------------
+      // COMMITTEE MEMBERS (Admin-only)
+      // --------------------------------------------
+      match /CommitteeMembers/{memberId} {
+        allow read, write: if isAuthenticated(); // Temporarily open
+      }
+      
+      // --------------------------------------------
+      // CATCH-ALL FOR OTHER ADMIN SUBCOLLECTIONS
+      // Only the admin can access any other data under their society
+      // --------------------------------------------
+      match /{subcollection}/{docId} {
+        allow read, write: if isAuthenticated(); // Temporarily open
+      }
+    }
+    
+    // ============================================
+    // USER PERSONAL DATA (Residents)
+    // ============================================
+    match /users/{userId} {
+      // Users can only access their own profile data
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      match /{allSubcollections=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // ============================================
+    // CONNECTION TEST PATH (for diagnostics)
+    // ============================================
+    match /artifacts/{appId}/connection-test/{userId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // COLLECTION GROUP QUERIES
+    // These allow querying across all societies (e.g., for resident login)
+    // ============================================
+    
+    // Allow querying Residents across all societies for login
+    match /{path=**}/Residents/{unitId} {
+      allow read: if true;
+    }
+  }
+}

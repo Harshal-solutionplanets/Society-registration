@@ -60,7 +60,7 @@ export default function AdminDashboard() {
   const isMobile = width < 768;
 
   const fetchData = React.useCallback(async () => {
-    if (!user) return;
+    if (!user?.uid) return;
     try {
       const societyPath = `artifacts/${appId}/public/data/societies`;
       const societyDoc = await getDoc(doc(db, societyPath, user.uid));
@@ -137,11 +137,15 @@ export default function AdminDashboard() {
 
   const handleLinkDrive = async () => {
     try {
-      if (!user) return;
-      const backendUrl =
-        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      if (!user?.uid) return;
+      const isWeb = Platform.OS === "web";
+      const backendUrl = isWeb
+        ? window.location.origin + "/api"
+        : process.env.EXPO_PUBLIC_BACKEND_URL ||
+          "https://asia-south1-zonect-8d847.cloudfunctions.net/api";
+
       const res = await fetch(
-        `${backendUrl}/api/auth/google/url?adminUID=${user.uid}&appId=${appId}`,
+        `${backendUrl}/auth/google/url?adminUID=${user?.uid}&appId=${appId}`,
       );
       const data = await res.json();
       if (data.url) {
@@ -154,7 +158,7 @@ export default function AdminDashboard() {
   };
 
   const handleAddWing = async () => {
-    if (!user || !societyData) return;
+    if (!user?.uid || !societyData) return;
     try {
       const nextIndex =
         wings.length > 0
@@ -190,7 +194,7 @@ export default function AdminDashboard() {
   };
 
   const performDelete = async (wingId: string) => {
-    if (!user || !societyData) return;
+    if (!user?.uid || !societyData) return;
     try {
       const societyPath = `artifacts/${appId}/public/data/societies`;
 
@@ -279,14 +283,19 @@ export default function AdminDashboard() {
   };
 
   const handleWingPress = (wing: Wing) => {
-    router.push({
-      pathname: "/admin/wing-setup",
-      params: {
-        wingIndex: wing.wingIndex ?? 0,
-        wingId: wing.id,
-        wingName: wing.name,
-      },
-    });
+    console.log("[Dashboard] Navigating to wing-setup:", wing);
+    try {
+      router.push({
+        pathname: "/admin/wing-setup" as any,
+        params: {
+          wingIndex: (wing.wingIndex ?? 0).toString(),
+          wingId: wing.id,
+          wingName: wing.name,
+        },
+      });
+    } catch (error) {
+      console.error("[Dashboard] Navigation failed:", error);
+    }
   };
 
   if (loading) {
@@ -323,14 +332,19 @@ export default function AdminDashboard() {
             <Text style={styles.societyName}>
               {societyData?.societyName || "Admin Hub"}
             </Text>
-            <Text style={styles.welcomeText}>Welcome Admin</Text>
+            <Text style={styles.welcomeText}>
+              Welcome {user?.displayName || user?.email || "Admin"}
+            </Text>
           </View>
           <View
             style={[styles.headerRight, isMobile && styles.headerRightMobile]}
           >
             <TouchableOpacity
               style={[styles.headerBtn, isMobile && styles.headerBtnMobile]}
-              onPress={() => router.push("/admin/setup")}
+              onPress={() => {
+                console.log("[Dashboard] Navigating to Profile");
+                router.push("/admin/setup");
+              }}
             >
               <Text
                 style={[
@@ -343,7 +357,10 @@ export default function AdminDashboard() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.headerBtn, isMobile && styles.headerBtnMobile]}
-              onPress={() => router.push("/admin/committee-members")}
+              onPress={() => {
+                console.log("[Dashboard] Navigating to Committee");
+                router.push("/admin/committee-members");
+              }}
             >
               <Text
                 style={[
@@ -356,7 +373,10 @@ export default function AdminDashboard() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.headerBtn, isMobile && styles.headerBtnMobile]}
-              onPress={() => router.push("/admin/society-staff")}
+              onPress={() => {
+                console.log("[Dashboard] Navigating to Staff");
+                router.push("/admin/society-staff");
+              }}
             >
               <Text
                 style={[
@@ -675,18 +695,20 @@ const styles = StyleSheet.create({
   wingsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    justifyContent: "space-between",
+    gap: 16,
+    justifyContent: "flex-start",
     marginBottom: 24,
   },
   wingCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    padding: 10,
-    paddingTop: 30,
+    borderRadius: 20,
+    padding: 16,
+    paddingTop: 35,
     borderWidth: 2,
     borderColor: "#E2E8F0",
     minHeight: 200,
+    maxWidth: 320,
+    minWidth: 260,
     position: "relative",
     overflow: "hidden",
     shadowColor: "#64748B",

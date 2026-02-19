@@ -1,7 +1,7 @@
 import { appId, auth, db } from "@/configs/firebaseConfig";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, getDocFromServer } from "firebase/firestore";
 import {
     createContext,
     ReactNode,
@@ -43,11 +43,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           `artifacts/${appId}/public/data/societies`,
           currentUser.uid,
         );
-        const societyDoc = await getDoc(societyDocRef);
+
+        // Try getting from server first to bypass "Offline" cache state
+        let societyDoc;
+        try {
+          societyDoc = await getDocFromServer(societyDocRef);
+        } catch (serverError) {
+          console.warn("Server fetch failed, trying local getDoc...");
+          societyDoc = await getDoc(societyDocRef);
+        }
 
         if (societyDoc.exists()) {
-          // User is a registered Admin
-          setAppState("admin_dashboard");
+          const data = societyDoc.data();
+          // Verify if setup is actually complete
+          const isSetupComplete =
+            data.societyName && data.driveFolderId && data.role === "ADMIN";
+
+          if (isSetupComplete) {
+            // User is a fully registered Admin
+            setAppState("admin_dashboard");
+          } else {
+            // User has linked drive but not completed the form
+            setAppState("admin_setup");
+          }
         } else {
           // Check if it's a Resident
           if (currentUser.displayName === "Resident") {

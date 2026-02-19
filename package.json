@@ -1,0 +1,12 @@
+{
+  "name": "society-registration-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "frontend:build": "cd frontend && npx expo export -p web",
+    "deploy": "firebase deploy",
+    "deploy:hosting": "firebase deploy --only hosting",
+    "deploy:functions": "firebase deploy --only functions",
+    "full-deploy": "npm run frontend:build && npm run deploy"
+  }
+}

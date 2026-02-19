@@ -1,0 +1,47 @@
+type User @table {
+  firstName: String!
+  lastName: String!
+  email: String!
+  phoneNumber: String!
+  userRole: String!
+  flatNumber: String
+  passwordHash: String
+  profilePictureURL: String
+}
+
+type Announcement @table {
+  title: String!
+  content: String!
+  publishedAt: Timestamp!
+  expiresAt: Timestamp
+  creator: User
+}
+
+type MaintenanceRequest @table {
+  description: String!
+  requestDate: Timestamp!
+  status: String!
+  requester: User
+  assignedTo: User
+  resolutionNotes: String
+  completionDate: Timestamp
+  priority: String
+}
+
+type SocietyDues @table {
+  amountDue: Float!
+  dueDate: Date!
+  status: String!
+  user: User
+  paymentDate: Timestamp
+  paymentMethod: String
+  invoiceURL: String
+}
+
+type Facility @table {
+  name: String!
+  description: String!
+  bookingInstructions: String!
+  hourlyRate: Float
+  capacity: Int
+}

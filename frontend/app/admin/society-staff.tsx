@@ -1,7 +1,8 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import { useRouter } from "expo-router";
 import {
   collection,
@@ -121,28 +122,14 @@ const uploadImageToDrive = async (
   token: string,
 ) => {
   try {
-    const cleanBase64 = base64String.replace(/^data:image\/\w+;base64,/, "");
-
-    // 1. Search if file already exists
-    const q = `name='${fileName}' and '${parentId}' in parents and trashed=false`;
-    const searchRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    const searchData = await searchRes.json();
-    const existingFile =
-      searchData.files && searchData.files.length > 0
-        ? searchData.files[0]
-        : null;
+    const mimeMatch = base64String.match(/^data:(.*);base64,/);
+    const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
+    const cleanBase64 = base64String.replace(/^data:(.*);base64,/, "");
 
     const boundary = "foo_bar_baz";
-    const metadata = existingFile
-      ? {}
-      : { name: fileName, parents: [parentId] };
-    const method = existingFile ? "PATCH" : "POST";
-    const url = existingFile
-      ? `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=multipart`
-      : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
+    const metadata = { name: fileName, parents: [parentId] };
+    const url =
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
 
     const body =
       `--${boundary}\r\n` +
@@ -150,13 +137,13 @@ const uploadImageToDrive = async (
       JSON.stringify(metadata) +
       `\r\n` +
       `--${boundary}\r\n` +
-      `Content-Type: image/jpeg\r\n` +
+      `Content-Type: ${mimeType}\r\n` +
       `Content-Transfer-Encoding: base64\r\n\r\n` +
       cleanBase64 +
       `\r\n--${boundary}--`;
 
     const res = await fetch(url, {
-      method: method,
+      method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": `multipart/related; boundary=${boundary}`,
@@ -183,20 +170,24 @@ const deleteFileFromDrive = async (
   token: string,
 ) => {
   try {
-    const q = `name='${fileName}' and '${folderId}' in parents and trashed=false`;
+    const q = `name = '${fileName}' and '${folderId}' in parents and trashed = false`;
     const searchRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}`,
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
     if (!searchRes.ok) return;
     const searchData = await searchRes.json();
     if (searchData.files && searchData.files.length > 0) {
-      const fileId = searchData.files[0].id;
-      console.log(`DEBUG: Deleting existing file: ${fileName} (${fileId})`);
-      await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      console.log(
+        `DEBUG: Found ${searchData.files.length} duplicate instances of ${fileName}. Cleaning all...`,
+      );
+      for (const file of searchData.files) {
+        console.log(`DEBUG: Deleting instance: ${file.id}`);
+        await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
     }
   } catch (error) {
     console.warn("DEBUG: deleteFileFromDrive error (non-critical):", error);
@@ -277,7 +268,7 @@ export default function SocietyStaff() {
     try {
       const staffRef = collection(
         db,
-        `artifacts/${appId}/public/data/societies/${user.uid}/Staff`,
+        `artifacts/${appId}/public/data/societies/${user?.uid}/Staff`,
       );
       const snapshot = await getDocs(staffRef);
       const fetchedStaff = snapshot.docs.map((doc) => ({
@@ -295,10 +286,13 @@ export default function SocietyStaff() {
   const refreshAccessToken = async () => {
     if (!user) return null;
     try {
-      const backendUrl =
-        process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const isWeb = Platform.OS === "web";
+      const backendUrl = isWeb
+        ? window.location.origin + "/api"
+        : process.env.EXPO_PUBLIC_BACKEND_URL ||
+          "https://asia-south1-zonect-8d847.cloudfunctions.net/api";
       const res = await fetch(
-        `${backendUrl}/api/auth/google/refresh?adminUID=${user.uid}&appId=${appId}`,
+        `${backendUrl}/auth/google/refresh?adminUID=${user?.uid}&appId=${appId}`,
       );
       if (!res.ok) throw new Error("Refresh failed");
       const data = await res.json();
@@ -316,21 +310,45 @@ export default function SocietyStaff() {
     let newValue = null;
 
     if (action === "pick") {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: "images",
-        allowsEditing: true,
-        quality: 0.5,
-        base64: true,
-      });
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ["image/*", "application/pdf"],
+          copyToCacheDirectory: true,
+        });
 
-      if (!result.canceled) {
-        const asset = result.assets[0];
-        if (asset.base64 && asset.base64.length > 682666) {
-          Alert.alert("Error", "File size too large. Maximum limit is 500KB.");
+        if (!result.canceled) {
+          const asset = result.assets[0];
+
+          // Size Check (500KB = 512000 bytes)
+          if (asset.size && asset.size > 512000) {
+            Alert.alert(
+              "Error",
+              "File size too large. Maximum limit is 500KB.",
+            );
+            return;
+          }
+
+          let base64String = "";
+          if (Platform.OS === "web") {
+            const response = await fetch(asset.uri);
+            const blob = await response.blob();
+            base64String = (await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            })) as string;
+          } else {
+            const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            base64String = `data:${asset.mimeType || "image/jpeg"};base64,${base64}`;
+          }
+          newValue = base64String;
+        } else {
           return;
         }
-        newValue = `data:image/jpeg;base64,${asset.base64}`;
-      } else {
+      } catch (err) {
+        console.warn("Picker Error:", err);
         return;
       }
     }
@@ -342,24 +360,31 @@ export default function SocietyStaff() {
 
     // If we are editing an existing record, sync "turant"
     if (editingId && user) {
-      const fileName =
+      // Determine extension and filename
+      const isPdf = newValue?.startsWith("data:application/pdf");
+      const ext = isPdf ? ".pdf" : ".jpg";
+      const otherExt = isPdf ? ".jpg" : ".pdf";
+      const baseName =
         type === "photo"
-          ? "Photo.jpg"
+          ? "Photo"
           : type === "idCard"
-            ? "ID_Card.jpg"
-            : "Address_Proof.jpg";
+            ? "ID_Card"
+            : "Address_Proof";
+      const fileName = `${baseName}${ext}`;
+      const otherFileName = `${baseName}${otherExt}`;
+
       try {
         // 1. Update Firestore
         const updateObj = {
           [type]: newValue || "",
           updatedAt: new Date().toISOString(),
         };
-        const staffPath = `artifacts/${appId}/public/data/societies/${user.uid}/Staff/${editingId}`;
+        const staffPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Staff/${editingId}`;
         await setDoc(doc(db, staffPath), updateObj, { merge: true });
 
         // 2. Drive Update (if token/folder present)
         const societyDoc = await getDoc(
-          doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+          doc(db, `artifacts/${appId}/public/data/societies`, user?.uid),
         );
         const societyData = societyDoc.data();
         let token = societyData?.driveAccessToken;
@@ -368,19 +393,44 @@ export default function SocietyStaff() {
         const staffFolderId = existingMember?.driveFolderId;
 
         if (token && staffFolderId) {
-          // Test token
+          // Refresh token if needed
           const testRes = await fetch(
             "https://www.googleapis.com/drive/v3/about?fields=user",
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            },
+            { headers: { Authorization: `Bearer ${token}` } },
           );
           if (testRes.status === 401) {
             token = await refreshAccessToken();
           }
 
           if (token) {
-            await deleteFileFromDrive(fileName, staffFolderId, token);
+            // Exhaustive Cleanup: Delete ALL potential extensions before upload
+            const baseFileName =
+              type === "photo"
+                ? "Photo"
+                : type === "idCard"
+                  ? "ID_Card"
+                  : "Address_Proof";
+            await deleteFileFromDrive(
+              `${baseFileName}.jpg`,
+              staffFolderId,
+              token,
+            );
+            await deleteFileFromDrive(
+              `${baseFileName}.pdf`,
+              staffFolderId,
+              token,
+            );
+            await deleteFileFromDrive(
+              `${baseFileName}.png`,
+              staffFolderId,
+              token,
+            );
+            await deleteFileFromDrive(
+              `${baseFileName}.jpeg`,
+              staffFolderId,
+              token,
+            );
+
             if (newValue) {
               await uploadImageToDrive(
                 newValue,
@@ -476,7 +526,7 @@ export default function SocietyStaff() {
       }
 
       const societyDoc = await getDoc(
-        doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+        doc(db, `artifacts/${appId}/public/data/societies`, user?.uid),
       );
       const societyData = societyDoc.data();
       let token = societyData?.driveAccessToken;
@@ -528,11 +578,52 @@ export default function SocietyStaff() {
         const handleDocOp = async (
           currentBase64: string | null,
           originalValue: string | null | undefined,
-          fileName: string,
+          docType: "photo" | "idCard" | "addressProof",
         ) => {
-          if (!currentBase64 && originalValue && editingId) {
-            await deleteFileFromDrive(fileName, staffFolderId, token!);
-          } else if (currentBase64 && currentBase64.startsWith("data:image")) {
+          // Determine correct file extension based on content type
+          const isPdf = currentBase64?.startsWith("data:application/pdf");
+          const ext = isPdf ? ".pdf" : ".jpg";
+          const fileName =
+            docType === "photo"
+              ? `Photo${ext}`
+              : docType === "idCard"
+                ? `ID_Card${ext}`
+                : `Address_Proof${ext}`;
+
+          const baseFileName =
+            docType === "photo"
+              ? "Photo"
+              : docType === "idCard"
+                ? "ID_Card"
+                : "Address_Proof";
+
+          // Exhaustive Cleanup: Delete ALL potential extensions
+          await deleteFileFromDrive(
+            `${baseFileName}.jpg`,
+            staffFolderId,
+            token!,
+          ).catch(() => {});
+          await deleteFileFromDrive(
+            `${baseFileName}.pdf`,
+            staffFolderId,
+            token!,
+          ).catch(() => {});
+          await deleteFileFromDrive(
+            `${baseFileName}.png`,
+            staffFolderId,
+            token!,
+          ).catch(() => {});
+          await deleteFileFromDrive(
+            `${baseFileName}.jpeg`,
+            staffFolderId,
+            token!,
+          ).catch(() => {});
+
+          if (
+            currentBase64 &&
+            (currentBase64.startsWith("data:image") ||
+              currentBase64.startsWith("data:application/pdf"))
+          ) {
             await uploadImageToDrive(
               currentBase64,
               fileName,
@@ -545,12 +636,12 @@ export default function SocietyStaff() {
         const existingMember = editingId
           ? members.find((m) => m.id === editingId)
           : null;
-        await handleDocOp(photo, existingMember?.photo, "Photo.jpg");
-        await handleDocOp(idCard, existingMember?.idCard, "ID_Card.jpg");
+        await handleDocOp(photo, existingMember?.photo, "photo");
+        await handleDocOp(idCard, existingMember?.idCard, "idCard");
         await handleDocOp(
           addressProof,
           existingMember?.addressProof,
-          "Address_Proof.jpg",
+          "addressProof",
         );
       } else {
         console.warn("DEBUG: No Drive Token or root folder available.");
@@ -577,7 +668,7 @@ export default function SocietyStaff() {
         driveFolderId: staffFolderId,
       };
 
-      const staffPath = `artifacts/${appId}/public/data/societies/${user.uid}/Staff/${staffId}`;
+      const staffPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Staff/${staffId}`;
       await setDoc(doc(db, staffPath), staffData, { merge: true });
 
       if (editingId) {
@@ -642,17 +733,17 @@ export default function SocietyStaff() {
       console.log("DEBUG: Starting archive process for", member.name);
 
       // 1. Archive to Firestore "ArchivedStaff" collection
-      const archivedStaffPath = `artifacts/${appId}/public/data/societies/${user.uid}/ArchivedStaff/${member.id}`;
+      const archivedStaffPath = `artifacts/${appId}/public/data/societies/${user?.uid}/ArchivedStaff/${member.id}`;
       await setDoc(doc(db, archivedStaffPath), {
         ...member,
         archivedAt: new Date().toISOString(),
-        archivedBy: user.uid,
+        archivedBy: user?.uid,
       });
 
       // 2. Drive archive folder move
       let driveArchived = false;
       const societyDoc = await getDoc(
-        doc(db, `artifacts/${appId}/public/data/societies`, user.uid),
+        doc(db, `artifacts/${appId}/public/data/societies`, user?.uid),
       );
       const societyData = societyDoc.data();
       let token = societyData?.driveAccessToken;
@@ -685,7 +776,7 @@ export default function SocietyStaff() {
       }
 
       // 3. Delete from active collection
-      const staffPath = `artifacts/${appId}/public/data/societies/${user.uid}/Staff/${member.id}`;
+      const staffPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Staff/${member.id}`;
       await deleteDoc(doc(db, staffPath));
 
       // 4. UI Update
@@ -880,7 +971,9 @@ export default function SocietyStaff() {
           </View>
 
           <View style={styles.uploadSection}>
-            <Text style={styles.label}>Documents (Max 500KB)</Text>
+            <Text style={styles.label}>
+              Documents (png/jpg/pdf only, Max 500KB)
+            </Text>
             <View style={styles.uploadRow}>
               <View style={styles.uploadWrapper}>
                 <TouchableOpacity
@@ -890,10 +983,32 @@ export default function SocietyStaff() {
                   }
                 >
                   {photo ? (
-                    <Image
-                      source={{ uri: photo }}
-                      style={styles.previewImage}
-                    />
+                    photo.startsWith("data:application/pdf") ? (
+                      <View
+                        style={[
+                          styles.previewImage,
+                          {
+                            justifyContent: "center",
+                            alignItems: "center",
+                            backgroundColor: "#F1F5F9",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="document-text"
+                          size={32}
+                          color="#EF4444"
+                        />
+                        <Text style={{ fontSize: 10, color: "#334155" }}>
+                          PDF
+                        </Text>
+                      </View>
+                    ) : (
+                      <Image
+                        source={{ uri: photo }}
+                        style={styles.previewImage}
+                      />
+                    )
                   ) : (
                     <View style={styles.uploadPlaceholder}>
                       <Text style={styles.uploadIcon}>👤</Text>
@@ -927,10 +1042,32 @@ export default function SocietyStaff() {
                   }
                 >
                   {idCard ? (
-                    <Image
-                      source={{ uri: idCard }}
-                      style={styles.previewImage}
-                    />
+                    idCard.startsWith("data:application/pdf") ? (
+                      <View
+                        style={[
+                          styles.previewImage,
+                          {
+                            justifyContent: "center",
+                            alignItems: "center",
+                            backgroundColor: "#F1F5F9",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="document-text"
+                          size={32}
+                          color="#EF4444"
+                        />
+                        <Text style={{ fontSize: 10, color: "#334155" }}>
+                          PDF
+                        </Text>
+                      </View>
+                    ) : (
+                      <Image
+                        source={{ uri: idCard }}
+                        style={styles.previewImage}
+                      />
+                    )
                   ) : (
                     <View style={styles.uploadPlaceholder}>
                       <Text style={styles.uploadIcon}>💳</Text>
@@ -965,10 +1102,32 @@ export default function SocietyStaff() {
                   }
                 >
                   {addressProof ? (
-                    <Image
-                      source={{ uri: addressProof }}
-                      style={styles.previewImage}
-                    />
+                    addressProof.startsWith("data:application/pdf") ? (
+                      <View
+                        style={[
+                          styles.previewImage,
+                          {
+                            justifyContent: "center",
+                            alignItems: "center",
+                            backgroundColor: "#F1F5F9",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name="document-text"
+                          size={32}
+                          color="#EF4444"
+                        />
+                        <Text style={{ fontSize: 10, color: "#334155" }}>
+                          PDF
+                        </Text>
+                      </View>
+                    ) : (
+                      <Image
+                        source={{ uri: addressProof }}
+                        style={styles.previewImage}
+                      />
+                    )
                   ) : (
                     <View style={styles.uploadPlaceholder}>
                       <Text style={styles.uploadIcon}>🏠</Text>
@@ -1046,10 +1205,29 @@ export default function SocietyStaff() {
             <View key={member.id} style={styles.memberCard}>
               <View style={styles.memberHeader}>
                 {member.photo ? (
-                  <Image
-                    source={{ uri: member.photo }}
-                    style={styles.memberAvatar}
-                  />
+                  member.photo.startsWith("data:application/pdf") ? (
+                    <View
+                      style={[
+                        styles.memberAvatar,
+                        {
+                          justifyContent: "center",
+                          alignItems: "center",
+                          backgroundColor: "#FEE2E2",
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name="document-text"
+                        size={24}
+                        color="#EF4444"
+                      />
+                    </View>
+                  ) : (
+                    <Image
+                      source={{ uri: member.photo }}
+                      style={styles.memberAvatar}
+                    />
+                  )
                 ) : (
                   <View style={[styles.memberAvatar, styles.placeholderAvatar]}>
                     <Text style={styles.avatarText}>
@@ -1060,7 +1238,7 @@ export default function SocietyStaff() {
                 <View style={styles.memberInfo}>
                   <Text style={styles.memberName}>{member.name}</Text>
                   <Text style={styles.memberMeta}>
-                    {member.position} • {member.shift}
+                    {member.position} • {member.shift + " Shift"}
                   </Text>
                   <Text style={styles.memberContact}>📞 {member.phone}</Text>
                 </View>

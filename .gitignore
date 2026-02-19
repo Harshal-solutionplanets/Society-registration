@@ -1,43 +1,47 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
+# Dependencies
 node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+
+# Production
+dist/
+build/
+web-build/
 
 # Expo
 .expo/
-dist/
-web-build/
-expo-env.d.ts
-
-# Native
-.kotlin/
-*.orig.*
 *.jks
 *.p8
-*.p12
-*.key
-*.mobileprovision
+*.apk
+*.aab
 
-# Metro
-.metro-health-check*
+# Firebase
+.firebase/
+firebase-debug.log*
+.runtimeconfig.json
 
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
-.DS_Store
-*.pem
-
-# local env files
-.env*.local
+# Environment variables
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+frontend/.env
+functions/.env
 
-# typescript
-*.tsbuildinfo
-
-app-example
-
-# Backend
+# Service Accounts
 serviceAccountKey.json
+functions/serviceAccountKey.json
+
+# Documentation
+docs/
+
+# Diagnostics
+.diagnostics/
+
+# OS files
+.DS_Store
+Thumbs.db

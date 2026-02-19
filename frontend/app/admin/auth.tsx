@@ -3,22 +3,24 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
   createUserWithEmailAndPassword,
-  GoogleAuthProvider,
+  getRedirectResult,
+  onAuthStateChanged,
   sendPasswordResetEmail,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
-  signInWithPopup,
   signOut,
+  User,
 } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { useState } from "react";
+import { doc, getDoc, getDocFromServer } from "firebase/firestore";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -29,7 +31,189 @@ export default function AdminAuth() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // START AS TRUE
+  const hasRedirected = useRef(false);
+  const isInitializing = useRef(true); // Track initial check phase
+
+  // Helper function to handle the authenticated user
+  const handleAuthenticatedUser = async (user: User) => {
+    if (hasRedirected.current || !user?.email) return;
+
+    console.log("[Auth] Processing user:", user?.email);
+
+    Toast.show({
+      type: "info",
+      text1: "Checking Account...",
+      text2: `Logged in as ${user.email}`,
+    });
+
+    // Domain validation
+    if (user.email && !user.email.toLowerCase().endsWith("@gmail.com")) {
+      console.log("[Auth] Invalid domain, signing out");
+      await signOut(auth);
+      Toast.show({
+        type: "error",
+        text1: "Invalid Email Domain",
+        text2: "Only @gmail.com accounts are allowed for admin registration.",
+      });
+      return;
+    }
+
+    // Check if society exists - FORCE SERVER READ TO AVOID CACHE POLLUTION
+    console.log("[Auth] Checking Firestore for society...");
+    const societyDocRef = doc(
+      db,
+      `artifacts/${appId}/public/data/societies`,
+      user?.uid,
+    );
+
+    let societyDoc;
+    try {
+      // CRITICAL: Always use getDocFromServer to bypass cache
+      societyDoc = await getDocFromServer(societyDocRef);
+      console.log("[Auth] Server fetch successful");
+
+      if (societyDoc.exists()) {
+        const data = societyDoc.data();
+        console.log("[Auth] Document data:", data);
+
+        // CRITICAL: Verify the document has actual setup data, not just the drive link stub
+        const hasCompleteSetup =
+          data.societyName && data.driveFolderId && data.role === "ADMIN";
+
+        if (hasCompleteSetup) {
+          console.log(
+            "[Auth] Complete society profile found, redirecting to dashboard",
+          );
+
+          // User is a fully registered admin - show welcome message
+          Toast.show({
+            type: "success",
+            text1: `Welcome back!`,
+            text2: `Logged in to ${data.societyName || "your dashboard"}`,
+            visibilityTime: 3000,
+          });
+
+          hasRedirected.current = true;
+          router.replace("/admin/dashboard");
+        } else {
+          console.log(
+            "[Auth] Incomplete profile (only drive link), redirecting to setup",
+          );
+
+          // New admin but drive is linked - move to setup
+          hasRedirected.current = true;
+          router.replace("/admin/setup");
+        }
+      } else {
+        console.log("[Auth] No society document found, going to setup");
+        hasRedirected.current = true;
+        router.replace("/admin/setup");
+      }
+    } catch (e: any) {
+      console.error("[Auth] Server fetch FAILED:", e);
+      console.error("[Auth] Error code:", e.code);
+      console.error("[Auth] Error message:", e.message);
+      // If server fetch fails, redirect to setup to be safe
+      hasRedirected.current = true;
+      router.replace("/admin/setup");
+    }
+  };
+
+  useEffect(() => {
+    console.log("[Auth] Starting auth listeners...");
+
+    const checkInitialState = async () => {
+      try {
+        // 1. Check getRedirectResult first
+        const result = await getRedirectResult(auth);
+        console.log(
+          "[Auth] getRedirectResult:",
+          result ? "User found" : "No result",
+        );
+
+        if (result?.user) {
+          await handleAuthenticatedUser(result.user);
+        } else {
+          // 2. If no redirect result, check current user
+          const user = auth.currentUser;
+          if (user) {
+            await handleAuthenticatedUser(user);
+          }
+        }
+      } catch (error: any) {
+        console.error(
+          "[Auth] Initialization error:",
+          error.code,
+          error.message,
+        );
+      } finally {
+        setLoading(false);
+        isInitializing.current = false;
+      }
+    };
+
+    // 3. Backup listener for auth changes
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      console.log("[Auth] onAuthStateChanged:", user?.email || "No user");
+
+      // If we already finished initialization and a user appears, handle it
+      if (user && !isInitializing.current && !hasRedirected.current) {
+        handleAuthenticatedUser(user);
+      }
+    });
+
+    const handleMessage = async (event: MessageEvent) => {
+      // Security: You might want to check event.origin here in production
+      console.log("[Auth] Received message:", event.data?.type);
+
+      if (
+        event.data &&
+        event.data.type === "GOOGLE_AUTH_SUCCESS" &&
+        event.data.token
+      ) {
+        console.log("[Auth] Received unified token from popup");
+        setLoading(true);
+        try {
+          await signInWithCustomToken(auth, event.data.token);
+        } catch (error) {
+          console.error("[Auth] Custom Token Sign-in failed:", error);
+          setLoading(false);
+          Toast.show({
+            type: "error",
+            text1: "Login Failed",
+            text2: "Could not finalize registration.",
+          });
+        }
+      } else if (event.data && event.data.type === "GOOGLE_HANDSHAKE_SUCCESS") {
+        console.log("[Auth] Handshake success, moving to setup...");
+        setLoading(false); // Stop buffer before navigating
+        router.replace({
+          pathname: "/admin/setup",
+          params: {
+            setupEmail: event.data.email,
+            setupSessionId: event.data.setupSessionId,
+          },
+        });
+      } else if (event.data && event.data.type === "GOOGLE_AUTH_ERROR") {
+        console.log("[Auth] Error message received:", event.data.message);
+        setLoading(false);
+        Toast.show({
+          type: "error",
+          text1: "Login Failed",
+          text2: event.data.message || "Please check your credentials.",
+        });
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    checkInitialState();
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener("message", handleMessage);
+    };
+  }, []);
   const [showPassword, setShowPassword] = useState(false);
   const [emailError, setEmailError] = useState("");
 
@@ -39,9 +223,9 @@ export default function AdminAuth() {
 
   const handleEmailChange = (val: string) => {
     setEmail(val);
-    if (!isLogin && val.length > 0) {
+    if (val.length > 0) {
       if (!val.toLowerCase().endsWith("@gmail.com")) {
-        setEmailError("Only @gmail.com leads are allowed");
+        setEmailError("Only @gmail.com accounts are permitted");
       } else {
         setEmailError("");
       }
@@ -56,9 +240,14 @@ export default function AdminAuth() {
       return;
     }
 
-    // Validate email domain for registration BEFORE any Firebase calls
-    if (!isLogin && !email.toLowerCase().endsWith("@gmail.com")) {
-      setEmailError("Only @gmail.com leads are allowed");
+    // Validate email domain BEFORE any Firebase calls
+    if (!email.toLowerCase().endsWith("@gmail.com")) {
+      setEmailError("Only @gmail.com accounts are permitted.");
+      Toast.show({
+        type: "error",
+        text1: "Access Denied",
+        text2: "Please use your @gmail.com account.",
+      });
       return;
     }
 
@@ -112,53 +301,30 @@ export default function AdminAuth() {
   };
 
   const handleGoogleSignIn = async () => {
-    const provider = new GoogleAuthProvider();
+    setLoading(true);
+    const isWeb = Platform.OS === "web";
+    const backendUrl = isWeb
+      ? window.location.origin + "/api"
+      : process.env.EXPO_PUBLIC_BACKEND_URL ||
+        "https://asia-south1-zonect-8d847.cloudfunctions.net/api";
 
-    try {
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
+    // Use a unified URL that handles both Identity + Drive in ONE popup
+    // We pass isSignup flag to determine if we need to force 'consent' prompt
+    const url = `${backendUrl}/auth/google/url?appId=${appId}&isSignup=${!isLogin}`;
 
-      // CHECK DOMAIN IMMEDIATELY - before anything else
-      if (user.email && !user.email.toLowerCase().endsWith("@gmail.com")) {
-        // Sign out and wait for it to complete
-        await signOut(auth);
-        Toast.show({
-          type: "error",
-          text1: "Invalid Email Domain",
-          text2: "Only @gmail.com accounts are allowed for admin registration.",
-        });
-        return;
-      }
+    if (Platform.OS === "web") {
+      const popup = window.open(url, "Google Sign In", "width=600,height=700");
 
-      const societyDocRef = doc(
-        db,
-        `artifacts/${appId}/public/data/societies`,
-        user.uid,
-      );
-      const societyDoc = await getDoc(societyDocRef);
-
-      if (isLogin && !societyDoc.exists()) {
-        await signOut(auth);
-        Toast.show({
-          type: "info",
-          text1: "Society Not Found",
-          text2: "Please register your society first.",
-        });
-        setIsLogin(false);
-        return;
-      }
-
-      Toast.show({
-        type: "success",
-        text1: isLogin ? "Welcome Back!" : "Account Created!",
-        text2: "Redirecting...",
-      });
-    } catch (error: any) {
-      Toast.show({
-        type: "error",
-        text1: "Login Failed",
-        text2: error.message,
-      });
+      // Safeguard: If user closes the popup manually OR it finishes without a message
+      const checkPopup = setInterval(() => {
+        if (!popup || popup.closed) {
+          clearInterval(checkPopup);
+          // Small delay to allow any pending postMessage to arrive first
+          setTimeout(() => setLoading(false), 1000);
+        }
+      }, 1000);
+    } else {
+      Linking.openURL(url);
     }
   };
 
@@ -197,6 +363,15 @@ export default function AdminAuth() {
     }
   };
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3B82F6" />
+        <Text style={styles.loadingText}>Initializing Session...</Text>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -231,6 +406,7 @@ export default function AdminAuth() {
             </TouchableOpacity>
           </View>
 
+          {/* ===== EMAIL/PASSWORD FIELDS - COMMENTED FOR INITIAL DEPLOYMENT =====
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Email Address</Text>
             <TextInput
@@ -299,6 +475,7 @@ export default function AdminAuth() {
             <Text style={styles.dividerText}>OR</Text>
             <View style={styles.dividerLine} />
           </View>
+          ===== END EMAIL/PASSWORD FIELDS ===== */}
 
           <TouchableOpacity
             style={styles.googleButton}
@@ -320,13 +497,19 @@ export default function AdminAuth() {
 
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/");
+            }
+          }}
         >
           <Text style={styles.backButtonText}>Back to Home</Text>
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Forgot Password Modal Content (Simplified as conditional Overlay or replacement) */}
+      {/* ===== FORGOT PASSWORD MODAL - COMMENTED FOR INITIAL DEPLOYMENT =====
       {showForgotPassword && (
         <View style={[StyleSheet.absoluteFill, styles.overlay]}>
           <View style={styles.forgotCard}>
@@ -368,6 +551,7 @@ export default function AdminAuth() {
           </View>
         </View>
       )}
+      ===== END FORGOT PASSWORD MODAL ===== */}
     </KeyboardAvoidingView>
   );
 }
@@ -579,5 +763,17 @@ const styles = StyleSheet.create({
     color: "#64748B",
     lineHeight: 20,
     marginBottom: 20,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+  },
+  loadingText: {
+    marginTop: 16,
+    color: "#64748B",
+    fontSize: 14,
+    fontWeight: "600",
   },
 });

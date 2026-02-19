@@ -1,27 +1,37 @@
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
-import { Slot, useRouter } from "expo-router";
+import { Slot, usePathname, useRouter } from "expo-router";
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import Toast from "react-native-toast-message";
 
 function LayoutContent() {
-  const { user, appState } = useAuth();
+  const { appState } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     // Don't redirect while the app is still checking Firebase
     if (appState === "loading") return;
 
-    if (appState === "login") {
+    // Only redirect if we are on the base root or auth page
+    // Define specific path groups
+    const landingPaths = ["/", "/admin/auth"];
+    const isLandingPage = landingPaths.includes(pathname);
+    const isSetupPage = pathname === "/admin/setup";
+
+    if (appState === "login" && !isLandingPage && !isSetupPage) {
+      // Unauthenticated users can only be on landing/auth or setup (for registration)
       router.replace("/");
-    } else if (appState === "admin_setup") {
+    } else if (appState === "admin_setup" && !isSetupPage) {
+      // Admins who haven't completed setup are forced to setup page
       router.replace("/admin/setup");
-    } else if (appState === "admin_dashboard") {
+    } else if (appState === "admin_dashboard" && isLandingPage) {
+      // Fully registered admins on landing/auth are sent to dashboard
       router.replace("/admin/dashboard");
-    } else if (appState === "resident_dashboard") {
+    } else if (appState === "resident_dashboard" && isLandingPage) {
       router.replace("/resident/dashboard");
     }
-  }, [appState]);
+  }, [appState, pathname]);
 
   if (appState === "loading") {
     return (

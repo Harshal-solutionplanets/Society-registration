@@ -4,21 +4,21 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
-    collection,
-    doc,
-    onSnapshot,
-    orderBy,
-    query,
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
 } from "firebase/firestore";
 import { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 export default function ResidentDashboard() {
@@ -44,19 +44,25 @@ export default function ResidentDashboard() {
       residentData.id,
     );
 
-    const unsubscribe = onSnapshot(unitDocRef, (doc) => {
-      if (doc.exists()) {
-        const data = doc.data();
-        // If password in DB is different from what we logged in with (resident_session), force logout
-        if (data.password && data.password !== residentData.password) {
-          console.log("Password changed by admin. Logging out...");
+    const unsubscribe = onSnapshot(
+      unitDocRef,
+      (doc) => {
+        if (doc.exists()) {
+          const data = doc.data();
+          // If password in DB is different from what we logged in with (resident_session), force logout
+          if (data.password && data.password !== residentData.password) {
+            console.log("Password changed by admin. Logging out...");
+            signOut();
+          }
+        } else {
+          // If document deleted
           signOut();
         }
-      } else {
-        // If document deleted
-        signOut();
-      }
-    });
+      },
+      (error) => {
+        console.warn("Resident Dashboard: Unit data listener failed:", error);
+      },
+    );
 
     return () => unsubscribe();
   }, [residentData?.adminUID, residentData?.id, residentData?.password]);
@@ -71,10 +77,19 @@ export default function ResidentDashboard() {
     );
     const q = query(notifRef, orderBy("createdAt", "desc"));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setNotifications(msgs);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const msgs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setNotifications(msgs);
+      },
+      (error) => {
+        console.warn(
+          "Resident Dashboard: Notification listener failed:",
+          error,
+        );
+      },
+    );
 
     return () => unsubscribe();
   }, [residentData?.adminUID, residentData?.id]);
@@ -153,7 +168,7 @@ export default function ResidentDashboard() {
             Welcome to {residentData?.societyName || "your society"}
           </Text>
           <Text style={styles.unitInfo}>
-            Unit {residentData?.unitName} | {residentData?.wingName}
+            Unit {residentData?.wingName} | {residentData?.unitName}
           </Text>
         </View>
 
