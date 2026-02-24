@@ -2,27 +2,27 @@ import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "expo-router";
 import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    setDoc,
 } from "firebase/firestore";
 import * as React from "react";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  useWindowDimensions,
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+    useWindowDimensions,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -62,6 +62,18 @@ export default function CommitteeMembers() {
   const { user } = useAuth();
   const { width } = useWindowDimensions();
 
+  const handleBack = () => {
+    if (!user) {
+      router.replace("/admin/auth");
+    } else {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/admin/dashboard");
+      }
+    }
+  };
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [wings, setWings] = useState<Wing[]>([]);
@@ -92,6 +104,14 @@ export default function CommitteeMembers() {
   >({});
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState("");
+
+  const closeAllDropdowns = () => {
+    setShowPostDropdown(false);
+    setShowWingDropdown(false);
+    setShowFloorDropdown(false);
+    setShowFlatDropdown(false);
+    setShowAdditionalPostDropdown({});
+  };
   const [formErrors, setFormErrors] = useState({
     phone: "",
     email: "",
@@ -548,580 +568,608 @@ export default function CommitteeMembers() {
       <ScrollView
         style={styles.container}
         contentContainerStyle={{ paddingBottom: 40 }}
+        keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backBtn}
-          >
-            <Text style={styles.backBtnText}>← Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.title}>Committee Members</Text>
-        </View>
-
-        {wings.length > 1 && (
-          <View style={styles.levelSelector}>
-            <Text style={styles.sectionLabel}>Select committee</Text>
-            <View style={styles.wingsGrid}>
-              <TouchableOpacity
-                style={[
-                  styles.levelBtn,
-                  selectedLevel === "society" && styles.levelBtnActive,
-                ]}
-                onPress={() => {
-                  setSelectedLevel("society");
-                  setWing("");
-                  setFloor("");
-                  setFlatNo("");
-                  setFloorsList([]);
-                  setFlatsList([]);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.levelBtnText,
-                    selectedLevel === "society" && styles.levelBtnTextActive,
-                  ]}
-                >
-                  Complete Society
-                </Text>
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={closeAllDropdowns}
+          style={{ flex: 1 }}
+        >
+          <View>
+            <View style={styles.header}>
+              <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
+                <Text style={styles.backBtnText}>← Back</Text>
               </TouchableOpacity>
-              {/* Configured Wings */}
-              {wings
-                .filter((w) => w.isConfigured)
-                .map((w: Wing) => (
+              <Text style={styles.title}>Committee Members</Text>
+            </View>
+
+            {wings.length > 1 && (
+              <View style={styles.levelSelector}>
+                <Text style={styles.sectionLabel}>Select committee</Text>
+                <View style={styles.wingsGrid}>
                   <TouchableOpacity
-                    key={w.id}
                     style={[
                       styles.levelBtn,
-                      selectedLevel === w.id && styles.levelBtnActive,
+                      selectedLevel === "society" && styles.levelBtnActive,
                     ]}
                     onPress={() => {
-                      setSelectedLevel(w.id);
-                      handleWingSelect(w);
+                      setSelectedLevel("society");
+                      setWing("");
+                      setFloor("");
+                      setFlatNo("");
+                      setFloorsList([]);
+                      setFlatsList([]);
                     }}
                   >
                     <Text
                       style={[
                         styles.levelBtnText,
-                        selectedLevel === w.id && styles.levelBtnTextActive,
+                        selectedLevel === "society" &&
+                          styles.levelBtnTextActive,
                       ]}
                     >
-                      {w.name}
+                      Complete Society
                     </Text>
                   </TouchableOpacity>
-                ))}
-              {/* Other Wings */}
-              {wings
-                .filter((w) => !w.isConfigured)
-                .map((w: Wing) => (
-                  <TouchableOpacity
-                    key={w.id}
-                    style={[
-                      styles.levelBtn,
-                      selectedLevel === w.id && styles.levelBtnActive,
-                    ]}
-                    onPress={() => {
-                      setSelectedLevel(w.id);
-                      handleWingSelect(w);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.levelBtnText,
-                        selectedLevel === w.id && styles.levelBtnTextActive,
-                      ]}
-                    >
-                      {w.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-            </View>
-          </View>
-        )}
-
-        <View style={styles.formSection}>
-          <Text style={styles.sectionTitle}>
-            {isEditing ? "Edit Member" : "Add New Member"}
-          </Text>
-
-          {showSuggestion && (
-            <View style={styles.suggestionBanner}>
-              <View style={styles.suggestionInfo}>
-                <Text style={styles.suggestionTitle}>
-                  Use details from previous wing?
-                </Text>
-                <Text style={styles.suggestionText}>
-                  We found previous details for {post}: {suggestedData?.name}
-                </Text>
-              </View>
-              <View style={styles.suggestionActions}>
-                <TouchableOpacity
-                  style={styles.suggestionBtnYes}
-                  onPress={() => {
-                    setName(suggestedData.name);
-                    setPhone(suggestedData.phone);
-                    setEmail(suggestedData.email);
-                    setShowSuggestion(false);
-                  }}
-                >
-                  <Text style={styles.suggestionBtnTextYes}>Yes</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.suggestionBtnNo}
-                  onPress={() => setShowSuggestion(false)}
-                >
-                  <Text style={styles.suggestionBtnTextNo}>No</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-          <View
-            style={{
-              flexDirection: width > 768 ? "row" : "column",
-              gap: 10,
-              width: "100%",
-            }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Name</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Name"
-                value={name}
-                onChangeText={setName}
-              />
-            </View>
-
-            <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Phone Number *</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  formErrors.phone ? styles.inputError : null,
-                ]}
-                placeholder="e.g. 9876543210"
-                value={phone}
-                onChangeText={handlePhoneChange}
-                keyboardType="phone-pad"
-                maxLength={10}
-              />
-              {formErrors.phone ? (
-                <Text style={styles.errorText}>{formErrors.phone}</Text>
-              ) : null}
-            </View>
-
-            <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  formErrors.email ? styles.inputError : null,
-                ]}
-                placeholder="e.g. member@gmail.com"
-                value={email}
-                onChangeText={handleEmailChange}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-              {formErrors.email ? (
-                <Text style={styles.errorText}>{formErrors.email}</Text>
-              ) : null}
-            </View>
-          </View>
-
-          <View style={{ zIndex: 1000, position: "relative" }}>
-            <Text style={styles.label}>Committee member Position *</Text>
-            <TouchableOpacity
-              style={styles.dropdownButton}
-              onPress={() => setShowPostDropdown(!showPostDropdown)}
-            >
-              <Text
-                style={[
-                  styles.dropdownButtonText,
-                  !post && { color: "#94A3B8" },
-                ]}
-              >
-                {post || "Select Post"}
-              </Text>
-              <Text style={styles.dropdownArrow}>
-                {showPostDropdown ? "▲" : "▼"}
-              </Text>
-            </TouchableOpacity>
-
-            {showPostDropdown && (
-              <View style={styles.dropdownListContainer}>
-                <ScrollView
-                  style={styles.dropdownList}
-                  nestedScrollEnabled={true}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {COMMITTEE_POSTS.map((item) => (
-                    <TouchableOpacity
-                      key={item}
-                      style={[
-                        styles.dropdownItem,
-                        post === item && styles.dropdownItemSelected,
-                      ]}
-                      onPress={() => {
-                        setPost(item);
-                        setShowPostDropdown(false);
-                      }}
-                    >
-                      <Text
+                  {/* Configured Wings */}
+                  {wings
+                    .filter((w) => w.isConfigured)
+                    .map((w: Wing) => (
+                      <TouchableOpacity
+                        key={w.id}
                         style={[
-                          styles.dropdownItemText,
-                          post === item && styles.dropdownItemTextSelected,
+                          styles.levelBtn,
+                          selectedLevel === w.id && styles.levelBtnActive,
                         ]}
+                        onPress={() => {
+                          setSelectedLevel(w.id);
+                          handleWingSelect(w);
+                        }}
                       >
-                        {item}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                        <Text
+                          style={[
+                            styles.levelBtnText,
+                            selectedLevel === w.id && styles.levelBtnTextActive,
+                          ]}
+                        >
+                          {w.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  {/* Other Wings */}
+                  {wings
+                    .filter((w) => !w.isConfigured)
+                    .map((w: Wing) => (
+                      <TouchableOpacity
+                        key={w.id}
+                        style={[
+                          styles.levelBtn,
+                          selectedLevel === w.id && styles.levelBtnActive,
+                        ]}
+                        onPress={() => {
+                          setSelectedLevel(w.id);
+                          handleWingSelect(w);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.levelBtnText,
+                            selectedLevel === w.id && styles.levelBtnTextActive,
+                          ]}
+                        >
+                          {w.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                </View>
               </View>
             )}
-          </View>
 
-          <View style={[styles.row, { zIndex: 900 }]}>
-            {/* Wing Dropdown */}
-            <View style={{ flex: 1, position: "relative" }}>
-              <TouchableOpacity
-                style={[styles.dropdownButton, { marginBottom: 0 }]}
-                onPress={() => setShowWingDropdown(!showWingDropdown)}
-              >
-                <Text
-                  style={[
-                    styles.dropdownButtonText,
-                    { fontSize: 13 },
-                    !wing && { color: "#94A3B8" },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {wing || "Wing"}
-                </Text>
-              </TouchableOpacity>
-              {showWingDropdown && (
-                <View style={[styles.dropdownListContainer, { top: 48 }]}>
-                  <ScrollView
-                    style={styles.dropdownList}
-                    nestedScrollEnabled={true}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    {/* Configured Wings */}
-                    {wings
-                      .filter((w) => w.isConfigured)
-                      .map((w: Wing) => (
-                        <TouchableOpacity
-                          key={w.id}
-                          style={styles.dropdownItem}
-                          onPress={() => handleWingSelect(w)}
-                        >
-                          <Text style={styles.dropdownItemText}>{w.name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    {/* Other Wings */}
-                    {wings
-                      .filter((w) => !w.isConfigured)
-                      .map((w: Wing) => (
-                        <TouchableOpacity
-                          key={w.id}
-                          style={styles.dropdownItem}
-                          onPress={() => handleWingSelect(w)}
-                        >
-                          <Text style={styles.dropdownItemText}>{w.name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    {/* Non-Resident Option */}
+            <View style={styles.formSection}>
+              <Text style={styles.sectionTitle}>
+                {isEditing ? "Edit Member" : "Add New Member"}
+              </Text>
+
+              {showSuggestion && (
+                <View style={styles.suggestionBanner}>
+                  <View style={styles.suggestionInfo}>
+                    <Text style={styles.suggestionTitle}>
+                      Use details from previous wing?
+                    </Text>
+                    <Text style={styles.suggestionText}>
+                      We found previous details for {post}:{" "}
+                      {suggestedData?.name}
+                    </Text>
+                  </View>
+                  <View style={styles.suggestionActions}>
                     <TouchableOpacity
-                      style={styles.dropdownItem}
-                      onPress={() => handleNonResidentSelect()}
+                      style={styles.suggestionBtnYes}
+                      onPress={() => {
+                        setName(suggestedData.name);
+                        setPhone(suggestedData.phone);
+                        setEmail(suggestedData.email);
+                        setShowSuggestion(false);
+                      }}
                     >
-                      <Text style={styles.dropdownItemText}>Non-Resident</Text>
+                      <Text style={styles.suggestionBtnTextYes}>Yes</Text>
                     </TouchableOpacity>
-                  </ScrollView>
+                    <TouchableOpacity
+                      style={styles.suggestionBtnNo}
+                      onPress={() => setShowSuggestion(false)}
+                    >
+                      <Text style={styles.suggestionBtnTextNo}>No</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               )}
-            </View>
-
-            {/* Floor and Flat Dropdowns OR Address for Non-Resident */}
-            {wing === "Non-Resident" ? (
-              <View style={{ flex: 2 }}>
-                <TextInput
-                  style={[styles.input, { marginBottom: 0 }]}
-                  placeholder="Complete address of a non-resident committee member"
-                  value={nonResidentAddress}
-                  onChangeText={setNonResidentAddress}
-                  multiline
-                />
-              </View>
-            ) : (
-              <>
-                {/* Floor Dropdown */}
-                <View style={{ flex: 1, position: "relative" }}>
-                  <TouchableOpacity
-                    style={[styles.dropdownButton, { marginBottom: 0 }]}
-                    onPress={() => {
-                      if (!wing)
-                        return Toast.show({
-                          type: "info",
-                          text1: "Select Wing First",
-                        });
-                      setShowFloorDropdown(!showFloorDropdown);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.dropdownButtonText,
-                        { fontSize: 13 },
-                        !floor && { color: "#94A3B8" },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {floor !== "" ? `Flr ${floor}` : "Floor"}
-                    </Text>
-                  </TouchableOpacity>
-                  {showFloorDropdown && (
-                    <View style={[styles.dropdownListContainer, { top: 48 }]}>
-                      <ScrollView
-                        style={styles.dropdownList}
-                        nestedScrollEnabled={true}
-                        keyboardShouldPersistTaps="handled"
-                      >
-                        {floorsList.map((f: string) => (
-                          <TouchableOpacity
-                            key={f}
-                            style={styles.dropdownItem}
-                            onPress={() => handleFloorSelect(f)}
-                          >
-                            <Text style={styles.dropdownItemText}>
-                              {f === "0" ? "Ground" : `Floor ${f}`}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
+              <View
+                style={{
+                  flexDirection: width > 768 ? "row" : "column",
+                  gap: 10,
+                  width: "100%",
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Name"
+                    value={name}
+                    onChangeText={setName}
+                  />
                 </View>
 
-                {/* Flat Dropdown */}
-                <View style={{ flex: 1, position: "relative" }}>
-                  <TouchableOpacity
-                    style={[styles.dropdownButton, { marginBottom: 0 }]}
-                    onPress={() => {
-                      if (!floor)
-                        return Toast.show({
-                          type: "info",
-                          text1: "Select Floor First",
-                        });
-                      setShowFlatDropdown(!showFlatDropdown);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.dropdownButtonText,
-                        { fontSize: 13 },
-                        !flatNo && { color: "#94A3B8" },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {flatNo || "Flat"}
-                    </Text>
-                  </TouchableOpacity>
-                  {showFlatDropdown && (
-                    <View style={[styles.dropdownListContainer, { top: 48 }]}>
-                      <ScrollView
-                        style={styles.dropdownList}
-                        nestedScrollEnabled={true}
-                        keyboardShouldPersistTaps="handled"
-                      >
-                        {flatsList.map((flat: string) => (
-                          <TouchableOpacity
-                            key={flat}
-                            style={styles.dropdownItem}
-                            onPress={() => {
-                              setFlatNo(flat);
-                              setShowFlatDropdown(false);
-                            }}
-                          >
-                            <Text style={styles.dropdownItemText}>{flat}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                </View>
-              </>
-            )}
-          </View>
-
-          {/* Additional Wings Multi-select Section */}
-          {wings.length > 1 && (
-            <View
-              style={[
-                styles.additionalWingsSection,
-                Object.values(showAdditionalPostDropdown).some((v) => v) && {
-                  zIndex: 3000,
-                },
-                { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-              ]}
-            >
-              <Text style={[styles.additionalWingsLabel, { width: "100%" }]}>
-                Is this person a committee member of any other wing?
-              </Text>
-              {wings
-                .filter((w) => w.id !== selectedLevel)
-                .map((w) => (
-                  <View
-                    key={w.id}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Phone Number *</Text>
+                  <TextInput
                     style={[
-                      styles.additionalWingItem,
-                      showAdditionalPostDropdown[w.id] && { zIndex: 1000 },
-                      { width: width > 768 ? "32%" : "100%" },
+                      styles.input,
+                      formErrors.phone ? styles.inputError : null,
+                    ]}
+                    placeholder="e.g. 9876543210"
+                    value={phone}
+                    onChangeText={handlePhoneChange}
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                  />
+                  {formErrors.phone ? (
+                    <Text style={styles.errorText}>{formErrors.phone}</Text>
+                  ) : null}
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Email</Text>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      formErrors.email ? styles.inputError : null,
+                    ]}
+                    placeholder="e.g. member@gmail.com"
+                    value={email}
+                    onChangeText={handleEmailChange}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                  {formErrors.email ? (
+                    <Text style={styles.errorText}>{formErrors.email}</Text>
+                  ) : null}
+                </View>
+              </View>
+
+              <View style={{ zIndex: 1000, position: "relative" }}>
+                <Text style={styles.label}>Committee member Position *</Text>
+                <TouchableOpacity
+                  style={styles.dropdownButton}
+                  onPress={() => setShowPostDropdown(!showPostDropdown)}
+                >
+                  <Text
+                    style={[
+                      styles.dropdownButtonText,
+                      !post && { color: "#94A3B8" },
                     ]}
                   >
-                    <TouchableOpacity
-                      style={styles.checkboxRow}
-                      onPress={() => {
-                        if (additionalWingPosts[w.id] !== undefined) {
-                          // Remove this wing
-                          setAdditionalWingPosts((prev) => {
-                            const newPosts = { ...prev };
-                            delete newPosts[w.id];
-                            return newPosts;
-                          });
-                          setShowAdditionalPostDropdown((prev) => {
-                            const newDropdowns = { ...prev };
-                            delete newDropdowns[w.id];
-                            return newDropdowns;
-                          });
-                        } else {
-                          // Add this wing with empty post
-                          setAdditionalWingPosts((prev) => ({
-                            ...prev,
-                            [w.id]: "",
-                          }));
-                        }
-                      }}
+                    {post || "Select Post"}
+                  </Text>
+                  <Text style={styles.dropdownArrow}>
+                    {showPostDropdown ? "▲" : "▼"}
+                  </Text>
+                </TouchableOpacity>
+
+                {showPostDropdown && (
+                  <View style={styles.dropdownListContainer}>
+                    <ScrollView
+                      style={styles.dropdownList}
+                      nestedScrollEnabled={true}
+                      keyboardShouldPersistTaps="handled"
                     >
+                      {COMMITTEE_POSTS.map((item) => (
+                        <TouchableOpacity
+                          key={item}
+                          style={[
+                            styles.dropdownItem,
+                            post === item && styles.dropdownItemSelected,
+                          ]}
+                          onPress={() => {
+                            setPost(item);
+                            setShowPostDropdown(false);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.dropdownItemText,
+                              post === item && styles.dropdownItemTextSelected,
+                            ]}
+                          >
+                            {item}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
+              <View style={[styles.row, { zIndex: 900 }]}>
+                {/* Wing Dropdown */}
+                <View style={{ flex: 1, position: "relative" }}>
+                  <TouchableOpacity
+                    style={[styles.dropdownButton, { marginBottom: 0 }]}
+                    onPress={() => setShowWingDropdown(!showWingDropdown)}
+                  >
+                    <Text
+                      style={[
+                        styles.dropdownButtonText,
+                        { fontSize: 13 },
+                        !wing && { color: "#94A3B8" },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {wing || "Wing"}
+                    </Text>
+                  </TouchableOpacity>
+                  {showWingDropdown && (
+                    <View style={[styles.dropdownListContainer, { top: 48 }]}>
+                      <ScrollView
+                        style={styles.dropdownList}
+                        nestedScrollEnabled={true}
+                        keyboardShouldPersistTaps="handled"
+                      >
+                        {/* Configured Wings */}
+                        {wings
+                          .filter((w) => w.isConfigured)
+                          .map((w: Wing) => (
+                            <TouchableOpacity
+                              key={w.id}
+                              style={styles.dropdownItem}
+                              onPress={() => handleWingSelect(w)}
+                            >
+                              <Text style={styles.dropdownItemText}>
+                                {w.name}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        {/* Other Wings */}
+                        {wings
+                          .filter((w) => !w.isConfigured)
+                          .map((w: Wing) => (
+                            <TouchableOpacity
+                              key={w.id}
+                              style={styles.dropdownItem}
+                              onPress={() => handleWingSelect(w)}
+                            >
+                              <Text style={styles.dropdownItemText}>
+                                {w.name}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        {/* Non-Resident Option */}
+                        <TouchableOpacity
+                          style={styles.dropdownItem}
+                          onPress={() => handleNonResidentSelect()}
+                        >
+                          <Text style={styles.dropdownItemText}>
+                            Non-Resident
+                          </Text>
+                        </TouchableOpacity>
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+
+                {/* Floor and Flat Dropdowns OR Address for Non-Resident */}
+                {wing === "Non-Resident" ? (
+                  <View style={{ flex: 2 }}>
+                    <TextInput
+                      style={[styles.input, { marginBottom: 0 }]}
+                      placeholder="Complete address of a non-resident committee member"
+                      value={nonResidentAddress}
+                      onChangeText={setNonResidentAddress}
+                      multiline
+                    />
+                  </View>
+                ) : (
+                  <>
+                    {/* Floor Dropdown */}
+                    <View style={{ flex: 1, position: "relative" }}>
+                      <TouchableOpacity
+                        style={[styles.dropdownButton, { marginBottom: 0 }]}
+                        onPress={() => {
+                          if (!wing)
+                            return Toast.show({
+                              type: "info",
+                              text1: "Select Wing First",
+                            });
+                          setShowFloorDropdown(!showFloorDropdown);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.dropdownButtonText,
+                            { fontSize: 13 },
+                            !floor && { color: "#94A3B8" },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {floor !== "" ? `Flr ${floor}` : "Floor"}
+                        </Text>
+                      </TouchableOpacity>
+                      {showFloorDropdown && (
+                        <View
+                          style={[styles.dropdownListContainer, { top: 48 }]}
+                        >
+                          <ScrollView
+                            style={styles.dropdownList}
+                            nestedScrollEnabled={true}
+                            keyboardShouldPersistTaps="handled"
+                          >
+                            {floorsList.map((f: string) => (
+                              <TouchableOpacity
+                                key={f}
+                                style={styles.dropdownItem}
+                                onPress={() => handleFloorSelect(f)}
+                              >
+                                <Text style={styles.dropdownItemText}>
+                                  {f === "0" ? "Ground" : `Floor ${f}`}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Flat Dropdown */}
+                    <View style={{ flex: 1, position: "relative" }}>
+                      <TouchableOpacity
+                        style={[styles.dropdownButton, { marginBottom: 0 }]}
+                        onPress={() => {
+                          if (!floor)
+                            return Toast.show({
+                              type: "info",
+                              text1: "Select Floor First",
+                            });
+                          setShowFlatDropdown(!showFlatDropdown);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.dropdownButtonText,
+                            { fontSize: 13 },
+                            !flatNo && { color: "#94A3B8" },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {flatNo || "Flat"}
+                        </Text>
+                      </TouchableOpacity>
+                      {showFlatDropdown && (
+                        <View
+                          style={[styles.dropdownListContainer, { top: 48 }]}
+                        >
+                          <ScrollView
+                            style={styles.dropdownList}
+                            nestedScrollEnabled={true}
+                            keyboardShouldPersistTaps="handled"
+                          >
+                            {flatsList.map((flat: string) => (
+                              <TouchableOpacity
+                                key={flat}
+                                style={styles.dropdownItem}
+                                onPress={() => {
+                                  setFlatNo(flat);
+                                  setShowFlatDropdown(false);
+                                }}
+                              >
+                                <Text style={styles.dropdownItemText}>
+                                  {flat}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      )}
+                    </View>
+                  </>
+                )}
+              </View>
+
+              {/* Additional Wings Multi-select Section */}
+              {wings.length > 1 && (
+                <View
+                  style={[
+                    styles.additionalWingsSection,
+                    Object.values(showAdditionalPostDropdown).some(
+                      (v) => v,
+                    ) && {
+                      zIndex: 3000,
+                    },
+                    { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+                  ]}
+                >
+                  <Text
+                    style={[styles.additionalWingsLabel, { width: "100%" }]}
+                  >
+                    Is this person a committee member of any other wing?
+                  </Text>
+                  {wings
+                    .filter((w) => w.id !== selectedLevel)
+                    .map((w) => (
                       <View
+                        key={w.id}
                         style={[
-                          styles.checkbox,
-                          additionalWingPosts[w.id] !== undefined &&
-                            styles.checkboxActive,
+                          styles.additionalWingItem,
+                          showAdditionalPostDropdown[w.id] && { zIndex: 1000 },
+                          { width: width > 768 ? "32%" : "100%" },
                         ]}
                       >
+                        <TouchableOpacity
+                          style={styles.checkboxRow}
+                          onPress={() => {
+                            if (additionalWingPosts[w.id] !== undefined) {
+                              // Remove this wing
+                              setAdditionalWingPosts((prev) => {
+                                const newPosts = { ...prev };
+                                delete newPosts[w.id];
+                                return newPosts;
+                              });
+                              setShowAdditionalPostDropdown((prev) => {
+                                const newDropdowns = { ...prev };
+                                delete newDropdowns[w.id];
+                                return newDropdowns;
+                              });
+                            } else {
+                              // Add this wing with empty post
+                              setAdditionalWingPosts((prev) => ({
+                                ...prev,
+                                [w.id]: "",
+                              }));
+                            }
+                          }}
+                        >
+                          <View
+                            style={[
+                              styles.checkbox,
+                              additionalWingPosts[w.id] !== undefined &&
+                                styles.checkboxActive,
+                            ]}
+                          >
+                            {additionalWingPosts[w.id] !== undefined && (
+                              <View style={styles.checkboxTick} />
+                            )}
+                          </View>
+                          <Text style={styles.checkboxLabel}>{w.name}</Text>
+                        </TouchableOpacity>
+
+                        {/* Post dropdown for this wing */}
                         {additionalWingPosts[w.id] !== undefined && (
-                          <View style={styles.checkboxTick} />
+                          <View style={styles.additionalWingPostContainer}>
+                            <Text style={styles.additionalWingPostLabel}>
+                              Committee member post
+                            </Text>
+                            <View
+                              style={{ zIndex: 1000, position: "relative" }}
+                            >
+                              <TouchableOpacity
+                                style={styles.dropdownButton}
+                                onPress={() =>
+                                  setShowAdditionalPostDropdown((prev) => ({
+                                    ...prev,
+                                    [w.id]: !prev[w.id],
+                                  }))
+                                }
+                              >
+                                <Text
+                                  style={[
+                                    styles.dropdownButtonText,
+                                    !additionalWingPosts[w.id] && {
+                                      color: "#94A3B8",
+                                    },
+                                  ]}
+                                >
+                                  {additionalWingPosts[w.id] || "Select Post"}
+                                </Text>
+                                <Text style={styles.dropdownArrow}>▼</Text>
+                              </TouchableOpacity>
+                              {showAdditionalPostDropdown[w.id] && (
+                                <View style={styles.dropdownListContainer}>
+                                  <ScrollView style={styles.dropdownList}>
+                                    {COMMITTEE_POSTS.map((p) => (
+                                      <TouchableOpacity
+                                        key={p}
+                                        style={[
+                                          styles.dropdownItem,
+                                          additionalWingPosts[w.id] === p &&
+                                            styles.dropdownItemSelected,
+                                        ]}
+                                        onPress={() => {
+                                          setAdditionalWingPosts((prev) => ({
+                                            ...prev,
+                                            [w.id]: p,
+                                          }));
+                                          setShowAdditionalPostDropdown(
+                                            (prev) => ({
+                                              ...prev,
+                                              [w.id]: false,
+                                            }),
+                                          );
+                                        }}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.dropdownItemText,
+                                            additionalWingPosts[w.id] === p &&
+                                              styles.dropdownItemTextSelected,
+                                          ]}
+                                        >
+                                          {p}
+                                        </Text>
+                                      </TouchableOpacity>
+                                    ))}
+                                  </ScrollView>
+                                </View>
+                              )}
+                            </View>
+                          </View>
                         )}
                       </View>
-                      <Text style={styles.checkboxLabel}>{w.name}</Text>
-                    </TouchableOpacity>
+                    ))}
+                </View>
+              )}
 
-                    {/* Post dropdown for this wing */}
-                    {additionalWingPosts[w.id] !== undefined && (
-                      <View style={styles.additionalWingPostContainer}>
-                        <Text style={styles.additionalWingPostLabel}>
-                          Committee member post
-                        </Text>
-                        <View style={{ zIndex: 1000, position: "relative" }}>
-                          <TouchableOpacity
-                            style={styles.dropdownButton}
-                            onPress={() =>
-                              setShowAdditionalPostDropdown((prev) => ({
-                                ...prev,
-                                [w.id]: !prev[w.id],
-                              }))
-                            }
-                          >
-                            <Text
-                              style={[
-                                styles.dropdownButtonText,
-                                !additionalWingPosts[w.id] && {
-                                  color: "#94A3B8",
-                                },
-                              ]}
-                            >
-                              {additionalWingPosts[w.id] || "Select Post"}
-                            </Text>
-                            <Text style={styles.dropdownArrow}>▼</Text>
-                          </TouchableOpacity>
-                          {showAdditionalPostDropdown[w.id] && (
-                            <View style={styles.dropdownListContainer}>
-                              <ScrollView style={styles.dropdownList}>
-                                {COMMITTEE_POSTS.map((p) => (
-                                  <TouchableOpacity
-                                    key={p}
-                                    style={[
-                                      styles.dropdownItem,
-                                      additionalWingPosts[w.id] === p &&
-                                        styles.dropdownItemSelected,
-                                    ]}
-                                    onPress={() => {
-                                      setAdditionalWingPosts((prev) => ({
-                                        ...prev,
-                                        [w.id]: p,
-                                      }));
-                                      setShowAdditionalPostDropdown((prev) => ({
-                                        ...prev,
-                                        [w.id]: false,
-                                      }));
-                                    }}
-                                  >
-                                    <Text
-                                      style={[
-                                        styles.dropdownItemText,
-                                        additionalWingPosts[w.id] === p &&
-                                          styles.dropdownItemTextSelected,
-                                      ]}
-                                    >
-                                      {p}
-                                    </Text>
-                                  </TouchableOpacity>
-                                ))}
-                              </ScrollView>
-                            </View>
-                          )}
-                        </View>
-                      </View>
-                    )}
-                  </View>
-                ))}
+              <TouchableOpacity
+                style={[styles.addBtn, saving && styles.disabledBtn]}
+                onPress={handleAddMember}
+                disabled={saving}
+              >
+                {saving ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.addBtnText}>
+                    {isEditing ? "Update Member" : "Add Member"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+              {isEditing && (
+                <TouchableOpacity
+                  style={[styles.cancelBtn, { marginTop: 10 }]}
+                  onPress={() => {
+                    setIsEditing(false);
+                    setEditId("");
+                    setName("");
+                    setPost("");
+                    setPhone("");
+                    setEmail("");
+                    setWing("");
+                    setFloor("");
+                    setFlatNo("");
+                  }}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel Edit</Text>
+                </TouchableOpacity>
+              )}
             </View>
-          )}
-
-          <TouchableOpacity
-            style={[styles.addBtn, saving && styles.disabledBtn]}
-            onPress={handleAddMember}
-            disabled={saving}
-          >
-            {saving ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.addBtnText}>
-                {isEditing ? "Update Member" : "Add Member"}
-              </Text>
-            )}
-          </TouchableOpacity>
-          {isEditing && (
-            <TouchableOpacity
-              style={[styles.cancelBtn, { marginTop: 10 }]}
-              onPress={() => {
-                setIsEditing(false);
-                setEditId("");
-                setName("");
-                setPost("");
-                setPhone("");
-                setEmail("");
-                setWing("");
-                setFloor("");
-                setFlatNo("");
-              }}
-            >
-              <Text style={styles.cancelBtnText}>Cancel Edit</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+          </View>
+        </TouchableOpacity>
 
         <View style={styles.listSection}>
           <Text style={styles.sectionTitle}>

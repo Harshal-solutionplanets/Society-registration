@@ -1,30 +1,17 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import {
-  collection,
-  deleteField,
-  doc,
-  getDoc,
-  onSnapshot,
-  query,
-  setDoc,
-} from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
-  Clipboard,
-  Modal,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
 } from "react-native";
-import Toast from "react-native-toast-message";
 
 interface FlatData {
   flatNumber: number;
@@ -34,7 +21,8 @@ interface FlatData {
   residentName: string;
   residentMobile: string;
   alternateMobile?: string;
-  status: "VACANT" | "OCCUPIED";
+  residentUID?: string | null;
+  status?: "Vacant" | "Occupied" | "VACANT" | "OCCUPIED"; // Keeping legacy ones for type safety
   ownership?: "SELF_OWNED" | "RENTAL";
   ownerName?: string;
   ownerContact?: string;
@@ -79,7 +67,7 @@ export default function FloorDetail() {
         residentName: "",
         residentMobile: "",
         alternateMobile: "",
-        status: "VACANT",
+        status: "Occupied", // Default to "Occupied"
         ownership: "SELF_OWNED",
         familyMembers: "",
         staffMembers: "",
@@ -89,32 +77,24 @@ export default function FloorDetail() {
     return generatedFlats;
   });
 
-  const [selectedFlat, setSelectedFlat] = useState<FlatData | null>(null);
-  const [modalVisible, setModalVisible] = useState(false);
-
-  // Edit modal states
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [editingFlat, setEditingFlat] = useState<FlatData | null>(null);
-  const [editUnitName, setEditUnitName] = useState("");
-  const [editResidenceType, setEditResidenceType] = useState("");
-  const [editResidentName, setEditResidentName] = useState("");
-  const [editResidentMobile, setEditResidentMobile] = useState("");
-  const [editStatus, setEditStatus] = useState<"VACANT" | "OCCUPIED">("VACANT");
-  const [editOwnership, setEditOwnership] = useState<"SELF_OWNED" | "RENTAL">(
-    "SELF_OWNED",
-  );
-  const [editPassword, setEditPassword] = useState("");
-  const [editFamilyMembers, setEditFamilyMembers] = useState("0");
-  const [editStaffMembers, setEditStaffMembers] = useState("");
-  const [editOwnerName, setEditOwnerName] = useState("");
-  const [editOwnerContact, setEditOwnerContact] = useState("");
-  const [showResidenceDropdown, setShowResidenceDropdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [floorFolderId, setFloorFolderId] = useState<string | null>(null);
   const [societyName, setSocietyName] = useState("");
   const [actualFloorName, setActualFloorName] = useState<string | null>(
     (floorName as string) || null,
   );
+
+  const handleBack = () => {
+    if (!user) {
+      router.replace("/admin/auth");
+    } else {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/admin/dashboard");
+      }
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -138,9 +118,41 @@ export default function FloorDetail() {
 
       let updatedFlats: FlatData[] = [];
       setFlats((prev) => {
-        updatedFlats = prev.map((flat) => {
+        let baseFlats = prev.length > 0 ? [...prev] : [];
+        if (baseFlats.length === 0) {
+          const numFlats = parseInt(flatCount as string) || 0;
+          const floor = parseInt(floorNumber as string);
+          if (numFlats > 0 && !isNaN(floor)) {
+            for (let i = 1; i <= numFlats; i++) {
+              const flatNum = floor * 100 + i;
+              baseFlats.push({
+                flatNumber: flatNum,
+                unitName: flatNum.toString(),
+                hasCredentials: false,
+                residenceType: "Residence",
+                residentName: "",
+                residentMobile: "",
+                alternateMobile: "",
+                status: "Occupied",
+                ownership: "SELF_OWNED",
+                familyMembers: "",
+                staffMembers: "",
+              });
+            }
+          }
+        }
+
+        updatedFlats = baseFlats.map((flat) => {
           const dbFlat = dbFlatsMap[flat.flatNumber];
           if (dbFlat) {
+            const statusFromDB = dbFlat.residenceStatus || dbFlat.status;
+            const normalizedStatus =
+              statusFromDB === "OCCUPIED" || statusFromDB === "Occupied"
+                ? "Occupied"
+                : statusFromDB === "VACANT" || statusFromDB === "Vacant"
+                  ? "Vacant"
+                  : "Occupied";
+
             return {
               ...flat,
               unitName: dbFlat.unitName || flat.unitName,
@@ -148,7 +160,7 @@ export default function FloorDetail() {
               residentName: dbFlat.residentName || "",
               residentMobile: dbFlat.residentMobile || "",
               alternateMobile: dbFlat.alternateMobile || "",
-              status: dbFlat.residenceStatus || dbFlat.status || "VACANT",
+              status: normalizedStatus,
               ownership: dbFlat.ownership || "SELF_OWNED",
               ownerName: dbFlat.ownerName || "",
               ownerContact: dbFlat.ownerContact || "",
@@ -163,31 +175,13 @@ export default function FloorDetail() {
           return flat;
         });
 
-        // Sync local states if modals are open
-        if (selectedFlat) {
-          const updated = updatedFlats.find(
-            (f) => f.flatNumber === selectedFlat.flatNumber,
-          );
-          if (updated) setSelectedFlat(updated);
-        }
-        if (editingFlat) {
-          const updated = updatedFlats.find(
-            (f) => f.flatNumber === editingFlat.flatNumber,
-          );
-          if (updated) {
-            setEditingFlat(updated);
-            setEditStaffMembers(updated.staffMembers);
-            setEditFamilyMembers(updated.familyMembers);
-          }
-        }
-
         return updatedFlats;
       });
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, wingId, floorNumber, flatCount]);
 
   const fetchData = async () => {
     // Other simple fetches can stay here or be moved
@@ -225,12 +219,36 @@ export default function FloorDetail() {
         const floor = data.floors?.find(
           (f: any) => f.floorNumber === parseInt(floorNumber as string),
         );
-        if (floor?.driveFolderId) {
-          setFloorFolderId(floor.driveFolderId);
-        }
-        // Set actual floor name from wing data
-        if (floor?.floorName) {
-          setActualFloorName(floor.floorName);
+        // Set actual floor name and recover flatCount if missing
+        if (floor) {
+          if (floor.floorName) setActualFloorName(floor.floorName);
+          if (floor.driveFolderId) setFloorFolderId(floor.driveFolderId);
+
+          // CRITICAL: If flats state is empty, trigger a re-generation using recovered count
+          if (flats.length === 0 && floor.flatCount) {
+            const numFlats = parseInt(floor.flatCount);
+            const floorNum = parseInt(floorNumber as string);
+            if (!isNaN(numFlats) && !isNaN(floorNum)) {
+              const generated: FlatData[] = [];
+              for (let i = 1; i <= numFlats; i++) {
+                const flatNum = floorNum * 100 + i;
+                generated.push({
+                  flatNumber: flatNum,
+                  unitName: flatNum.toString(),
+                  hasCredentials: false,
+                  residenceType: "Residence",
+                  residentName: "",
+                  residentMobile: "",
+                  alternateMobile: "",
+                  status: "Occupied",
+                  ownership: "SELF_OWNED",
+                  familyMembers: "",
+                  staffMembers: "",
+                });
+              }
+              setFlats(generated);
+            }
+          }
         }
       }
     } catch (error) {
@@ -247,130 +265,31 @@ export default function FloorDetail() {
     return password;
   };
 
-  const handleViewCredentials = (flat: FlatData) => {
-    setSelectedFlat(flat);
-    setModalVisible(true);
-  };
+  const handleViewCredentials = (flat: any) => {
+    // Generate unitId consistently with wing-setup.tsx
+    const wingPrefixForId = (wingId as string)
+      .replace(/\s+/g, "_")
+      .toUpperCase();
+    const unitId = `${wingPrefixForId}-${floorNumber}-${flat.flatNumber}`;
 
-  const handleCopyCredentials = () => {
-    if (!selectedFlat) return;
-
-    const credentialsText = `Hello, I am the Admin of ${societyName}. Here are the login credentials for your unit ${selectedFlat.unitName} of floor number ${floorNumber} of ${wingName} :\n\nUsername: ${selectedFlat.username}\nPassword: ${selectedFlat.password}`;
-
-    Clipboard.setString(credentialsText);
-
-    Toast.show({
-      type: "success",
-      text1: "Copied!",
-      text2: "Credentials copied to clipboard",
+    router.push({
+      pathname: "/admin/unit",
+      params: {
+        unitId,
+        wingId: wingId as string,
+        floorNumber: floorNumber as string,
+        wingName: wingName as string,
+        societyName: societyName as string,
+        flatCount: flatCount as string,
+        floorName: (actualFloorName || floorName) as string,
+      },
     });
-  };
-
-  const handleEditFlat = (flat: FlatData) => {
-    setEditingFlat(flat);
-    setEditUnitName(flat.unitName);
-    setEditResidenceType(flat.residenceType);
-    setEditResidentName(flat.residentName);
-    setEditResidentMobile(flat.residentMobile || "");
-    setEditStatus(flat.status || "VACANT");
-    setEditOwnership(flat.ownership || "SELF_OWNED");
-    setEditOwnerName(flat.ownerName || "");
-    setEditOwnerContact(flat.ownerContact || "");
-    setEditPassword(flat.password || "");
-    setEditFamilyMembers(flat.familyMembers || "0");
-    setEditStaffMembers(flat.staffMembers || "");
-    setEditModalVisible(true);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editingFlat || !user) return;
-
-    // Update local state
-    setFlats((prev) =>
-      prev.map((flat) =>
-        flat.flatNumber === editingFlat.flatNumber
-          ? {
-              ...flat,
-              unitName: editUnitName,
-              residenceType: editResidenceType,
-              residentName: editResidentName,
-              residentMobile: editResidentMobile,
-              status: editStatus,
-              ownership: editOwnership,
-              ownerName: editOwnerName,
-              ownerContact: editOwnerContact,
-              password: editPassword,
-              familyMembers: editFamilyMembers,
-              staffMembers: editStaffMembers,
-            }
-          : flat,
-      ),
-    );
-
-    // Update Firestore
-    try {
-      // Use wingId directly to ensure consistency with the preferred format (e.g. WING_A)
-      const wingPrefix = (wingId as string).replace(/\s+/g, "_").toUpperCase();
-      const floor = parseInt(floorNumber as string);
-      const unitId = `${wingPrefix}-${floor}-${editingFlat.flatNumber}`;
-
-      const updatePayload = {
-        unitName: editUnitName,
-        displayName: `${wingName} - ${editUnitName}`,
-        residenceType: editResidenceType,
-        residentName: editResidentName,
-        residentMobile: editResidentMobile,
-        residenceStatus: editStatus,
-        status: editStatus, // Sync both status fields
-        ownership: editOwnership,
-        ownerName: editOwnerName,
-        ownerContact: editOwnerContact,
-        familyMembers: parseInt(editFamilyMembers || "0"),
-        staffMembers: parseInt(editStaffMembers || "0"),
-        societyName: societyName,
-        wingName: wingName,
-        username: editingFlat.username, // Preserve username
-        password: editPassword, // Allow admin to change password
-        driveFolderId: editingFlat.driveFolderId || "",
-        updatedAt: new Date().toISOString(),
-        residentPassword: deleteField(), // Cleanup old field
-        residentUsername: deleteField(), // Cleanup old field
-      };
-
-      // Update both locations (using unitId as stable doc ID)
-      const societyPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingId}/${floorNumber}/${unitId}`;
-      const residentPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${unitId}`;
-
-      await setDoc(doc(db, societyPath), updatePayload, { merge: true });
-      await setDoc(doc(db, residentPath), updatePayload, { merge: true });
-
-      Toast.show({
-        type: "success",
-        text1: "Updated",
-        text2: "Unit details updated successfully",
-      });
-    } catch (error) {
-      console.error("Error updating unit:", error);
-      Alert.alert("Error", "Failed to update unit details");
-    }
-
-    setEditModalVisible(false);
-    setEditingFlat(null);
   };
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace("/admin/wing-setup");
-            }
-          }}
-          style={styles.backBtn}
-        >
+        <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
           <Text style={styles.backBtnText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>
@@ -424,7 +343,7 @@ export default function FloorDetail() {
                     <View
                       style={[
                         styles.statusIndicator,
-                        flat.status === "OCCUPIED"
+                        flat.status === "Occupied"
                           ? styles.statusOccupied
                           : styles.statusVacant,
                       ]}
@@ -444,12 +363,12 @@ export default function FloorDetail() {
                     </Text>
                     {flat.familyMembers ? (
                       <Text style={styles.familyMini}>
-                        👨‍👩‍👧‍👦 {flat.familyMembers} members
+                        👨‍👩‍👧‍👦 {flat.familyMembers} Family Members
                       </Text>
                     ) : null}
                     {flat.staffMembers ? (
                       <Text style={styles.familyMini}>
-                        👮 {flat.staffMembers} staff
+                        👮 {flat.staffMembers} Staff Members
                       </Text>
                     ) : null}
                     {flat.ownership && (
@@ -478,16 +397,12 @@ export default function FloorDetail() {
                       </View>
                       <View style={styles.cardActions}>
                         <TouchableOpacity
-                          style={styles.viewBtn}
+                          style={styles.viewBtn} // Keep green color as it was for View Details
                           onPress={() => handleViewCredentials(flat)}
                         >
-                          <Text style={styles.viewBtnText}>View Details</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.editBtn}
-                          onPress={() => handleEditFlat(flat)}
-                        >
-                          <Text style={styles.editBtnText}>Edit Details</Text>
+                          <Text style={styles.viewBtnText}>
+                            View Credentials
+                          </Text>
                         </TouchableOpacity>
                       </View>
                     </>
@@ -509,7 +424,8 @@ export default function FloorDetail() {
       )}
 
       {/* Credentials Modal */}
-      <Modal
+      {/* This modal is no longer used as we navigate to /admin/unit */}
+      {/* <Modal
         animationType="slide"
         transparent={true}
         visible={modalVisible}
@@ -555,8 +471,10 @@ export default function FloorDetail() {
                     style={[
                       styles.credentialValue,
                       {
+                        fontSize: 12,
+                        fontWeight: "600",
                         color:
-                          selectedFlat.status === "OCCUPIED"
+                          selectedFlat.status === "Occupied"
                             ? "#34C759"
                             : "#FF9500",
                       },
@@ -626,10 +544,11 @@ export default function FloorDetail() {
             </View>
           </View>
         </View>
-      </Modal>
+      </Modal> */}
 
       {/* Edit Flat Modal */}
-      <Modal
+      {/* This modal is no longer used as editing is handled on the /admin/unit page */}
+      {/* <Modal
         animationType="slide"
         transparent={true}
         visible={editModalVisible}
@@ -727,14 +646,14 @@ export default function FloorDetail() {
                   <TouchableOpacity
                     style={[
                       styles.statusToggleBtn,
-                      editStatus === "VACANT" && styles.statusToggleBtnActive,
+                      editStatus === "Vacant" && styles.statusToggleBtnActive,
                     ]}
-                    onPress={() => setEditStatus("VACANT")}
+                    onPress={() => setEditStatus("Vacant")}
                   >
                     <Text
                       style={[
                         styles.statusToggleText,
-                        editStatus === "VACANT" &&
+                        editStatus === "Vacant" &&
                           styles.statusToggleTextActive,
                       ]}
                     >
@@ -744,14 +663,14 @@ export default function FloorDetail() {
                   <TouchableOpacity
                     style={[
                       styles.statusToggleBtn,
-                      editStatus === "OCCUPIED" && styles.statusToggleBtnActive,
+                      editStatus === "Occupied" && styles.statusToggleBtnActive,
                     ]}
-                    onPress={() => setEditStatus("OCCUPIED")}
+                    onPress={() => setEditStatus("Occupied")}
                   >
                     <Text
                       style={[
                         styles.statusToggleText,
-                        editStatus === "OCCUPIED" &&
+                        editStatus === "Occupied" &&
                           styles.statusToggleTextActive,
                       ]}
                     >
@@ -869,7 +788,7 @@ export default function FloorDetail() {
             </View>
           </View>
         </View>
-      </Modal>
+      </Modal> */}
     </View>
   );
 }

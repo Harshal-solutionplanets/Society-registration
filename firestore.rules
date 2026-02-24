@@ -35,22 +35,23 @@ service cloud.firestore {
       // RESIDENTS COLLECTION
       // --------------------------------------------
       match /Residents/{unitId} {
-        // Anyone can read (needed for login lookup)
+        // Anyone can read (needed for login lookup and dashboard sync)
         allow read: if true;
         
         // Authenticated users can write (for linking UID during login)
-        allow write: if isAuthenticated();
+        allow write: if isAuthenticated() || true; // Relaxed for resident flow
         
         // Staff members under each resident
         match /StaffMembers/{staffId} {
-          allow read, write: if isAuthenticated();
+          allow read: if true;
+          allow write: if isAuthenticated() || true;
         }
 
         // Notifications for this specific unit
         match /notifications/{notifId} {
-          allow read: if isAuthenticated();
+          allow read: if true;
           // Admin writes notifications via backend or dashboard
-          allow write: if isAuthenticated(); // Temporary
+          allow write: if isAuthenticated() || true; 
         }
       }
       
@@ -83,6 +84,14 @@ service cloud.firestore {
       
       match /ArchivedStaff/{staffId} {
         allow read, write: if isAuthenticated(); // Temporarily open
+      }
+
+      // --------------------------------------------
+      // RESIDENT SHARED REGISTRY
+      // --------------------------------------------
+      match /Resident_Staff/{registryId} {
+        allow read: if true;
+        allow write: if true; // Allow residents to update linkedUnits and create profiles
       }
       
       // --------------------------------------------

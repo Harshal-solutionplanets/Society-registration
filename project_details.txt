@@ -1,0 +1,111 @@
+# Zonect - Society Management Project Details
+
+## Section 1: Pages & UI Components Breakdown
+
+### 1. Landing Page (`/app/index.tsx`)
+- **Labels/Text:** "Tracking & Manage Home Assistants for Your Society", feature lists, "How Zonect Works" step-by-step guide.
+- **Buttons:** 
+  - "Get Started" (Redirects to `/resident/auth`)
+  - Footer links (Privacy, Terms, zonect.in)
+
+### 2. Admin Authentication (`/app/admin/auth.tsx`)
+- **Tabs:** Login, Register
+- **Input Fields:** Email Address, Password (initially implemented, but Google Auth is the primary visible mechanism via UI config).
+- **Buttons:** 
+  - "Sign in with Google" / "Sign up with Google" (Opens OAuth popup)
+  - "Back to Home" (Redirects to `/`)
+  - "Forgot Password?" (Opens modal)
+- **Modal Input:** Registered Admin Email
+- **Redirections:** Successful login redirects to `/admin/dashboard` or `/admin/setup` (if setup is incomplete).
+
+### 3. Admin Setup (`/app/admin/setup.tsx`)
+- **Tabs:** Basic, Advance
+- **Input Fields (Basic):** Society Name, Society Address, Registration No, Pincode, Google Location (Maps link), Wing Count, Admin Name, Admin Contact.
+- **Input Fields (Advance):** Fire NOC Expiry, Fire Extinguisher Count, Lift Count, Water Tank Count, CCTV Count, Completion Year, etc.
+- **Dropdowns (Advance):** 
+  - Fire NOC Status (Valid, Expired, Never Applied)
+  - Conveyance Deed Status
+  - Lift Presence and AMC Type
+  - Water Source (Borewell, Municipal, Tanker)
+  - Pest Control Frequency
+  - Gate Security Type
+- **Buttons:** "Save" / "Update" (Redirects to `/admin/dashboard`).
+- **Redirection:** Back arrow (Redirects to `/admin/auth` or `/admin/dashboard`).
+
+### 4. Admin Dashboard (`/app/admin/dashboard.tsx`)
+- **Labels:** Society Name, Welcome text, Wings/Blocks count, Total Units count.
+- **Buttons:**
+  - "Profile" (Redirects to `/admin/setup`)
+  - "Committee" (Redirects to `/admin/committee-members`)
+  - "Staff" (Redirects to `/admin/society-staff`)
+  - "Logout" (Signs out user)
+  - "+ Add Wing" (Creates new wing block)
+  - Specific Wing Cards (Redirects to `/admin/wing-setup`)
+  - "Delete Wing" (× icon on wing card)
+
+### 5. Admin Wing Setup (`/app/admin/wing-setup.tsx`)
+- **Input Fields:** Number of floors, Flat count per floor, Floor name.
+- **Buttons:** Generate Structure, Add Floor, Delete Floor, Save Flats.
+- **Redirections:** Back arrow (Redirects to `/admin/dashboard`).
+
+### 6. Admin Society Staff (`/app/admin/society-staff.tsx`)
+- **Input Fields:** Name, Phone, Email, Native Place, Guardian Name, Guardian Contact, Guardian Address.
+- **Dropdowns:** Position (Watchman, Security Guard, Cleaner, Plumber, Manager, etc.), Shift (Day, Night, General).
+- **Buttons:** 
+  - Document Upload Boxes (Photo, ID Card, Address Proof)
+  - "Save Staff"
+- **Redirections:** Back arrow (Redirects to `/admin/dashboard`).
+
+### 7. Resident Authentication (`/app/resident/auth.tsx`)
+- **Input Fields:** Username (e.g., BLD-A-101), Password.
+- **Buttons:** 
+  - "Sign In" (Authenticates society-provided credentials)
+  - "Back Home" (Redirects to `/`)
+  - "Admin Login" (Redirects to `/admin/auth`)
+- **Redirections:** Successful sign-in redirects to `/resident/dashboard`.
+
+### 8. Resident Dashboard (`/app/resident/dashboard.tsx`)
+- **Labels:** Greetings, Unit Number, Warning "Complete Your Profile" banner, Notification Feed.
+- **Buttons:**
+  - "My Profile" / "Complete Your Profile" Banner (Redirects to `/resident/residentform`)
+  - "Manage Staff" (Redirects to `/resident/staff`)
+  - "Logout" (Signs out user)
+
+### 9. Resident Profile / Form (`/app/resident/residentform.tsx`)
+- **Tabs:** Basic, Advance
+- **Input Fields:** 
+  - Resident Name, Age, Mobile Number, Alternate Mobile.
+  - Owner Name, Owner Contact.
+  - Family Member details (Name, Age, Company Name).
+  - Vehicle details (Model, Plate Number).
+- **Dropdowns:**
+  - Gender (Male, Female, Other)
+  - Blood Group (A+, B+, O+, AB+, etc.)
+  - Residence Status (Occupied, Vacant)
+  - Ownership Status (SELF_OWNED, RENTED)
+  - Relationship (Spouse, Child, Parent, etc.)
+  - Vehicle Type (Two-Wheeler, Four-Wheeler)
+- **Buttons:** Add/Remove Family Member, Add/Remove Vehicle, Save Profile.
+- **Redirections:** Back arrow (Redirects to `/resident/dashboard`).
+
+### 10. Resident Staff (`/app/resident/staff.tsx`)
+- **Input Fields:** Staff Name, Contact, Native Place, Guardian Name, Guardian Contact, Guardian Address.
+- **Dropdowns:** Staff Type (Maid, Housekeeper, Driver, Cook, Nanny, etc.).
+- **Buttons:** Document Uploads (Drag-and-drop Photo/ID), Save Staff, Existing Staff link.
+- **Redirections:** Back arrow (Redirects to `/resident/dashboard`).
+
+---
+
+## Section 2: Project Description & Target Customers
+
+### Project Description
+**Zonect** is a specialized, comprehensive society management and administrative platform. Initially focused on digital household staffing records, it provides a centralized architecture to document, manage, and verify all facets of a residential society. The application features two distinct portals:
+1. **Admin Portal:** Grants society administrators the ability to define building infrastructure (Wings, Floors, Units), manage statutory safety/compliance details (fire safety, lift AMCs, water logistics), add society-level staff (security, maintenance), and integrate their documents securely using automated Google Drive storage.
+2. **Resident Portal:** Allows residents to securely log in using system-generated credentials. Residents can configure their personal profiles, keep track of their family members and vehicles, and, most importantly, register their own personal domestic helpers (maids, drivers, cooks) securely with document proofs.
+
+The system ensures real-time updates and seamless integration with Google Drive to safely store KYC (Know Your Customer) documents and photos of all residents and staff. 
+
+### Target Customers
+- **Residential Housing Societies (RWA - Resident Welfare Associations):** Committees looking to digitize their operations, transition away from paper logs, and effectively oversee building structural configuration and compliances.
+- **Apartment Complexes and Condominiums:** Large housing networks seeking a robust way to manage security by ensuring strict KYC of all domestic help (maids, cooks, drivers) visiting the premises.
+- **Property Managers / Facility Managers:** Companies operating residential locations who require centralized databases for residents, contact information, vehicle registries, and maintenance staff records.

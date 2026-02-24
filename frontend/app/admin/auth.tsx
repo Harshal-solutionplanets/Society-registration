@@ -2,27 +2,27 @@ import { appId, auth, db } from "@/configs/firebaseConfig";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
-  createUserWithEmailAndPassword,
-  getRedirectResult,
-  onAuthStateChanged,
-  sendPasswordResetEmail,
-  signInWithCustomToken,
-  signInWithEmailAndPassword,
-  signOut,
-  User,
+    createUserWithEmailAndPassword,
+    getRedirectResult,
+    onAuthStateChanged,
+    sendPasswordResetEmail,
+    signInWithCustomToken,
+    signInWithEmailAndPassword,
+    signOut,
+    User,
 } from "firebase/auth";
 import { doc, getDoc, getDocFromServer } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Linking,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Linking,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -567,30 +567,30 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "800",
     color: "#0F172A",
     textAlign: "center",
     marginBottom: 4,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "500",
     color: "#64748B",
     textAlign: "center",
-    marginBottom: 32,
+    marginBottom: 20,
   },
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
     borderColor: "#F1F5F9",
     shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
-    shadowRadius: 20,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 2,
   },
   tabs: {
     flexDirection: "row",
@@ -598,7 +598,7 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
     alignItems: "center",
     borderBottomWidth: 2,
     borderBottomColor: "transparent",
@@ -607,7 +607,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#3B82F6",
   },
   tabText: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "600",
     color: "#94A3B8",
   },
@@ -632,9 +632,9 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: "#F1F5F9",
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 15,
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 13,
     color: "#0F172A",
   },
   eyeButton: {
@@ -642,15 +642,15 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: "#3B82F6",
-    padding: 16,
-    borderRadius: 14,
+    padding: 12,
+    borderRadius: 10,
     alignItems: "center",
     shadowColor: "#3B82F6",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-    marginTop: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+    marginTop: 4,
   },
   buttonDisabled: {
     opacity: 0.6,
@@ -679,8 +679,8 @@ const styles = StyleSheet.create({
   },
   googleButton: {
     backgroundColor: "#FFFFFF",
-    padding: 16,
-    borderRadius: 14,
+    padding: 13,
+    borderRadius: 12,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#E2E8F0",
@@ -694,7 +694,7 @@ const styles = StyleSheet.create({
   },
   googleButtonText: {
     color: "#475569",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
   },
   backButton: {

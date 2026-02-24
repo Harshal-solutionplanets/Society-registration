@@ -46,13 +46,42 @@ export default function ResidentDashboard() {
 
     const unsubscribe = onSnapshot(
       unitDocRef,
-      (doc) => {
-        if (doc.exists()) {
-          const data = doc.data();
+      async (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
           // If password in DB is different from what we logged in with (resident_session), force logout
           if (data.password && data.password !== residentData.password) {
             console.log("Password changed by admin. Logging out...");
             signOut();
+            return;
+          }
+          // Sync key fields (unitName, wingName, residentName, societyName) from DB
+          const fieldsToSync = [
+            "unitName",
+            "wingName",
+            "residentName",
+            "societyName",
+            "displayName",
+          ];
+          let hasChanges = false;
+          const updatedData = { ...residentData };
+          for (const field of fieldsToSync) {
+            if (data[field] && data[field] !== residentData[field]) {
+              updatedData[field] = data[field];
+              hasChanges = true;
+            }
+          }
+          if (hasChanges) {
+            setResidentData(updatedData);
+            // Also update AsyncStorage so other pages get fresh data
+            try {
+              await AsyncStorage.setItem(
+                "resident_session",
+                JSON.stringify(updatedData),
+              );
+            } catch (e) {
+              console.warn("Failed to update resident session in storage:", e);
+            }
           }
         } else {
           // If document deleted
@@ -238,8 +267,8 @@ export default function ResidentDashboard() {
         <View style={styles.infoBox}>
           <Text style={styles.infoTitle}>Resident Portal</Text>
           <Text style={styles.infoText}>
-            • Use "Manage Staff" to register your domestic help.{"\n"}• Ensure
-            your unit details are up to date.{"\n"}• Contact society admin for
+            - Use Manage Staff to register your domestic help.{"\n"}- Ensure
+            your unit details are up to date.{"\n"}- Contact society admin for
             any grievances.
           </Text>
         </View>
@@ -538,3 +567,4 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+

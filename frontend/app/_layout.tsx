@@ -15,7 +15,7 @@ function LayoutContent() {
 
     // Only redirect if we are on the base root or auth page
     // Define specific path groups
-    const landingPaths = ["/", "/admin/auth"];
+    const landingPaths = ["/", "/admin/auth", "/resident/auth"];
     const isLandingPage = landingPaths.includes(pathname);
     const isSetupPage = pathname === "/admin/setup";
 

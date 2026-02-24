@@ -394,14 +394,15 @@ router.get("/auth/google/refresh", async (req, res) => {
 router.post("/drive/upload-resident-staff", async (req, res) => {
   const { adminUID, parentFolderId, staffName, fileName, base64Data, appId } =
     req.body;
-  if (!adminUID || !parentFolderId || !staffName || !fileName || !base64Data) {
+  if (!adminUID || !staffName || !fileName || !base64Data) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
   try {
+    const targetAppId = appId || "dev-society-id";
     const tokenDoc = await db
       .collection("artifacts")
-      .doc(appId || "dev-society-id")
+      .doc(targetAppId)
       .collection("secure")
       .doc(adminUID)
       .get();
@@ -422,7 +423,40 @@ router.post("/drive/upload-resident-staff", async (req, res) => {
     });
     const drive = google.drive({ version: "v3", auth: client });
 
-    // 1. Find/Create/Rename folder
+    // 0. Get society root Drive folder (for Resident_Staff root)
+    const societyDoc = await db
+      .collection("artifacts")
+      .doc(targetAppId)
+      .collection("public")
+      .doc("data")
+      .collection("societies")
+      .doc(adminUID)
+      .get();
+
+    let effectiveParentId = parentFolderId; // fallback to provided
+    if (societyDoc.exists && societyDoc.data().driveFolderId) {
+      const rootDriveId = societyDoc.data().driveFolderId;
+      // Find or Create "Resident_Staff" folder under society root
+      const rsSearch = await drive.files.list({
+        q: `name = 'Resident_Staff' and '${rootDriveId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        fields: "files(id)",
+      });
+      if (rsSearch.data.files && rsSearch.data.files.length > 0) {
+        effectiveParentId = rsSearch.data.files[0].id;
+      } else {
+        const rsFolder = await drive.files.create({
+          resource: {
+            name: "Resident_Staff",
+            mimeType: "application/vnd.google-apps.folder",
+            parents: [rootDriveId],
+          },
+          fields: "id",
+        });
+        effectiveParentId = rsFolder.data.id;
+      }
+    }
+
+    // 1. Find/Create/Rename staff member folder under Resident_Staff
     let staffFolderId = req.body.staffFolderId;
 
     if (staffFolderId) {
@@ -448,7 +482,7 @@ router.post("/drive/upload-resident-staff", async (req, res) => {
 
     if (!staffFolderId) {
       const folderSearch = await drive.files.list({
-        q: `name = '${staffName}' and '${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        q: `name = '${staffName}' and '${effectiveParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: "files(id)",
       });
 
@@ -459,7 +493,7 @@ router.post("/drive/upload-resident-staff", async (req, res) => {
           resource: {
             name: staffName,
             mimeType: "application/vnd.google-apps.folder",
-            parents: [parentFolderId],
+            parents: [effectiveParentId],
           },
           fields: "id",
         });

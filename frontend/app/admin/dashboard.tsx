@@ -157,6 +157,49 @@ export default function AdminDashboard() {
     }
   };
 
+  const deleteDriveFolder = async (folderId: string, token: string) => {
+    try {
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${folderId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+      if (!response.ok && response.status !== 404) {
+        const error = await response.json();
+        console.warn("Drive folder deletion failed:", error);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.warn("Error deleting Drive folder:", error);
+      return false;
+    }
+  };
+
+  const refreshAccessToken = async () => {
+    if (!user) return null;
+    try {
+      const isWeb = Platform.OS === "web";
+      const backendUrl = isWeb
+        ? window.location.origin + "/api"
+        : process.env.EXPO_PUBLIC_BACKEND_URL ||
+          "https://asia-south1-zonect-8d847.cloudfunctions.net/api";
+      const res = await fetch(
+        `${backendUrl}/auth/google/refresh?adminUID=${user?.uid}&appId=${appId}`,
+      );
+      if (!res.ok) throw new Error("Refresh failed");
+      const data = await res.json();
+      return data.accessToken;
+    } catch (error) {
+      console.error("DEBUG: Token refresh failed:", error);
+      return null;
+    }
+  };
+
   const handleAddWing = async () => {
     if (!user?.uid || !societyData) return;
     try {
@@ -236,15 +279,49 @@ export default function AdminDashboard() {
             deletePromises.push(deleteDoc(unitDoc.ref));
           });
         }
+
+        // Wait for all resident and unit deletions
+        await Promise.all(deletePromises);
+
+        // 3. Delete Wing Folder from Drive if possible
+        if (wingData.driveFolderId) {
+          let token =
+            societyData?.driveAccessToken ||
+            (typeof window !== "undefined"
+              ? sessionStorage.getItem("driveToken")
+              : null);
+
+          if (!token) {
+            token = await refreshAccessToken();
+          }
+
+          if (token) {
+            // Verify token
+            try {
+              const testRes = await fetch(
+                "https://www.googleapis.com/drive/v3/about?fields=user",
+                { headers: { Authorization: `Bearer ${token}` } },
+              );
+              if (testRes.status === 401) {
+                token = await refreshAccessToken();
+              }
+              if (token) {
+                await deleteDriveFolder(wingData.driveFolderId, token);
+              }
+            } catch (err) {
+              console.warn("Drive cleanup failed:", err);
+            }
+          }
+        }
+      } else {
+        // Even if wing doc doesn't exist, we might want to wait for resident deletions if any were queued
+        await Promise.all(deletePromises);
       }
 
-      // Wait for all resident and unit deletions
-      await Promise.all(deletePromises);
-
-      // 3. Delete the wing document itself
+      // 4. Delete the wing document itself
       await deleteDoc(wingDocRef);
 
-      // 4. Update wing count
+      // 5. Update wing count
       const newWingCount = Math.max(0, (societyData.wingCount || 0) - 1);
       await updateDoc(doc(db, societyPath, user.uid), {
         wingCount: newWingCount,

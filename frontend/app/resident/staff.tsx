@@ -10,13 +10,16 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
   setDoc,
   updateDoc,
+  where,
 } from "firebase/firestore";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -46,10 +49,47 @@ const STAFF_TYPES = [
   "Other",
 ];
 
+const ResidentStaffLoader = () => {
+  const [msgIndex, setMsgIndex] = useState(0);
+  const messages = [
+    "Syncing with society...",
+    "Uploading to cloud...",
+    "Finalizing profile...",
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setMsgIndex((prev) => (prev + 1) % messages.length);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <ActivityIndicator color="#fff" size="small" />
+      <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>
+        {messages[msgIndex]}
+      </Text>
+    </View>
+  );
+};
+
 export default function ResidentStaff() {
   const { user } = useAuth();
   const router = useRouter();
   const [isUploading, setIsUploading] = useState(false);
+
+  const handleBack = () => {
+    if (!user) {
+      router.replace("/");
+    } else {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/resident/dashboard");
+      }
+    }
+  };
   const [staffList, setStaffList] = useState<any[]>([]);
 
   // Form states
@@ -77,6 +117,15 @@ export default function ResidentStaff() {
     guardianContact: "",
   });
 
+  // â”€â”€ Mode 2: Select Existing Staff â”€â”€
+  const [addMode, setAddMode] = useState<"new" | "existing">("new");
+  const [registryStaff, setRegistryStaff] = useState<any[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [selectedProfile, setSelectedProfile] = useState<any>(null);
+  const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
+
   const resetForm = () => {
     setStaffName("");
     setContact("");
@@ -91,6 +140,16 @@ export default function ResidentStaff() {
     setStaffType("Maid");
     setOtherStaffType("");
     setFormErrors({ contact: "", guardianContact: "" });
+    setSelectedProfile(null);
+    setSelectedCategory("");
+    setShowCategoryDropdown(false);
+    setShowProfileDropdown(false);
+  };
+
+  const closeAllDropdowns = () => {
+    setShowCategoryDropdown(false);
+    setShowProfileDropdown(false);
+    setShowTypeDropdown(false);
   };
   // Drive helpers
   const findOrCreateFolder = async (
@@ -394,6 +453,121 @@ export default function ResidentStaff() {
     }
   };
 
+  // Drag and Drop handler for web
+  const handleFileDrop = async (
+    file: File,
+    type: "photo" | "idCard" | "addressProof",
+  ) => {
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/jpg",
+      "application/pdf",
+    ];
+    if (!allowedTypes.includes(file.type)) {
+      Toast.show({
+        type: "error",
+        text1: "Invalid File",
+        text2: "Only jpg, png, jpeg, or pdf files allowed.",
+      });
+      return;
+    }
+    // Size check: 220KB = 225280 bytes
+    if (file.size > 225280) {
+      Toast.show({
+        type: "error",
+        text1: "File Too Large",
+        text2: "Maximum file size is 220KB.",
+      });
+      return;
+    }
+    const base64String = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(file);
+    });
+
+    // Update state
+    if (type === "photo") setPhoto(base64String);
+    else if (type === "idCard") setIdCard(base64String);
+    else if (type === "addressProof") setAddressProof(base64String);
+
+    // If editing existing record, sync immediately (same logic as handleDocumentChange)
+    if (editingId && sessionData && user) {
+      const { adminUID, id: unitId, driveFolderId: flatFolderId } = sessionData;
+      const isPdf = base64String.startsWith("data:application/pdf");
+      const ext = isPdf ? ".pdf" : ".jpg";
+      const fileName =
+        type === "photo"
+          ? `Photo${ext}`
+          : type === "idCard"
+            ? `ID_Card${ext}`
+            : `Address_Proof${ext}`;
+      try {
+        const updateObj = {
+          [type]: base64String,
+          updatedAt: new Date().toISOString(),
+        };
+        const societyPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${editingId}`;
+        const localPath = `users/${user.uid}/${COLLECTIONS.STAFF}/${editingId}`;
+        await setDoc(doc(db, societyPath), updateObj, { merge: true });
+        await setDoc(doc(db, localPath), updateObj, { merge: true });
+
+        if (flatFolderId) {
+          const baseName =
+            type === "photo"
+              ? "Photo"
+              : type === "idCard"
+                ? "ID_Card"
+                : "Address_Proof";
+          const staffFolderId = staffList.find(
+            (s) => s.id === editingId,
+          )?.driveFolderId;
+          await deleteResFile(`${baseName}.jpg`, flatFolderId, staffFolderId);
+          await deleteResFile(`${baseName}.pdf`, flatFolderId, staffFolderId);
+          await deleteResFile(`${baseName}.png`, flatFolderId, staffFolderId);
+          await deleteResFile(`${baseName}.jpeg`, flatFolderId, staffFolderId);
+          await uploadImageToDrive(base64String, fileName, flatFolderId);
+        }
+        Toast.show({
+          type: "success",
+          text1: "Auto-synced",
+          text2: `${type} updated via drag & drop.`,
+        });
+      } catch (err: any) {
+        console.error("Drag-drop sync failed:", err);
+      }
+    }
+  };
+
+  // Web-only: Wrapper to support drag-and-drop on upload boxes
+  const DropZoneWrapper = ({
+    type,
+    children,
+  }: {
+    type: "photo" | "idCard" | "addressProof";
+    children: React.ReactNode;
+  }) => {
+    if (Platform.OS !== "web") return <>{children}</>;
+    return (
+      <div
+        onDragOver={(e: any) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e: any) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const file = e.dataTransfer?.files?.[0];
+          if (file) handleFileDrop(file, type);
+        }}
+        style={{ flex: 1, position: "relative" }}
+      >
+        {children}
+      </div>
+    );
+  };
+
   const handleContactChange = (val: string) => {
     const sanitized = val.replace(/[^0-9]/g, "");
     if (sanitized.length > 10) return;
@@ -422,12 +596,128 @@ export default function ResidentStaff() {
     }
   };
 
+  // â”€â”€ Mode 2: Fetch registry staff by category â”€â”€
+  const fetchRegistryByCategory = async (category: string) => {
+    if (!sessionData) return;
+    setIsLoadingProfiles(true);
+    try {
+      const { adminUID } = sessionData;
+      const registryRef = collection(
+        db,
+        `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff`,
+      );
+      const q = query(registryRef, where("staffType", "==", category));
+      const snapshot = await getDocs(q);
+      const profiles = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setRegistryStaff(profiles);
+    } catch (err) {
+      console.error("Fetch registry error:", err);
+      setRegistryStaff([]);
+    } finally {
+      setIsLoadingProfiles(false);
+    }
+  };
+
+  // â”€â”€ Mode 2: Link existing profile to this resident â”€â”€
+  const handleLinkExisting = async () => {
+    if (!selectedProfile || !user || !sessionData) return;
+
+    // Check 12 staff limit
+    if (staffList.length >= 12) {
+      Toast.show({
+        type: "error",
+        text1: "12 staff limit",
+        text2: "You cannot add more than 12 staff profiles.",
+      });
+      return;
+    }
+
+    // Check if already linked
+    const alreadyLinked = staffList.some(
+      (s) => s.sourceRegistryId === selectedProfile.id,
+    );
+    if (alreadyLinked) {
+      Toast.show({
+        type: "info",
+        text1: "Already Added",
+        text2: `${selectedProfile.staffName} is already in your household staff.`,
+      });
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const { adminUID, id: unitId } = sessionData;
+      const linkId = `link_${selectedProfile.id}_${Date.now()}`;
+
+      const linkedData = {
+        id: linkId,
+        staffName: selectedProfile.staffName,
+        staffType: selectedProfile.staffType,
+        contact: selectedProfile.contact,
+        nativePlace: selectedProfile.nativePlace || "",
+        guardianName: selectedProfile.guardianName || "",
+        guardianContact: selectedProfile.guardianContact || "",
+        guardianAddress: selectedProfile.guardianAddress || "",
+        photo: selectedProfile.photo || "",
+        idCard: selectedProfile.idCard || "",
+        addressProof: selectedProfile.addressProof || "",
+        sourceRegistryId: selectedProfile.id,
+        linkedBy: user.uid,
+        adminUID,
+        unitId,
+        driveFolderId: selectedProfile.driveFolderId || "",
+        uploadedAt: new Date().toISOString(),
+      };
+
+      // Write to resident's StaffMembers
+      const societyStaffPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${linkId}`;
+      await setDoc(doc(db, societyStaffPath), linkedData);
+
+      // Update linked count on the registry profile
+      const registryDocRef = doc(
+        db,
+        `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff/${selectedProfile.id}`,
+      );
+      const registrySnap = await getDoc(registryDocRef);
+      if (registrySnap.exists()) {
+        const currentLinked = registrySnap.data().linkedUnits || [];
+        if (!currentLinked.includes(unitId)) {
+          await updateDoc(registryDocRef, {
+            linkedUnits: [...currentLinked, unitId],
+          });
+        }
+      }
+
+      Toast.show({
+        type: "success",
+        text1: "Staff Linked",
+        text2: `${selectedProfile.staffName} added to your household.`,
+      });
+      resetForm();
+    } catch (error: any) {
+      console.error("Link Error:", error);
+      Alert.alert("Error", error.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!staffName || !contact || !staffType) {
       Toast.show({
         type: "error",
         text1: "Required Fields",
         text2: "Staff Name, Type and Contact are mandatory.",
+      });
+      return;
+    }
+
+    if (!editingId && staffList.length >= 12) {
+      Toast.show({
+        type: "error",
+        text1: "12 staff limit",
+        text2: "You have reached the maximum allowed staff profiles.",
       });
       return;
     }
@@ -589,6 +879,79 @@ export default function ResidentStaff() {
       const localStaffPath = `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`;
       await setDoc(doc(db, localStaffPath), staffData, { merge: true });
 
+      // 3. Upsert into Resident_Staff registry (source of truth for cross-resident reuse)
+      try {
+        // Use the adminUID from sessionData to ensure society-wide scope
+        const societyAdminUID = adminUID || sessionData.adminUID;
+        const registryRef = collection(
+          db,
+          `artifacts/${appId}/public/data/societies/${societyAdminUID}/Resident_Staff`,
+        );
+
+        // Use contact as the stable key to find existing profiles
+        const existingQuery = query(
+          registryRef,
+          where("contact", "==", contact),
+        );
+        const existingSnap = await getDocs(existingQuery);
+
+        let registryId: string;
+        let existingData: any = {};
+
+        if (!existingSnap.empty) {
+          const doc = existingSnap.docs[0];
+          registryId = doc.id;
+          existingData = doc.data();
+          console.log("DEBUG: Found existing registry profile:", registryId);
+        } else {
+          registryId = `reg_${contact}_${societyAdminUID}`;
+          console.log("DEBUG: Creating new registry profile:", registryId);
+        }
+
+        const registryData = {
+          id: registryId,
+          staffName,
+          staffType: finalStaffType,
+          contact,
+          nativePlace,
+          guardianName,
+          guardianContact,
+          guardianAddress,
+          photo,
+          idCard: idCard || "",
+          addressProof: addressProof || "",
+          driveFolderId: staffFolderId,
+          updatedAt: new Date().toISOString(),
+          societyId: appId,
+          adminUID: societyAdminUID,
+          // Track which units this staff member is serving
+          linkedUnits: Array.from(
+            new Set([...(existingData.linkedUnits || []), unitId]),
+          ),
+        };
+
+        await setDoc(
+          doc(
+            db,
+            `artifacts/${appId}/public/data/societies/${societyAdminUID}/Resident_Staff/${registryId}`,
+          ),
+          registryData,
+          { merge: true },
+        );
+
+        // Store the sourceRegistryId back on the resident's copy
+        await updateDoc(doc(db, societyStaffPath), {
+          sourceRegistryId: registryId,
+        });
+
+        console.log(
+          "DEBUG: Resident_Staff registry updated successfully at:",
+          registryId,
+        );
+      } catch (regErr) {
+        console.error("CRITICAL: Registry upsert failed:", regErr);
+      }
+
       Toast.show({
         type: "success",
         text1: editingId ? "Staff Updated" : "Staff Registered",
@@ -716,387 +1079,714 @@ export default function ResidentStaff() {
   return (
     <View style={styles.mainContainer}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#3B82F6" />
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Manage Personal Staff</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.form}>
-          <Text style={styles.sectionTitle}>
-            {editingId ? "Edit Staff Details" : "Register New Staff"}
-          </Text>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Staff Name *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Maya Devi"
-              value={staffName}
-              onChangeText={setStaffName}
-            />
-          </View>
-
-          <View style={[styles.inputGroup, { zIndex: 1000 }]}>
-            <Text style={styles.label}>Staff Category *</Text>
-            <TouchableOpacity
-              style={styles.dropdownButton}
-              onPress={() => setShowTypeDropdown(!showTypeDropdown)}
-            >
-              <Text style={styles.dropdownText}>{staffType}</Text>
-              <Ionicons
-                name={showTypeDropdown ? "chevron-up" : "chevron-down"}
-                size={20}
-                color="#64748B"
-              />
-            </TouchableOpacity>
-
-            {showTypeDropdown && (
-              <View style={styles.dropdownListContainer}>
-                <ScrollView
-                  style={styles.dropdownList}
-                  nestedScrollEnabled={true}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        nestedScrollEnabled={true}
+        keyboardShouldPersistTaps="handled"
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={closeAllDropdowns}
+          style={{ flex: 1 }}
+        >
+          <View style={[styles.form, { zIndex: 5000, elevation: 5 }]}>
+            {/* Mode Toggle Tabs (hidden when editing) */}
+            {!editingId && (
+              <View style={styles.modeTabs}>
+                <TouchableOpacity
+                  style={[
+                    styles.modeTab,
+                    addMode === "new" && styles.modeTabActive,
+                  ]}
+                  onPress={() => {
+                    setAddMode("new");
+                    resetForm();
+                  }}
                 >
-                  {STAFF_TYPES.map((item) => (
-                    <TouchableOpacity
-                      key={item}
-                      style={styles.dropdownItem}
-                      onPress={() => {
-                        setStaffType(item);
-                        setShowTypeDropdown(false);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.dropdownItemText,
-                          staffType === item && styles.activeDropdownText,
-                        ]}
+                  <Ionicons
+                    name="person-add-outline"
+                    size={16}
+                    color={addMode === "new" ? "#FFFFFF" : "#64748B"}
+                  />
+                  <Text
+                    style={[
+                      styles.modeTabText,
+                      addMode === "new" && styles.modeTabTextActive,
+                    ]}
+                  >
+                    Add New Staff
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modeTab,
+                    addMode === "existing" && styles.modeTabActive,
+                  ]}
+                  onPress={() => {
+                    setAddMode("existing");
+                    resetForm();
+                  }}
+                >
+                  <Ionicons
+                    name="people-outline"
+                    size={16}
+                    color={addMode === "existing" ? "#FFFFFF" : "#64748B"}
+                  />
+                  <Text
+                    style={[
+                      styles.modeTabText,
+                      addMode === "existing" && styles.modeTabTextActive,
+                    ]}
+                  >
+                    Select Existing
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <Text style={styles.sectionTitle}>
+              {editingId
+                ? "Edit Staff Details"
+                : addMode === "new"
+                  ? "Register New Staff"
+                  : "Select from Registered Staff"}
+            </Text>
+
+            {/* â•â•â•â•â•â• MODE 2: Select Existing Staff â•â•â•â•â•â• */}
+            {addMode === "existing" && !editingId && (
+              <View>
+                {/* Dropdown 1: Staff Category */}
+                <View style={[styles.inputGroup, { zIndex: 2000 }]}>
+                  <Text style={styles.label}>Staff Category *</Text>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => {
+                      setShowCategoryDropdown(!showCategoryDropdown);
+                      setShowProfileDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownText}>
+                      {selectedCategory || "Select Category"}
+                    </Text>
+                    <Ionicons
+                      name={
+                        showCategoryDropdown ? "chevron-up" : "chevron-down"
+                      }
+                      size={20}
+                      color="#64748B"
+                    />
+                  </TouchableOpacity>
+                  {showCategoryDropdown && (
+                    <View style={styles.dropdownListContainer}>
+                      <ScrollView
+                        style={styles.dropdownList}
+                        nestedScrollEnabled={true}
                       >
-                        {item}
-                      </Text>
-                      {staffType === item && (
-                        <Ionicons name="checkmark" size={18} color="#3B82F6" />
+                        {STAFF_TYPES.filter((t) => t !== "Other").map(
+                          (item) => (
+                            <TouchableOpacity
+                              key={item}
+                              style={styles.dropdownItem}
+                              onPress={() => {
+                                setSelectedCategory(item);
+                                setShowCategoryDropdown(false);
+                                setSelectedProfile(null);
+                                setRegistryStaff([]);
+                                fetchRegistryByCategory(item);
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.dropdownItemText,
+                                  selectedCategory === item &&
+                                    styles.activeDropdownText,
+                                ]}
+                              >
+                                {item}
+                              </Text>
+                              {selectedCategory === item && (
+                                <Ionicons
+                                  name="checkmark"
+                                  size={18}
+                                  color="#3B82F6"
+                                />
+                              )}
+                            </TouchableOpacity>
+                          ),
+                        )}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+
+                {/* Dropdown 2: Staff Profiles */}
+                {selectedCategory !== "" && (
+                  <View style={[styles.inputGroup, { zIndex: 1500 }]}>
+                    <Text style={styles.label}>Select Staff Profile *</Text>
+                    {isLoadingProfiles ? (
+                      <ActivityIndicator
+                        color="#3B82F6"
+                        style={{ marginVertical: 12 }}
+                      />
+                    ) : registryStaff.length === 0 ? (
+                      <View style={styles.emptyRegistry}>
+                        <Ionicons
+                          name="search-outline"
+                          size={24}
+                          color="#94A3B8"
+                        />
+                        <Text style={styles.emptyRegistryText}>
+                          No registered {selectedCategory} staff found.
+                        </Text>
+                        <Text style={styles.emptyRegistryHint}>
+                          Switch to Add New Staff to create one.
+                        </Text>
+                      </View>
+                    ) : (
+                      <>
+                        <TouchableOpacity
+                          style={styles.dropdownButton}
+                          onPress={() => {
+                            setShowProfileDropdown(!showProfileDropdown);
+                            setShowCategoryDropdown(false);
+                          }}
+                        >
+                          <Text style={styles.dropdownText}>
+                            {selectedProfile
+                              ? `${selectedProfile.staffName} (${selectedProfile.contact})`
+                              : "Select Staff Profile"}
+                          </Text>
+                          <Ionicons
+                            name={
+                              showProfileDropdown
+                                ? "chevron-up"
+                                : "chevron-down"
+                            }
+                            size={20}
+                            color="#64748B"
+                          />
+                        </TouchableOpacity>
+                        {showProfileDropdown && (
+                          <View style={styles.dropdownListContainer}>
+                            <ScrollView
+                              style={styles.dropdownList}
+                              nestedScrollEnabled={true}
+                            >
+                              {registryStaff.map((profile) => (
+                                <TouchableOpacity
+                                  key={profile.id}
+                                  style={styles.dropdownItem}
+                                  onPress={() => {
+                                    setSelectedProfile(profile);
+                                    setShowProfileDropdown(false);
+                                  }}
+                                >
+                                  <View>
+                                    <Text
+                                      style={[
+                                        styles.dropdownItemText,
+                                        { fontWeight: "700" },
+                                      ]}
+                                    >
+                                      {profile.staffName}
+                                    </Text>
+                                    <Text
+                                      style={{
+                                        fontSize: 12,
+                                        color: "#94A3B8",
+                                      }}
+                                    >
+                                      ðŸ“ž {profile.contact}
+                                      {profile.nativePlace
+                                        ? ` â€¢ ðŸ“ ${profile.nativePlace}`
+                                        : ""}
+                                    </Text>
+                                  </View>
+                                  {selectedProfile?.id === profile.id && (
+                                    <Ionicons
+                                      name="checkmark-circle"
+                                      size={20}
+                                      color="#3B82F6"
+                                    />
+                                  )}
+                                </TouchableOpacity>
+                              ))}
+                            </ScrollView>
+                          </View>
+                        )}
+                      </>
+                    )}
+                  </View>
+                )}
+
+                {/* Preview Selected Profile */}
+                {selectedProfile && (
+                  <View style={styles.profilePreview}>
+                    <View style={styles.profilePreviewHeader}>
+                      {selectedProfile.photo &&
+                      !selectedProfile.photo.startsWith(
+                        "data:application/pdf",
+                      ) ? (
+                        <Image
+                          source={{ uri: selectedProfile.photo }}
+                          style={styles.previewAvatar}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={styles.previewAvatarPlaceholder}>
+                          <Text style={styles.previewAvatarText}>
+                            {selectedProfile.staffName.charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.previewName}>
+                          {selectedProfile.staffName}
+                        </Text>
+                        <Text style={styles.previewDetail}>
+                          ðŸ“ž {selectedProfile.contact}
+                        </Text>
+                        {selectedProfile.nativePlace ? (
+                          <Text style={styles.previewDetail}>
+                            ðŸ“ {selectedProfile.nativePlace}
+                          </Text>
+                        ) : null}
+                        {selectedProfile.guardianName ? (
+                          <Text style={styles.previewDetail}>
+                            G: {selectedProfile.guardianName}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.submitBtn,
+                        isUploading && styles.disabledBtn,
+                        { backgroundColor: "#10B981" },
+                      ]}
+                      onPress={handleLinkExisting}
+                      disabled={isUploading}
+                    >
+                      {isUploading ? (
+                        <View style={styles.loadingWrapper}>
+                          <ActivityIndicator color="white" size="small" />
+                          <Text style={styles.loadingText}>Linking...</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.submitText}>
+                          âœ“ Add to My Household
+                        </Text>
                       )}
                     </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                  </View>
+                )}
               </View>
             )}
-          </View>
 
-          {staffType === "Other" && (
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Specify Category *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Plumber, Carpenter"
-                value={otherStaffType}
-                onChangeText={setOtherStaffType}
-              />
-            </View>
-          )}
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Native Place</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Gorakhpur, UP"
-              value={nativePlace}
-              onChangeText={setNativePlace}
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Contact Number *</Text>
-            <TextInput
-              style={[
-                styles.input,
-                formErrors.contact ? styles.inputError : null,
-              ]}
-              placeholder="e.g. 9876543210"
-              value={contact}
-              onChangeText={handleContactChange}
-              keyboardType="phone-pad"
-              maxLength={10}
-            />
-            {formErrors.contact ? (
-              <Text style={styles.errorText}>{formErrors.contact}</Text>
-            ) : null}
-          </View>
-
-          <View style={styles.divider} />
-
-          <Text style={styles.subsectionTitle}>Guardian Details</Text>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Guardian Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Husband/Father Name"
-              value={guardianName}
-              onChangeText={setGuardianName}
-            />
-          </View>
-
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, { flex: 1 }]}>
-              <Text style={styles.label}>Guardian Contact</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  formErrors.guardianContact ? styles.inputError : null,
-                ]}
-                placeholder="98765..."
-                value={guardianContact}
-                onChangeText={handleGuardianContactChange}
-                keyboardType="phone-pad"
-                maxLength={10}
-              />
-              {formErrors.guardianContact ? (
-                <Text style={styles.errorText}>
-                  {formErrors.guardianContact}
-                </Text>
-              ) : null}
-            </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Guardian Address</Text>
-            <TextInput
-              style={[styles.input, { height: 80, textAlignVertical: "top" }]}
-              placeholder="Complete address of the guardian"
-              value={guardianAddress}
-              onChangeText={setGuardianAddress}
-              multiline
-            />
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.uploadSection}>
-            <Text style={styles.label}>Staff Documents (Max 220KB)</Text>
-            <View style={styles.uploadRow}>
-              {/* PHOTO UPLOAD */}
-              <View style={styles.uploadWrapper}>
-                <TouchableOpacity
-                  style={styles.uploadBox}
-                  onPress={() =>
-                    !photo && handleDocumentChange("photo", "pick")
-                  }
-                  activeOpacity={photo ? 1 : 0.7}
-                >
-                  {photo ? (
-                    photo.startsWith("data:application/pdf") ? (
-                      <View
-                        style={[
-                          styles.previewImage,
-                          {
-                            justifyContent: "center",
-                            alignItems: "center",
-                            backgroundColor: "#F1F5F9",
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name="document-text"
-                          size={32}
-                          color="#EF4444"
-                        />
-                        <Text style={{ fontSize: 10, color: "#334155" }}>
-                          PDF
-                        </Text>
-                      </View>
-                    ) : (
-                      <Image
-                        source={{ uri: photo }}
-                        style={styles.previewImage}
-                        resizeMode="cover"
-                      />
-                    )
-                  ) : (
-                    <View style={styles.uploadPlaceholder}>
-                      <Text style={styles.uploadIcon}>👤</Text>
-                      <Text style={styles.uploadLabel}>Photo</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-                {photo && (
-                  <View style={styles.overlayControls}>
-                    <TouchableOpacity
-                      style={[styles.overlayBtn, styles.editOverlay]}
-                      onPress={() => handleDocumentChange("photo", "pick")}
-                    >
-                      <Ionicons name="create" size={16} color="white" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.overlayBtn, styles.deleteOverlay]}
-                      onPress={() => handleDocumentChange("photo", "delete")}
-                    >
-                      <Ionicons name="trash" size={16} color="white" />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-
-              {/* ID CARD UPLOAD */}
-              <View style={styles.uploadWrapper}>
-                <TouchableOpacity
-                  style={styles.uploadBox}
-                  onPress={() =>
-                    !idCard && handleDocumentChange("idCard", "pick")
-                  }
-                  activeOpacity={idCard ? 1 : 0.7}
-                >
-                  {idCard ? (
-                    idCard.startsWith("data:application/pdf") ? (
-                      <View
-                        style={[
-                          styles.previewImage,
-                          {
-                            justifyContent: "center",
-                            alignItems: "center",
-                            backgroundColor: "#F1F5F9",
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name="document-text"
-                          size={32}
-                          color="#EF4444"
-                        />
-                        <Text style={{ fontSize: 10, color: "#334155" }}>
-                          PDF
-                        </Text>
-                      </View>
-                    ) : (
-                      <Image
-                        source={{ uri: idCard }}
-                        style={styles.previewImage}
-                        resizeMode="cover"
-                      />
-                    )
-                  ) : (
-                    <View style={styles.uploadPlaceholder}>
-                      <Text style={styles.uploadIcon}>💳</Text>
-                      <Text style={styles.uploadLabel}>Photo ID Proof</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-                {idCard && (
-                  <View style={styles.overlayControls}>
-                    <TouchableOpacity
-                      style={[styles.overlayBtn, styles.editOverlay]}
-                      onPress={() => handleDocumentChange("idCard", "pick")}
-                    >
-                      <Ionicons name="create" size={16} color="white" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.overlayBtn, styles.deleteOverlay]}
-                      onPress={() => handleDocumentChange("idCard", "delete")}
-                    >
-                      <Ionicons name="trash" size={16} color="white" />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-
-              {/* ADDRESS PROOF UPLOAD */}
-              <View style={styles.uploadWrapper}>
-                <TouchableOpacity
-                  style={styles.uploadBox}
-                  onPress={() =>
-                    !addressProof &&
-                    handleDocumentChange("addressProof", "pick")
-                  }
-                  activeOpacity={addressProof ? 1 : 0.7}
-                >
-                  {addressProof ? (
-                    addressProof.startsWith("data:application/pdf") ? (
-                      <View
-                        style={[
-                          styles.previewImage,
-                          {
-                            justifyContent: "center",
-                            alignItems: "center",
-                            backgroundColor: "#F1F5F9",
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name="document-text"
-                          size={32}
-                          color="#EF4444"
-                        />
-                        <Text style={{ fontSize: 10, color: "#334155" }}>
-                          PDF
-                        </Text>
-                      </View>
-                    ) : (
-                      <Image
-                        source={{ uri: addressProof }}
-                        style={styles.previewImage}
-                        resizeMode="cover"
-                      />
-                    )
-                  ) : (
-                    <View style={styles.uploadPlaceholder}>
-                      <Text style={styles.uploadIcon}>🏠</Text>
-                      <Text style={styles.uploadLabel}>Address Proof</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-                {addressProof && (
-                  <View style={styles.overlayControls}>
-                    <TouchableOpacity
-                      style={[styles.overlayBtn, styles.editOverlay]}
-                      onPress={() =>
-                        handleDocumentChange("addressProof", "pick")
-                      }
-                    >
-                      <Ionicons name="create" size={16} color="white" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.overlayBtn, styles.deleteOverlay]}
-                      onPress={() =>
-                        handleDocumentChange("addressProof", "delete")
-                      }
-                    >
-                      <Ionicons name="trash" size={16} color="white" />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.formButtons}>
-            <TouchableOpacity
-              style={[styles.submitBtn, isUploading && styles.disabledBtn]}
-              onPress={handleSubmit}
-              disabled={isUploading}
-            >
-              {isUploading ? (
-                <View style={styles.loadingWrapper}>
-                  <ActivityIndicator color="white" size="small" />
-                  <Text style={styles.loadingText}>Loading...</Text>
+            {/* â•â•â•â•â•â• MODE 1: Add New Staff (existing form) â•â•â•â•â•â• */}
+            {(addMode === "new" || editingId) && (
+              <View>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Staff Name *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Maya Devi"
+                    value={staffName}
+                    onChangeText={setStaffName}
+                  />
                 </View>
-              ) : (
-                <Text style={styles.submitText}>
-                  {editingId ? "Update Staff" : "Register Staff"}
-                </Text>
-              )}
-            </TouchableOpacity>
 
-            {editingId && (
-              <TouchableOpacity style={styles.cancelBtn} onPress={resetForm}>
-                <Text style={styles.cancelText}>Cancel Edit</Text>
-              </TouchableOpacity>
+                <View style={[styles.inputGroup, { zIndex: 1000 }]}>
+                  <Text style={styles.label}>Staff Category *</Text>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => setShowTypeDropdown(!showTypeDropdown)}
+                  >
+                    <Text style={styles.dropdownText}>{staffType}</Text>
+                    <Ionicons
+                      name={showTypeDropdown ? "chevron-up" : "chevron-down"}
+                      size={20}
+                      color="#64748B"
+                    />
+                  </TouchableOpacity>
+
+                  {showTypeDropdown && (
+                    <View style={styles.dropdownListContainer}>
+                      <ScrollView
+                        style={styles.dropdownList}
+                        nestedScrollEnabled={true}
+                      >
+                        {STAFF_TYPES.map((item) => (
+                          <TouchableOpacity
+                            key={item}
+                            style={styles.dropdownItem}
+                            onPress={() => {
+                              setStaffType(item);
+                              setShowTypeDropdown(false);
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.dropdownItemText,
+                                staffType === item && styles.activeDropdownText,
+                              ]}
+                            >
+                              {item}
+                            </Text>
+                            {staffType === item && (
+                              <Ionicons
+                                name="checkmark"
+                                size={18}
+                                color="#3B82F6"
+                              />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+
+                {staffType === "Other" && (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Specify Category *</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g. Plumber, Carpenter"
+                      value={otherStaffType}
+                      onChangeText={setOtherStaffType}
+                    />
+                  </View>
+                )}
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Native Place Address</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Mohan Nagar, Nashik"
+                    value={nativePlace}
+                    onChangeText={setNativePlace}
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Contact Number *</Text>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      formErrors.contact ? styles.inputError : null,
+                    ]}
+                    value={contact}
+                    onChangeText={handleContactChange}
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                  />
+                  {formErrors.contact ? (
+                    <Text style={styles.errorText}>{formErrors.contact}</Text>
+                  ) : null}
+                </View>
+
+                <View style={styles.divider} />
+
+                <Text style={styles.subsectionTitle}>Guardian Details</Text>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Guardian Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Husband/Father Name"
+                    value={guardianName}
+                    onChangeText={setGuardianName}
+                  />
+                </View>
+
+                <View style={styles.row}>
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.label}>Guardian Contact</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        formErrors.guardianContact ? styles.inputError : null,
+                      ]}
+                      placeholder="98772..."
+                      value={guardianContact}
+                      onChangeText={handleGuardianContactChange}
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                    />
+                    {formErrors.guardianContact ? (
+                      <Text style={styles.errorText}>
+                        {formErrors.guardianContact}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Guardian Address</Text>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      { height: 80, textAlignVertical: "top" },
+                    ]}
+                    placeholder="Complete address of the guardian"
+                    value={guardianAddress}
+                    onChangeText={setGuardianAddress}
+                    multiline
+                  />
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.uploadSection}>
+                  <Text style={styles.label}>
+                    Staff Documents (jpg/png/jpeg/pdf only, Max 220KB)
+                  </Text>
+                  <View style={styles.uploadRow}>
+                    {/* PHOTO UPLOAD */}
+                    <DropZoneWrapper type="photo">
+                      <TouchableOpacity
+                        style={styles.uploadBox}
+                        onPress={() =>
+                          !photo && handleDocumentChange("photo", "pick")
+                        }
+                        activeOpacity={photo ? 1 : 0.7}
+                      >
+                        {photo ? (
+                          photo.startsWith("data:application/pdf") ? (
+                            <View
+                              style={[
+                                styles.previewImage,
+                                {
+                                  justifyContent: "center",
+                                  alignItems: "center",
+                                  backgroundColor: "#F1F5F9",
+                                },
+                              ]}
+                            >
+                              <Ionicons
+                                name="document-text"
+                                size={32}
+                                color="#EF4444"
+                              />
+                              <Text style={{ fontSize: 10, color: "#334155" }}>
+                                PDF
+                              </Text>
+                            </View>
+                          ) : (
+                            <Image
+                              source={{ uri: photo }}
+                              style={styles.previewImage}
+                              resizeMode="cover"
+                            />
+                          )
+                        ) : (
+                          <View style={styles.uploadPlaceholder}>
+                            <Ionicons name="person" size={24} color="#6366F1" />
+                            <Text style={styles.uploadLabel}>Photo</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                      {photo && (
+                        <View style={styles.overlayControls}>
+                          <TouchableOpacity
+                            style={[styles.overlayBtn, styles.editOverlay]}
+                            onPress={() =>
+                              handleDocumentChange("photo", "pick")
+                            }
+                          >
+                            <Ionicons name="create" size={16} color="white" />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.overlayBtn, styles.deleteOverlay]}
+                            onPress={() =>
+                              handleDocumentChange("photo", "delete")
+                            }
+                          >
+                            <Ionicons name="trash" size={16} color="white" />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </DropZoneWrapper>
+
+                    {/* ID CARD UPLOAD */}
+                    <DropZoneWrapper type="idCard">
+                      <TouchableOpacity
+                        style={styles.uploadBox}
+                        onPress={() =>
+                          !idCard && handleDocumentChange("idCard", "pick")
+                        }
+                        activeOpacity={idCard ? 1 : 0.7}
+                      >
+                        {idCard ? (
+                          idCard.startsWith("data:application/pdf") ? (
+                            <View
+                              style={[
+                                styles.previewImage,
+                                {
+                                  justifyContent: "center",
+                                  alignItems: "center",
+                                  backgroundColor: "#F1F5F9",
+                                },
+                              ]}
+                            >
+                              <Ionicons
+                                name="document-text"
+                                size={32}
+                                color="#EF4444"
+                              />
+                              <Text style={{ fontSize: 10, color: "#334155" }}>
+                                PDF
+                              </Text>
+                            </View>
+                          ) : (
+                            <Image
+                              source={{ uri: idCard }}
+                              style={styles.previewImage}
+                              resizeMode="cover"
+                            />
+                          )
+                        ) : (
+                          <View style={styles.uploadPlaceholder}>
+                            <Ionicons name="card" size={24} color="#0EA5E9" />
+                            <Text style={styles.uploadLabel}>
+                              Photo ID Proof
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                      {idCard && (
+                        <View style={styles.overlayControls}>
+                          <TouchableOpacity
+                            style={[styles.overlayBtn, styles.editOverlay]}
+                            onPress={() =>
+                              handleDocumentChange("idCard", "pick")
+                            }
+                          >
+                            <Ionicons name="create" size={16} color="white" />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.overlayBtn, styles.deleteOverlay]}
+                            onPress={() =>
+                              handleDocumentChange("idCard", "delete")
+                            }
+                          >
+                            <Ionicons name="trash" size={16} color="white" />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </DropZoneWrapper>
+
+                    {/* ADDRESS PROOF UPLOAD */}
+                    <DropZoneWrapper type="addressProof">
+                      <TouchableOpacity
+                        style={styles.uploadBox}
+                        onPress={() =>
+                          !addressProof &&
+                          handleDocumentChange("addressProof", "pick")
+                        }
+                        activeOpacity={addressProof ? 1 : 0.7}
+                      >
+                        {addressProof ? (
+                          addressProof.startsWith("data:application/pdf") ? (
+                            <View
+                              style={[
+                                styles.previewImage,
+                                {
+                                  justifyContent: "center",
+                                  alignItems: "center",
+                                  backgroundColor: "#F1F5F9",
+                                },
+                              ]}
+                            >
+                              <Ionicons
+                                name="document-text"
+                                size={32}
+                                color="#EF4444"
+                              />
+                              <Text style={{ fontSize: 10, color: "#334155" }}>
+                                PDF
+                              </Text>
+                            </View>
+                          ) : (
+                            <Image
+                              source={{ uri: addressProof }}
+                              style={styles.previewImage}
+                              resizeMode="cover"
+                            />
+                          )
+                        ) : (
+                          <View style={styles.uploadPlaceholder}>
+                            <Ionicons name="home" size={24} color="#F59E0B" />
+                            <Text style={styles.uploadLabel}>
+                              Address Proof
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                      {addressProof && (
+                        <View style={styles.overlayControls}>
+                          <TouchableOpacity
+                            style={[styles.overlayBtn, styles.editOverlay]}
+                            onPress={() =>
+                              handleDocumentChange("addressProof", "pick")
+                            }
+                          >
+                            <Ionicons name="create" size={16} color="white" />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.overlayBtn, styles.deleteOverlay]}
+                            onPress={() =>
+                              handleDocumentChange("addressProof", "delete")
+                            }
+                          >
+                            <Ionicons name="trash" size={16} color="white" />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </DropZoneWrapper>
+                  </View>
+                </View>
+
+                <View style={styles.formButtons}>
+                  <TouchableOpacity
+                    style={[
+                      styles.submitBtn,
+                      isUploading && styles.disabledBtn,
+                    ]}
+                    onPress={handleSubmit}
+                    disabled={isUploading}
+                  >
+                    {isUploading ? (
+                      <ResidentStaffLoader />
+                    ) : (
+                      <Text style={styles.submitText}>
+                        {editingId ? "Update Staff" : "Register Staff"}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+
+                  {editingId && (
+                    <TouchableOpacity
+                      style={styles.cancelBtn}
+                      onPress={resetForm}
+                    >
+                      <Text style={styles.cancelText}>Cancel Edit</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
             )}
           </View>
-        </View>
+        </TouchableOpacity>
 
-        <Text style={styles.sectionTitle}>Registered Household Staff</Text>
+        <Text style={styles.sectionTitle}>Your Household Staff</Text>
         {staffList.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color="#CBD5E1" />
@@ -1148,10 +1838,24 @@ export default function ResidentStaff() {
                         {staff.staffType}
                       </Text>
                     </View>
+                    {staff.sourceRegistryId && (
+                      <View
+                        style={[
+                          styles.typeBadge,
+                          { backgroundColor: "#DCFCE7" },
+                        ]}
+                      >
+                        <Text
+                          style={[styles.typeBadgeText, { color: "#16A34A" }]}
+                        >
+                          Linked
+                        </Text>
+                      </View>
+                    )}
                   </View>
-                  <Text style={styles.staffContact}>📞 {staff.contact}</Text>
+                  <Text style={styles.staffContact}>ðŸ“ž {staff.contact}</Text>
                   <Text style={styles.staffNative}>
-                    📍 {staff.nativePlace || "N/A"}
+                    ðŸ“ {staff.nativePlace || "N/A"}
                   </Text>
                   {staff.guardianName && (
                     <Text style={styles.staffGuardian}>
@@ -1161,12 +1865,14 @@ export default function ResidentStaff() {
                 </View>
               </View>
               <View style={styles.cardActions}>
-                <TouchableOpacity
-                  onPress={() => handleEdit(staff)}
-                  style={styles.editBtn}
-                >
-                  <Ionicons name="create-outline" size={20} color="#3B82F6" />
-                </TouchableOpacity>
+                {!staff.sourceRegistryId && (
+                  <TouchableOpacity
+                    onPress={() => handleEdit(staff)}
+                    style={styles.editBtn}
+                  >
+                    <Ionicons name="create-outline" size={20} color="#3B82F6" />
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   onPress={() => handleDelete(staff.id)}
                   style={styles.deleteBtn}
@@ -1336,7 +2042,7 @@ const styles = StyleSheet.create({
   uploadBox: {
     flex: 1,
     backgroundColor: "#F8FAFC",
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderStyle: "dashed",
     borderColor: "#CBD5E1",
     borderRadius: 16,
@@ -1344,25 +2050,29 @@ const styles = StyleSheet.create({
     position: "relative",
     justifyContent: "center",
     alignItems: "center",
-    minHeight: 100,
+    minHeight: 120,
+    marginVertical: 4,
   },
   uploadPlaceholder: {
     alignItems: "center",
+    gap: 8,
   },
   uploadIcon: {
-    fontSize: 22,
-    marginBottom: 4,
+    fontSize: 24,
   },
   uploadLabel: {
-    fontSize: 10,
-    fontWeight: "700",
+    fontSize: 11,
+    fontWeight: "800",
     color: "#64748B",
     textTransform: "uppercase",
+    textAlign: "center",
+    marginTop: 4,
   },
   previewImage: {
     width: "100%",
     height: "100%",
-    resizeMode: "cover",
+    resizeMode: "contain",
+    backgroundColor: "#F1F5F9",
   },
   formButtons: {
     marginTop: 10,
@@ -1559,4 +2269,109 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 16,
   },
+  // â”€â”€ Mode Toggle Styles â”€â”€
+  modeTabs: {
+    flexDirection: "row",
+    backgroundColor: "#F1F5F9",
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 20,
+    gap: 4,
+  },
+  modeTab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    borderRadius: 11,
+    gap: 6,
+  },
+  modeTabActive: {
+    backgroundColor: "#3B82F6",
+    shadowColor: "#3B82F6",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  modeTabText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#64748B",
+  },
+  modeTabTextActive: {
+    color: "#FFFFFF",
+  },
+  // â”€â”€ Empty Registry â”€â”€
+  emptyRegistry: {
+    alignItems: "center",
+    padding: 20,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderStyle: "dashed",
+  },
+  emptyRegistryText: {
+    color: "#64748B",
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: 8,
+    textAlign: "center",
+  },
+  emptyRegistryHint: {
+    color: "#94A3B8",
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: "center",
+  },
+  // â”€â”€ Profile Preview â”€â”€
+  profilePreview: {
+    backgroundColor: "#F0FDF4",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    marginTop: 8,
+  },
+  profilePreviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 14,
+  },
+  previewAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: "#F1F5F9",
+  },
+  previewAvatarPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: "#DCFCE7",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+  },
+  previewAvatarText: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#16A34A",
+  },
+  previewName: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginBottom: 2,
+  },
+  previewDetail: {
+    fontSize: 13,
+    color: "#64748B",
+    marginTop: 1,
+  },
 });
+

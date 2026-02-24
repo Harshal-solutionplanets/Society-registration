@@ -37,8 +37,19 @@ interface FloorData {
 
 const BuildingLoader = () => {
   const liftAnim = useRef(new Animated.Value(0)).current;
+  const [msgIndex, setMsgIndex] = useState(0);
+  const messages = [
+    "Scanning structure...",
+    "Syncing with Drive...",
+    "Updating Firestore...",
+    "Finalizing setup...",
+  ];
 
   useEffect(() => {
+    const timer = setInterval(() => {
+      setMsgIndex((prev) => (prev + 1) % messages.length);
+    }, 2000);
+
     Animated.loop(
       Animated.sequence([
         Animated.timing(liftAnim, {
@@ -55,6 +66,8 @@ const BuildingLoader = () => {
         }),
       ]),
     ).start();
+
+    return () => clearInterval(timer);
   }, [liftAnim]);
 
   return (
@@ -73,11 +86,11 @@ const BuildingLoader = () => {
           color: "#fff",
           fontWeight: "700",
           marginLeft: 10,
-          fontSize: 16,
+          fontSize: 14, // Slightly smaller to fit messages
           letterSpacing: 0.5,
         }}
       >
-        Constructing Wing...
+        {messages[msgIndex]}
       </Text>
     </View>
   );
@@ -97,9 +110,41 @@ export default function WingSetup() {
   const [wingName, setWingName] = useState(initialWingName);
   const [floorCount, setFloorCount] = useState("");
   const [floors, setFloors] = useState<FloorData[]>([]);
-  const [deletedFloors, setDeletedFloors] = useState<number[]>([]);
+  const [deletedFloors, setDeletedFloors] = useState<
+    { floorNumber: number; driveFolderId?: string }[]
+  >([]);
   const [isInitialFlatSetup, setIsInitialFlatSetup] = useState(true);
   const [existingWingData, setExistingWingData] = useState<any>(null);
+  const [editStatus, setEditStatus] = useState<"Vacant" | "Occupied">(
+    "Occupied",
+  );
+
+  const handleBack = () => {
+    if (!user) {
+      router.replace("/admin/auth");
+    } else {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/admin/dashboard");
+      }
+    }
+  };
+
+  const handleFloorCountChange = (val: string) => {
+    const sanitized = val.replace(/[^0-9]/g, "");
+    const num = parseInt(sanitized) || 0;
+    if (num > 88) {
+      Toast.show({
+        type: "error",
+        text1: "Floor Limit",
+        text2: "Maximum 88 floors are allowed per wing.",
+      });
+      setFloorCount("88");
+      return;
+    }
+    setFloorCount(sanitized);
+  };
 
   // Stable ID for database paths - consistently use underscores for spaces
   const wingIdToUse = wingId || wingName.trim().replace(/\s+/g, "_");
@@ -114,6 +159,30 @@ export default function WingSetup() {
       fetchWingData();
     }
   }, [user]);
+
+  // Helper to delete a folder/file from Drive
+  const deleteDriveFolder = async (folderId: string, token: string) => {
+    try {
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${folderId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+      if (!response.ok && response.status !== 404) {
+        const error = await response.json();
+        console.warn("Drive folder deletion failed:", error);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.warn("Error deleting Drive folder:", error);
+      return false;
+    }
+  };
 
   const fetchWingData = async () => {
     if (!user) return;
@@ -224,13 +293,23 @@ export default function WingSetup() {
     console.log("Attempting to delete floor:", floorNumber);
 
     const performDelete = () => {
+      const floorToDelete = floors.find((f) => f.floorNumber === floorNumber);
+      if (!floorToDelete) return;
+
       setFloors((prev) => {
         const updated = prev.filter((f) => f.floorNumber !== floorNumber);
         // Update floor count based on the actual remaining floors
         setFloorCount(updated.length.toString());
         return updated;
       });
-      setDeletedFloors((prev) => [...prev, floorNumber]);
+
+      setDeletedFloors((prev) => [
+        ...prev,
+        {
+          floorNumber: floorToDelete.floorNumber,
+          driveFolderId: floorToDelete.driveFolderId,
+        },
+      ]);
 
       Toast.show({
         type: "info",
@@ -280,6 +359,16 @@ export default function WingSetup() {
     const allFloorsEmpty = floors.every((f) => f.flatCount === 0);
     const trimmedName = floorNameInput.trim();
 
+    // Cap flat count to 40
+    if (numFlats > 40) {
+      Toast.show({
+        type: "error",
+        text1: "Flat Limit",
+        text2: "Maximum 40 flats are allowed per floor.",
+      });
+      return;
+    }
+
     // Validate unique floor name
     const isDuplicate = floors.some(
       (f) =>
@@ -295,6 +384,22 @@ export default function WingSetup() {
         text1: "Duplicate Name",
         text2:
           "Another floor already has this name. Please choose a unique name.",
+      });
+      return;
+    }
+
+    // Check if flat count is locked for this floor (already saved with data)
+    const existingFloor = existingWingData?.floors?.find(
+      (f: any) => f.floorNumber === selectedFloor,
+    );
+    const isFlatCountLocked = existingFloor && existingFloor.flatCount > 0;
+
+    if (isFlatCountLocked && numFlats !== existingFloor.flatCount) {
+      Toast.show({
+        type: "error",
+        text1: "Flat Count Locked",
+        text2:
+          "Cannot change flat count after structure is saved. Only floor name can be edited.",
       });
       return;
     }
@@ -320,14 +425,20 @@ export default function WingSetup() {
       setFloors((prev) =>
         prev.map((f) =>
           f.floorNumber === selectedFloor
-            ? { ...f, flatCount: numFlats, floorName: trimmedName }
+            ? {
+                ...f,
+                flatCount: isFlatCountLocked
+                  ? existingFloor.flatCount
+                  : numFlats,
+                floorName: trimmedName,
+              }
             : f,
         ),
       );
       Toast.show({
         type: "success",
         text1: "Floor Updated",
-        text2: `${trimmedName || `Floor ${selectedFloor}`} set to ${numFlats} flats`,
+        text2: `${trimmedName || `Floor ${selectedFloor}`} ${isFlatCountLocked ? "name updated" : `set to ${numFlats} flats`}`,
       });
     }
     setModalVisible(false);
@@ -483,27 +594,30 @@ export default function WingSetup() {
           rootFolderId as string,
           token as string,
         );
+      } else if (initialName !== wingName) {
+        // Rename Wing Folder if name changed
+        await renameDriveFolder(wingFolderId, wingName, token as string);
+        setInitialName(wingName);
       }
 
       const batch = writeBatch(db);
-      const updatedFloors = [...floors];
 
-      const isRenaming = wingId && initialName !== wingName;
-      // Standardize wingIdToUse - use underscores consistently
-      const wingPrefix = (wingIdToUse as string)
-        .replace(/\s+/g, "_")
-        .toUpperCase();
-      let unitsGenerated = 0;
+      // AUTO-DELETE LOGIC: Filter floors with 0 flats and queue them for deletion
+      const activeFloors = floors.filter((f) => f.flatCount > 0);
+      const autoDeleted = floors
+        .filter((f) => f.flatCount === 0)
+        .map((f) => ({
+          floorNumber: f.floorNumber,
+          driveFolderId: f.driveFolderId,
+        }));
 
-      console.log(
-        "DEBUG: Wing Save - wingIdToUse:",
-        wingIdToUse,
-        "isRenaming:",
-        isRenaming,
-      );
+      const finalDeletedQueue = [...deletedFloors, ...autoDeleted];
+      const updatedFloors = [...activeFloors];
 
-      for (const floorNum of deletedFloors) {
-        const floorPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${floorNum}`;
+      // Handle All Deletions (Firestore + Drive)
+      for (const item of finalDeletedQueue) {
+        // 1. Delete Units from Firestore
+        const floorPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${item.floorNumber}`;
         const unitsRef = collection(db, floorPath);
         const unitsSnap = await getDocs(unitsRef);
         unitsSnap.forEach((unitDoc) => {
@@ -515,7 +629,22 @@ export default function WingSetup() {
             ),
           );
         });
+
+        // 2. Delete Folder from Google Drive
+        if (item.driveFolderId) {
+          console.log(
+            `Cleaning up Drive: Deleting floor folder ${item.driveFolderId} for floor ${item.floorNumber}`,
+          );
+          await deleteDriveFolder(item.driveFolderId, token as string);
+        }
       }
+
+      const isRenaming = wingId && initialName !== wingName;
+      // Standardize wingIdToUse - use underscores consistently
+      const wingPrefix = (wingIdToUse as string)
+        .replace(/\s+/g, "_")
+        .toUpperCase();
+      let unitsGenerated = 0;
 
       for (let i = 0; i < updatedFloors.length; i++) {
         const floor = updatedFloors[i];
@@ -615,7 +744,7 @@ export default function WingSetup() {
               residenceType: existingData?.residenceType || "Residence",
               residentName: existingData?.residentName || "",
               residentMobile: existingData?.residentMobile || "",
-              residenceStatus: existingData?.residenceStatus || "VACANT",
+              residenceStatus: existingData?.residenceStatus || "Occupied",
               familyMembers: existingData?.familyMembers || 0,
               staffMembers: existingData?.staffMembers || 0,
               username: residentUsername,
@@ -625,7 +754,7 @@ export default function WingSetup() {
               floorNumber: floor.floorNumber,
               unitNumber: unitNumber,
               residentUID: existingData?.residentUID || null,
-              status: existingData?.residenceStatus || "VACANT",
+              status: existingData?.residenceStatus || "Occupied",
               driveFolderId: flatFolderId || "",
               createdAt: existingData?.createdAt || new Date().toISOString(),
               updatedAt: new Date().toISOString(),
@@ -735,16 +864,7 @@ export default function WingSetup() {
         contentContainerStyle={{ paddingBottom: 40 }}
       >
         <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => {
-              if (router.canGoBack()) {
-                router.back();
-              } else {
-                router.replace("/admin/dashboard");
-              }
-            }}
-            style={styles.backBtn}
-          >
+          <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
             <Text style={styles.backBtnText}>← Back</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Wing Structure</Text>
@@ -771,7 +891,7 @@ export default function WingSetup() {
                   floors.length > 0 && styles.disabledInput,
                 ]}
                 value={floorCount}
-                onChangeText={setFloorCount}
+                onChangeText={handleFloorCountChange}
                 placeholder="e.g. 12"
                 keyboardType="numeric"
                 editable={floors.length === 0}
@@ -794,7 +914,7 @@ export default function WingSetup() {
             </View>
             {floors.length > 0 && (
               <Text style={styles.helpText}>
-                Floor count is locked. Use "Add Floor" or delete buttons below.
+                Floor count is locked. Use Add Floor or delete buttons below.
               </Text>
             )}
           </View>
@@ -946,14 +1066,56 @@ export default function WingSetup() {
             <Text style={styles.modalSubtitle}>
               How many flats on this floor?
             </Text>
-            <TextInput
-              style={styles.modalInput}
-              value={flatInput}
-              onChangeText={setFlatInput}
-              keyboardType="numeric"
-              selectTextOnFocus
-              autoFocus
-            />
+            {(() => {
+              const existingFloor = existingWingData?.floors?.find(
+                (f: any) => f.floorNumber === selectedFloor,
+              );
+              const isLocked = existingFloor && existingFloor.flatCount > 0;
+              return (
+                <>
+                  <TextInput
+                    style={[
+                      styles.modalInput,
+                      isLocked && styles.disabledInput,
+                    ]}
+                    value={flatInput}
+                    onChangeText={(val) => {
+                      if (!isLocked) {
+                        const num = parseInt(val) || 0;
+                        if (num > 40) {
+                          Toast.show({
+                            type: "error",
+                            text1: "Flat Limit",
+                            text2: "Maximum 40 flats are allowed per floor.",
+                          });
+                          setModalVisible(false);
+                          setFlatInput("");
+                          return;
+                        }
+                        setFlatInput(val);
+                      }
+                    }}
+                    keyboardType="numeric"
+                    selectTextOnFocus={!isLocked}
+                    autoFocus={!isLocked}
+                    editable={!isLocked}
+                  />
+                  {isLocked && (
+                    <Text
+                      style={{
+                        color: "#94A3B8",
+                        fontSize: 11,
+                        marginTop: 4,
+                        fontStyle: "italic",
+                      }}
+                    >
+                      Flat count is locked after saving. Only floor name can be
+                      changed.
+                    </Text>
+                  )}
+                </>
+              );
+            })()}
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.cancelBtn]}

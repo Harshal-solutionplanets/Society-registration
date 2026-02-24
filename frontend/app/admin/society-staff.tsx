@@ -12,7 +12,7 @@ import {
   getDocs,
   setDoc,
 } from "firebase/firestore";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -57,6 +57,31 @@ const STAFF_POSITIONS = [
 ];
 
 const SHIFTS = ["Day", "Night", "General"];
+
+const StaffLoader = () => {
+  const [msgIndex, setMsgIndex] = useState(0);
+  const messages = [
+    "Syncing data...",
+    "Uploading documents to Drive...",
+    "Finalizing registration...",
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setMsgIndex((prev) => (prev + 1) % messages.length);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <ActivityIndicator color="#fff" size="small" />
+      <Text style={{ color: "#fff", fontWeight: "600", fontSize: 14 }}>
+        {messages[msgIndex]}
+      </Text>
+    </View>
+  );
+};
 
 const findOrCreateFolder = async (
   name: string,
@@ -233,6 +258,23 @@ export default function SocietyStaff() {
   const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
+
+  const closeAllDropdowns = () => {
+    setShowPositionDropdown(false);
+    setShowShiftDropdown(false);
+  };
+
+  const handleBack = () => {
+    if (!user) {
+      router.replace("/admin/auth");
+    } else {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/admin/dashboard");
+      }
+    }
+  };
   const [saving, setSaving] = useState(false);
   const [members, setMembers] = useState<StaffMember[]>([]);
 
@@ -451,6 +493,132 @@ export default function SocietyStaff() {
         console.error("Immediate sync failed:", err);
       }
     }
+  };
+
+  // Drag and Drop handler for web
+  const handleFileDrop = async (
+    file: File,
+    type: "photo" | "idCard" | "addressProof",
+  ) => {
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/jpg",
+      "application/pdf",
+    ];
+    if (!allowedTypes.includes(file.type)) {
+      Toast.show({
+        type: "error",
+        text1: "Invalid File",
+        text2: "Only jpg, png, or pdf files allowed.",
+      });
+      return;
+    }
+    // Size check: 500KB = 512000 bytes
+    if (file.size > 512000) {
+      Toast.show({
+        type: "error",
+        text1: "File Too Large",
+        text2: "Maximum file size is 500KB.",
+      });
+      return;
+    }
+    const base64String = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(file);
+    });
+
+    // Update state
+    if (type === "photo") setPhoto(base64String);
+    else if (type === "idCard") setIdCard(base64String);
+    else if (type === "addressProof") setAddressProof(base64String);
+
+    // If editing existing record, sync immediately
+    if (editingId && user) {
+      const isPdf = base64String.startsWith("data:application/pdf");
+      const ext = isPdf ? ".pdf" : ".jpg";
+      const baseName =
+        type === "photo"
+          ? "Photo"
+          : type === "idCard"
+            ? "ID_Card"
+            : "Address_Proof";
+      const fileName = `${baseName}${ext}`;
+      try {
+        const updateObj = {
+          [type]: base64String,
+          updatedAt: new Date().toISOString(),
+        };
+        const staffPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Staff/${editingId}`;
+        await setDoc(doc(db, staffPath), updateObj, { merge: true });
+
+        const societyDoc = await getDoc(
+          doc(db, `artifacts/${appId}/public/data/societies`, user?.uid),
+        );
+        const societyData = societyDoc.data();
+        let token = societyData?.driveAccessToken;
+        const existingMember = members.find((m) => m.id === editingId);
+        const staffFolderId = existingMember?.driveFolderId;
+
+        if (token && staffFolderId) {
+          const testRes = await fetch(
+            "https://www.googleapis.com/drive/v3/about?fields=user",
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          if (testRes.status === 401) {
+            token = await refreshAccessToken();
+          }
+          if (token) {
+            await deleteFileFromDrive(`${baseName}.jpg`, staffFolderId, token);
+            await deleteFileFromDrive(`${baseName}.pdf`, staffFolderId, token);
+            await deleteFileFromDrive(`${baseName}.png`, staffFolderId, token);
+            await deleteFileFromDrive(`${baseName}.jpeg`, staffFolderId, token);
+            await uploadImageToDrive(
+              base64String,
+              fileName,
+              staffFolderId,
+              token,
+            );
+          }
+        }
+        Toast.show({
+          type: "success",
+          text1: "Auto-synced",
+          text2: `${type} updated via drag & drop.`,
+        });
+      } catch (err: any) {
+        console.error("Drag-drop sync failed:", err);
+      }
+    }
+  };
+
+  // Web-only: Wrapper to support drag-and-drop on upload boxes
+  const DropZoneWrapper = ({
+    type,
+    children,
+  }: {
+    type: "photo" | "idCard" | "addressProof";
+    children: React.ReactNode;
+  }) => {
+    if (Platform.OS !== "web") return <>{children}</>;
+    return (
+      <div
+        onDragOver={(e: any) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e: any) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const file = e.dataTransfer?.files?.[0];
+          if (file) handleFileDrop(file, type);
+        }}
+        style={{ flex: 1, position: "relative" }}
+      >
+        {children}
+      </div>
+    );
   };
 
   const handlePhoneChange = (val: string) => {
@@ -828,374 +996,387 @@ export default function SocietyStaff() {
       <ScrollView
         style={styles.container}
         contentContainerStyle={{ paddingBottom: 40 }}
+        keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backBtn}
-          >
-            <Text style={styles.backBtnText}>← Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.title}>Society Staff</Text>
-        </View>
-
-        <View style={styles.formSection}>
-          <Text style={styles.sectionTitle}>
-            {editingId ? "Edit Staff Member" : "Add New Staff"}
-          </Text>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Full Name *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Ramesh"
-              value={name}
-              onChangeText={setName}
-            />
-          </View>
-
-          <View style={[styles.row, { zIndex: 1000 }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Position *</Text>
-              <TouchableOpacity
-                style={styles.dropdownButton}
-                onPress={() => setShowPositionDropdown(!showPositionDropdown)}
-              >
-                <Text
-                  style={[
-                    styles.dropdownText,
-                    !position && { color: "#94A3B8" },
-                  ]}
-                >
-                  {position || "Select Position"}
-                </Text>
-                <Text>▼</Text>
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={closeAllDropdowns}
+          style={{ flex: 1 }}
+        >
+          <View>
+            <View style={styles.header}>
+              <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
+                <Text style={styles.backBtnText}>← Back</Text>
               </TouchableOpacity>
-              {showPositionDropdown && (
-                <View style={styles.dropdownListContainer}>
-                  <ScrollView
-                    style={styles.dropdownList}
-                    nestedScrollEnabled={true}
+              <Text style={styles.title}>Society Staff</Text>
+            </View>
+
+            <View style={styles.formSection}>
+              <Text style={styles.sectionTitle}>
+                {editingId ? "Edit Staff Member" : "Add New Staff"}
+              </Text>
+
+              <View style={[styles.row, { zIndex: 1 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Full Name *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Ramesh"
+                    value={name}
+                    onChangeText={setName}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Phone Number *</Text>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      formErrors.phone ? styles.inputError : null,
+                    ]}
+                    placeholder="10 digit number"
+                    value={phone}
+                    onChangeText={handlePhoneChange}
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                  />
+                  {formErrors.phone ? (
+                    <Text style={styles.errorText}>{formErrors.phone}</Text>
+                  ) : null}
+                </View>
+              </View>
+
+              <View style={[styles.row, { zIndex: 1000 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Position *</Text>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() =>
+                      setShowPositionDropdown(!showPositionDropdown)
+                    }
                   >
-                    {STAFF_POSITIONS.map((item) => (
-                      <TouchableOpacity
-                        key={item}
-                        style={styles.dropdownItem}
-                        onPress={() => {
-                          setPosition(item);
-                          setShowPositionDropdown(false);
-                        }}
-                      >
-                        <Text>{item}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-            </View>
-
-            <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Shift *</Text>
-              <TouchableOpacity
-                style={styles.dropdownButton}
-                onPress={() => setShowShiftDropdown(!showShiftDropdown)}
-              >
-                <Text style={styles.dropdownText}>{shift}</Text>
-                <Text>▼</Text>
-              </TouchableOpacity>
-              {showShiftDropdown && (
-                <View style={styles.dropdownListContainer}>
-                  {SHIFTS.map((item) => (
-                    <TouchableOpacity
-                      key={item}
-                      style={styles.dropdownItem}
-                      onPress={() => {
-                        setShift(item);
-                        setShowShiftDropdown(false);
-                      }}
+                    <Text
+                      style={[
+                        styles.dropdownText,
+                        !position && { color: "#94A3B8" },
+                      ]}
                     >
-                      <Text>{item}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </View>
-          </View>
-
-          {position === "Other" && (
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Specify Position</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Supervisor"
-                value={otherPosition}
-                onChangeText={setOtherPosition}
-              />
-            </View>
-          )}
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Phone Number *</Text>
-            <TextInput
-              style={[
-                styles.input,
-                formErrors.phone ? styles.inputError : null,
-              ]}
-              placeholder="10 digit number"
-              value={phone}
-              onChangeText={handlePhoneChange}
-              keyboardType="phone-pad"
-              maxLength={10}
-            />
-            {formErrors.phone ? (
-              <Text style={styles.errorText}>{formErrors.phone}</Text>
-            ) : null}
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email (Optional, @gmail.com)</Text>
-            <TextInput
-              style={[
-                styles.input,
-                formErrors.email ? styles.inputError : null,
-              ]}
-              placeholder="ramesh@gmail.com"
-              value={email}
-              onChangeText={handleEmailChange}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            {formErrors.email ? (
-              <Text style={styles.errorText}>{formErrors.email}</Text>
-            ) : null}
-          </View>
-
-          <View style={styles.uploadSection}>
-            <Text style={styles.label}>
-              Documents (png/jpg/pdf only, Max 500KB)
-            </Text>
-            <View style={styles.uploadRow}>
-              <View style={styles.uploadWrapper}>
-                <TouchableOpacity
-                  style={styles.uploadBox}
-                  onPress={() =>
-                    !photo && handleDocumentChange("photo", "pick")
-                  }
-                >
-                  {photo ? (
-                    photo.startsWith("data:application/pdf") ? (
-                      <View
-                        style={[
-                          styles.previewImage,
-                          {
-                            justifyContent: "center",
-                            alignItems: "center",
-                            backgroundColor: "#F1F5F9",
-                          },
-                        ]}
+                      {position || "Select Position"}
+                    </Text>
+                    <Text>▼</Text>
+                  </TouchableOpacity>
+                  {showPositionDropdown && (
+                    <View style={styles.dropdownListContainer}>
+                      <ScrollView
+                        style={styles.dropdownList}
+                        nestedScrollEnabled={true}
                       >
-                        <Ionicons
-                          name="document-text"
-                          size={32}
-                          color="#EF4444"
-                        />
-                        <Text style={{ fontSize: 10, color: "#334155" }}>
-                          PDF
-                        </Text>
-                      </View>
-                    ) : (
-                      <Image
-                        source={{ uri: photo }}
-                        style={styles.previewImage}
-                      />
-                    )
-                  ) : (
-                    <View style={styles.uploadPlaceholder}>
-                      <Text style={styles.uploadIcon}>👤</Text>
-                      <Text style={styles.uploadLabel}>Photo</Text>
+                        {STAFF_POSITIONS.map((item) => (
+                          <TouchableOpacity
+                            key={item}
+                            style={styles.dropdownItem}
+                            onPress={() => {
+                              setPosition(item);
+                              setShowPositionDropdown(false);
+                            }}
+                          >
+                            <Text>{item}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
                     </View>
                   )}
-                </TouchableOpacity>
-                {photo && (
-                  <View style={styles.overlayControls}>
-                    <TouchableOpacity
-                      style={[styles.overlayBtn, styles.editOverlay]}
-                      onPress={() => handleDocumentChange("photo", "pick")}
-                    >
-                      <Ionicons name="create" size={14} color="white" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.overlayBtn, styles.deleteOverlay]}
-                      onPress={() => handleDocumentChange("photo", "delete")}
-                    >
-                      <Ionicons name="trash" size={14} color="white" />
-                    </TouchableOpacity>
-                  </View>
-                )}
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Shift *</Text>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => setShowShiftDropdown(!showShiftDropdown)}
+                  >
+                    <Text style={styles.dropdownText}>{shift}</Text>
+                    <Text>▼</Text>
+                  </TouchableOpacity>
+                  {showShiftDropdown && (
+                    <View style={styles.dropdownListContainer}>
+                      {SHIFTS.map((item) => (
+                        <TouchableOpacity
+                          key={item}
+                          style={styles.dropdownItem}
+                          onPress={() => {
+                            setShift(item);
+                            setShowShiftDropdown(false);
+                          }}
+                        >
+                          <Text>{item}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
               </View>
 
-              <View style={styles.uploadWrapper}>
-                <TouchableOpacity
-                  style={styles.uploadBox}
-                  onPress={() =>
-                    !idCard && handleDocumentChange("idCard", "pick")
-                  }
-                >
-                  {idCard ? (
-                    idCard.startsWith("data:application/pdf") ? (
-                      <View
-                        style={[
-                          styles.previewImage,
-                          {
-                            justifyContent: "center",
-                            alignItems: "center",
-                            backgroundColor: "#F1F5F9",
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name="document-text"
-                          size={32}
-                          color="#EF4444"
-                        />
-                        <Text style={{ fontSize: 10, color: "#334155" }}>
-                          PDF
-                        </Text>
-                      </View>
-                    ) : (
-                      <Image
-                        source={{ uri: idCard }}
-                        style={styles.previewImage}
-                      />
-                    )
-                  ) : (
-                    <View style={styles.uploadPlaceholder}>
-                      <Text style={styles.uploadIcon}>💳</Text>
-                      <Text style={styles.uploadLabel}>ID Card</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-                {idCard && (
-                  <View style={styles.overlayControls}>
-                    <TouchableOpacity
-                      style={[styles.overlayBtn, styles.editOverlay]}
-                      onPress={() => handleDocumentChange("idCard", "pick")}
-                    >
-                      <Ionicons name="create" size={14} color="white" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.overlayBtn, styles.deleteOverlay]}
-                      onPress={() => handleDocumentChange("idCard", "delete")}
-                    >
-                      <Ionicons name="trash" size={14} color="white" />
-                    </TouchableOpacity>
-                  </View>
-                )}
+              {position === "Other" && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Specify Position</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Supervisor"
+                    value={otherPosition}
+                    onChangeText={setOtherPosition}
+                  />
+                </View>
+              )}
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Email (Optional, @gmail.com)</Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    formErrors.email ? styles.inputError : null,
+                  ]}
+                  placeholder="ramesh@gmail.com"
+                  value={email}
+                  onChangeText={handleEmailChange}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                {formErrors.email ? (
+                  <Text style={styles.errorText}>{formErrors.email}</Text>
+                ) : null}
               </View>
 
-              <View style={styles.uploadWrapper}>
-                <TouchableOpacity
-                  style={styles.uploadBox}
-                  onPress={() =>
-                    !addressProof &&
-                    handleDocumentChange("addressProof", "pick")
-                  }
-                >
-                  {addressProof ? (
-                    addressProof.startsWith("data:application/pdf") ? (
-                      <View
-                        style={[
-                          styles.previewImage,
-                          {
-                            justifyContent: "center",
-                            alignItems: "center",
-                            backgroundColor: "#F1F5F9",
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name="document-text"
-                          size={32}
-                          color="#EF4444"
-                        />
-                        <Text style={{ fontSize: 10, color: "#334155" }}>
-                          PDF
-                        </Text>
-                      </View>
-                    ) : (
-                      <Image
-                        source={{ uri: addressProof }}
-                        style={styles.previewImage}
-                      />
-                    )
-                  ) : (
-                    <View style={styles.uploadPlaceholder}>
-                      <Text style={styles.uploadIcon}>🏠</Text>
-                      <Text style={styles.uploadLabel}>Address</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-                {addressProof && (
-                  <View style={styles.overlayControls}>
+              <View style={styles.uploadSection}>
+                <Text style={styles.label}>
+                  Documents (png/jpg/pdf only, Max 500KB)
+                </Text>
+                <View style={styles.uploadRow}>
+                  <DropZoneWrapper type="photo">
                     <TouchableOpacity
-                      style={[styles.overlayBtn, styles.editOverlay]}
+                      style={styles.uploadBox}
                       onPress={() =>
+                        !photo && handleDocumentChange("photo", "pick")
+                      }
+                    >
+                      {photo ? (
+                        photo.startsWith("data:application/pdf") ? (
+                          <View
+                            style={[
+                              styles.previewImage,
+                              {
+                                justifyContent: "center",
+                                alignItems: "center",
+                                backgroundColor: "#F1F5F9",
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name="document-text"
+                              size={32}
+                              color="#EF4444"
+                            />
+                            <Text style={{ fontSize: 10, color: "#334155" }}>
+                              PDF
+                            </Text>
+                          </View>
+                        ) : (
+                          <Image
+                            source={{ uri: photo }}
+                            style={styles.previewImage}
+                          />
+                        )
+                      ) : (
+                        <View style={styles.uploadPlaceholder}>
+                          <Ionicons name="person" size={24} color="#6366F1" />
+                          <Text style={styles.uploadLabel}>Photo</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                    {photo && (
+                      <View style={styles.overlayControls}>
+                        <TouchableOpacity
+                          style={[styles.overlayBtn, styles.editOverlay]}
+                          onPress={() => handleDocumentChange("photo", "pick")}
+                        >
+                          <Ionicons name="create" size={14} color="white" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.overlayBtn, styles.deleteOverlay]}
+                          onPress={() =>
+                            handleDocumentChange("photo", "delete")
+                          }
+                        >
+                          <Ionicons name="trash" size={14} color="white" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </DropZoneWrapper>
+
+                  <DropZoneWrapper type="idCard">
+                    <TouchableOpacity
+                      style={styles.uploadBox}
+                      onPress={() =>
+                        !idCard && handleDocumentChange("idCard", "pick")
+                      }
+                    >
+                      {idCard ? (
+                        idCard.startsWith("data:application/pdf") ? (
+                          <View
+                            style={[
+                              styles.previewImage,
+                              {
+                                justifyContent: "center",
+                                alignItems: "center",
+                                backgroundColor: "#F1F5F9",
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name="document-text"
+                              size={32}
+                              color="#EF4444"
+                            />
+                            <Text style={{ fontSize: 10, color: "#334155" }}>
+                              PDF
+                            </Text>
+                          </View>
+                        ) : (
+                          <Image
+                            source={{ uri: idCard }}
+                            style={styles.previewImage}
+                          />
+                        )
+                      ) : (
+                        <View style={styles.uploadPlaceholder}>
+                          <Ionicons name="card" size={24} color="#0EA5E9" />
+                          <Text style={styles.uploadLabel}>ID Card</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                    {idCard && (
+                      <View style={styles.overlayControls}>
+                        <TouchableOpacity
+                          style={[styles.overlayBtn, styles.editOverlay]}
+                          onPress={() => handleDocumentChange("idCard", "pick")}
+                        >
+                          <Ionicons name="create" size={14} color="white" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.overlayBtn, styles.deleteOverlay]}
+                          onPress={() =>
+                            handleDocumentChange("idCard", "delete")
+                          }
+                        >
+                          <Ionicons name="trash" size={14} color="white" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </DropZoneWrapper>
+
+                  <DropZoneWrapper type="addressProof">
+                    <TouchableOpacity
+                      style={styles.uploadBox}
+                      onPress={() =>
+                        !addressProof &&
                         handleDocumentChange("addressProof", "pick")
                       }
                     >
-                      <Ionicons name="create" size={14} color="white" />
+                      {addressProof ? (
+                        addressProof.startsWith("data:application/pdf") ? (
+                          <View
+                            style={[
+                              styles.previewImage,
+                              {
+                                justifyContent: "center",
+                                alignItems: "center",
+                                backgroundColor: "#F1F5F9",
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name="document-text"
+                              size={32}
+                              color="#EF4444"
+                            />
+                            <Text style={{ fontSize: 10, color: "#334155" }}>
+                              PDF
+                            </Text>
+                          </View>
+                        ) : (
+                          <Image
+                            source={{ uri: addressProof }}
+                            style={styles.previewImage}
+                          />
+                        )
+                      ) : (
+                        <View style={styles.uploadPlaceholder}>
+                          <Ionicons name="home" size={24} color="#F59E0B" />
+                          <Text style={styles.uploadLabel}>Address</Text>
+                        </View>
+                      )}
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.overlayBtn, styles.deleteOverlay]}
-                      onPress={() =>
-                        handleDocumentChange("addressProof", "delete")
-                      }
-                    >
-                      <Ionicons name="trash" size={14} color="white" />
-                    </TouchableOpacity>
-                  </View>
-                )}
+                    {addressProof && (
+                      <View style={styles.overlayControls}>
+                        <TouchableOpacity
+                          style={[styles.overlayBtn, styles.editOverlay]}
+                          onPress={() =>
+                            handleDocumentChange("addressProof", "pick")
+                          }
+                        >
+                          <Ionicons name="create" size={14} color="white" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.overlayBtn, styles.deleteOverlay]}
+                          onPress={() =>
+                            handleDocumentChange("addressProof", "delete")
+                          }
+                        >
+                          <Ionicons name="trash" size={14} color="white" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </DropZoneWrapper>
+                </View>
               </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.addBtn,
+                  (saving || !!formErrors.phone || !!formErrors.email) &&
+                    styles.disabledBtn,
+                ]}
+                onPress={handleAddOrUpdateStaff}
+                disabled={saving || !!formErrors.phone || !!formErrors.email}
+              >
+                {saving ? (
+                  <StaffLoader />
+                ) : (
+                  <Text style={styles.addBtnText}>
+                    {editingId ? "Update Staff" : "Add Staff Member"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              {editingId && (
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={() => {
+                    setEditingId(null);
+                    setName("");
+                    setPosition("");
+                    setPhone("");
+                    setEmail("");
+                    setShift("Day");
+                    setPhoto(null);
+                    setIdCard(null);
+                    setAddressProof(null);
+                  }}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel Edit</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
-
-          <TouchableOpacity
-            style={[
-              styles.addBtn,
-              (saving || !!formErrors.phone || !!formErrors.email) &&
-                styles.disabledBtn,
-            ]}
-            onPress={handleAddOrUpdateStaff}
-            disabled={saving || !!formErrors.phone || !!formErrors.email}
-          >
-            {saving ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.addBtnText}>
-                {editingId ? "Update Staff" : "Add Staff Member"}
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          {editingId && (
-            <TouchableOpacity
-              style={styles.cancelBtn}
-              onPress={() => {
-                setEditingId(null);
-                setName("");
-                setPosition("");
-                setPhone("");
-                setEmail("");
-                setShift("Day");
-                setPhoto(null);
-                setIdCard(null);
-                setAddressProof(null);
-              }}
-            >
-              <Text style={styles.cancelBtnText}>Cancel Edit</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+        </TouchableOpacity>
 
         <View style={styles.listSection}>
           <Text style={styles.sectionTitle}>
@@ -1335,22 +1516,41 @@ const styles = StyleSheet.create({
   },
   uploadSection: { marginBottom: 20 },
   uploadRow: { flexDirection: "row", gap: 10 },
-  uploadWrapper: { flex: 1, aspectRatio: 1, position: "relative" },
+  uploadWrapper: { flex: 1, position: "relative" },
   uploadBox: {
     flex: 1,
     backgroundColor: "#F8FAFC",
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderStyle: "dashed",
     borderColor: "#CBD5E1",
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: "hidden",
+    position: "relative",
     justifyContent: "center",
     alignItems: "center",
+    minHeight: 140,
   },
-  uploadPlaceholder: { alignItems: "center" },
-  uploadIcon: { fontSize: 22, marginBottom: 2 },
-  uploadLabel: { fontSize: 10, color: "#64748B", fontWeight: "600" },
-  previewImage: { width: "100%", height: "100%" },
+  uploadPlaceholder: {
+    alignItems: "center",
+    gap: 8,
+  },
+  uploadIcon: {
+    fontSize: 24,
+  },
+  uploadLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#64748B",
+    textTransform: "uppercase",
+    textAlign: "center",
+    marginTop: 4,
+  },
+  previewImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "contain",
+    backgroundColor: "#F1F5F9",
+  },
   overlayControls: {
     position: "absolute",
     top: 4,

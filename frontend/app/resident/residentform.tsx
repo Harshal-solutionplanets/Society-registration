@@ -83,7 +83,7 @@ export default function ResidentForm() {
     residentBloodGroup: "",
     residentMobile: "",
     alternateMobile: "",
-    status: "OCCUPIED",
+    status: "Occupied",
     ownership: "SELF_OWNED",
     ownerName: "",
     ownerContact: "",
@@ -114,12 +114,40 @@ export default function ResidentForm() {
     gender: {},
     relation: {},
     blood: {},
+    familyProfession: {},
     vehicleType: {},
   });
+
+  const closeAllDropdowns = () => {
+    setShowDropdowns({
+      status: false,
+      ownership: false,
+      profession: false,
+      residentGender: false,
+      residentBlood: false,
+      gender: {},
+      relation: {},
+      blood: {},
+      familyProfession: {},
+      vehicleType: {},
+    });
+  };
 
   useEffect(() => {
     fetchResidentSession();
   }, []);
+
+  const handleBack = () => {
+    if (!user) {
+      router.replace("/");
+    } else {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/resident/dashboard");
+      }
+    }
+  };
 
   const fetchResidentSession = async () => {
     try {
@@ -137,6 +165,30 @@ export default function ResidentForm() {
           );
           if (residentDoc.exists()) {
             const existingData = residentDoc.data();
+            // Sync unitName & wingName from Firestore into sessionData
+            const syncedSession = { ...data };
+            let sessionChanged = false;
+            if (
+              existingData.unitName &&
+              existingData.unitName !== data.unitName
+            ) {
+              syncedSession.unitName = existingData.unitName;
+              sessionChanged = true;
+            }
+            if (
+              existingData.wingName &&
+              existingData.wingName !== data.wingName
+            ) {
+              syncedSession.wingName = existingData.wingName;
+              sessionChanged = true;
+            }
+            if (sessionChanged) {
+              setSessionData(syncedSession);
+              await AsyncStorage.setItem(
+                "resident_session",
+                JSON.stringify(syncedSession),
+              );
+            }
             setFormData((prev: any) => ({
               ...prev,
               ...existingData,
@@ -205,6 +257,9 @@ export default function ResidentForm() {
           otherRelation: "",
           bloodGroup: "",
           otherBloodGroup: "",
+          profession: "",
+          companyName: "",
+          otherProfession: "",
         });
       }
     } else {
@@ -234,6 +289,9 @@ export default function ResidentForm() {
         otherRelation: "",
         bloodGroup: "",
         otherBloodGroup: "",
+        profession: "",
+        companyName: "",
+        otherProfession: "",
       },
     ];
     setFormData((prev: any) => ({
@@ -260,11 +318,14 @@ export default function ResidentForm() {
     delete newRelation[index];
     const newBlood = { ...showDropdowns.blood };
     delete newBlood[index];
+    const newProfession = { ...showDropdowns.familyProfession };
+    delete newProfession[index];
     setShowDropdowns({
       ...showDropdowns,
       gender: newGender,
       relation: newRelation,
       blood: newBlood,
+      familyProfession: newProfession,
     });
   };
 
@@ -291,6 +352,43 @@ export default function ResidentForm() {
       vehicleCount: num.toString(),
       vehicleDetails: newDetails,
     }));
+  };
+
+  const addVehicle = () => {
+    let currentCount = parseInt(formData.vehicleCount) || 0;
+    if (currentCount >= 200) {
+      Toast.show({ type: "info", text1: "Limit", text2: "Max 200 vehicles" });
+      return;
+    }
+    const newCount = currentCount + 1;
+    const newDetails = [
+      ...formData.vehicleDetails,
+      { type: "Two-Wheeler", model: "", plateNumber: "" },
+    ];
+    setFormData((prev: any) => ({
+      ...prev,
+      vehicleCount: newCount.toString(),
+      vehicleDetails: newDetails,
+    }));
+  };
+
+  const removeVehicle = (index: number) => {
+    const newDetails = [...formData.vehicleDetails];
+    newDetails.splice(index, 1);
+    const newCount = newDetails.length;
+    setFormData((prev: any) => ({
+      ...prev,
+      vehicleCount: newCount.toString(),
+      vehicleDetails: newDetails,
+    }));
+
+    // Clear dropdown state
+    const newTypeDropdowns = { ...showDropdowns.vehicleType };
+    delete newTypeDropdowns[index];
+    setShowDropdowns({
+      ...showDropdowns,
+      vehicleType: newTypeDropdowns,
+    });
   };
 
   const updateVehicle = (index: number, field: string, value: string) => {
@@ -330,7 +428,11 @@ export default function ResidentForm() {
     }
 
     // New Password Validation
-    if (showPasswordChange && newPassword) {
+    if (showPasswordChange) {
+      if (!newPassword) {
+        setPasswordError("Password cannot be empty");
+        return;
+      }
       if (newPassword.length < 6 || newPassword.length > 14) {
         setPasswordError("Password must be 6 to 14 characters");
         return;
@@ -520,651 +622,796 @@ export default function ResidentForm() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.headerContainer}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backBtn}
-          >
-            <Ionicons name="arrow-back" size={24} color="#3B82F6" />
-          </TouchableOpacity>
-          <View style={{ alignItems: "center", flex: 1, marginRight: 40 }}>
-            <Text style={styles.title}>My Profile</Text>
-            <Text style={styles.unitBadge}>
-              {sessionData?.wingName} - {sessionData?.unitName}
-            </Text>
-          </View>
-        </View>
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={closeAllDropdowns}
+          style={{ flex: 1 }}
+        >
+          <View>
+            <View style={styles.headerContainer}>
+              <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
+                <Ionicons name="arrow-back" size={24} color="#3B82F6" />
+              </TouchableOpacity>
+              <View style={{ alignItems: "center", flex: 1, marginRight: 40 }}>
+                <Text style={styles.title}>My Profile</Text>
+                <Text style={styles.unitBadge}>
+                  {sessionData?.wingName} - {sessionData?.unitName}
+                </Text>
+              </View>
+            </View>
 
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "basic" && styles.activeTab]}
-            onPress={() => setActiveTab("basic")}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "basic" && styles.activeTabText,
-              ]}
-            >
-              Basic
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "advance" && styles.activeTab]}
-            onPress={() => setActiveTab("advance")}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "advance" && styles.activeTabText,
-              ]}
-            >
-              Advance
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.card}>
-          {activeTab === "basic" ? (
-            <>
-              <Text style={styles.sectionHeader}>PRIMARY RESIDENT</Text>
-              <View
-                style={[
-                  styles.rowInputsContainer,
-                  { zIndex: showDropdowns.residentGender ? 3000 : 20 },
-                ]}
+            <View style={styles.tabContainer}>
+              <TouchableOpacity
+                style={[styles.tab, activeTab === "basic" && styles.activeTab]}
+                onPress={() => setActiveTab("basic")}
               >
-                <View style={[styles.inputGroup, { flex: 1.5 }]}>
-                  <Text style={styles.label}>Full Name *</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.residentName}
-                    onChangeText={(val) =>
-                      handleInputChange("residentName", val)
-                    }
-                    placeholder="Name"
-                  />
-                </View>
-                <View style={[styles.inputGroup, { flex: 0.6 }]}>
-                  <Text style={styles.label}>Age</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.residentAge}
-                    onChangeText={(val) =>
-                      handleInputChange("residentAge", val)
-                    }
-                    placeholder="Age"
-                    keyboardType="numeric"
-                    maxLength={2}
-                  />
-                </View>
-                {renderDropdown(
-                  "Gender",
-                  formData.residentGender,
-                  ["Male", "Female", "Other"],
-                  showDropdowns.residentGender,
-                  (val) => {
-                    handleInputChange("residentGender", val);
-                    setShowDropdowns({
-                      ...showDropdowns,
-                      residentGender: false,
-                    });
-                  },
-                  () =>
-                    setShowDropdowns({
-                      ...showDropdowns,
-                      residentGender: !showDropdowns.residentGender,
-                    }),
-                  { flex: 0.9 },
-                )}
-              </View>
-
-              <View
-                style={[
-                  styles.rowInputsContainer,
-                  { zIndex: showDropdowns.residentBlood ? 3000 : 15 },
-                ]}
-              >
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.label}>Mobile Number *</Text>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      formErrors.residentMobile ? styles.inputError : null,
-                    ]}
-                    value={formData.residentMobile}
-                    onChangeText={(val) =>
-                      handleInputChange("residentMobile", val)
-                    }
-                    placeholder="e.g. 9876543210"
-                    placeholderTextColor="#94A3B8"
-                    keyboardType="phone-pad"
-                    maxLength={10}
-                  />
-                  {formErrors.residentMobile ? (
-                    <Text style={styles.errorText}>
-                      {formErrors.residentMobile}
-                    </Text>
-                  ) : null}
-                </View>
-
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.label}>Alternate Mobile (Optional)</Text>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      formErrors.alternateMobile ? styles.inputError : null,
-                    ]}
-                    value={formData.alternateMobile}
-                    onChangeText={(val) =>
-                      handleInputChange("alternateMobile", val)
-                    }
-                    placeholder="e.g. 9876543210"
-                    placeholderTextColor="#94A3B8"
-                    keyboardType="phone-pad"
-                    maxLength={10}
-                  />
-                  {formErrors.alternateMobile ? (
-                    <Text style={styles.errorText}>
-                      {formErrors.alternateMobile}
-                    </Text>
-                  ) : null}
-                </View>
-                {renderDropdown(
-                  "Blood Group",
-                  formData.residentBloodGroup,
-                  BLOOD_GROUPS,
-                  showDropdowns.residentBlood,
-                  (val) => {
-                    handleInputChange("residentBloodGroup", val);
-                    setShowDropdowns({
-                      ...showDropdowns,
-                      residentBlood: false,
-                    });
-                  },
-                  () =>
-                    setShowDropdowns({
-                      ...showDropdowns,
-                      residentBlood: !showDropdowns.residentBlood,
-                    }),
-                  { flex: 1 },
-                )}
-              </View>
-
-              <View style={styles.divider} />
-
-              <View style={styles.passwordSection}>
-                <TouchableOpacity
-                  style={styles.passwordToggleBtn}
-                  onPress={() => setShowPasswordChange(!showPasswordChange)}
-                >
-                  <Ionicons
-                    name={showPasswordChange ? "chevron-up" : "key-outline"}
-                    size={20}
-                    color="#3B82F6"
-                  />
-                  <Text style={styles.passwordToggleText}>
-                    {showPasswordChange
-                      ? "Cancel Password Change"
-                      : "Change Login Password"}
-                  </Text>
-                </TouchableOpacity>
-
-                {showPasswordChange && (
-                  <View style={styles.passwordInputContainer}>
-                    <Text style={styles.label}>
-                      New Password (6-14 chars, no spaces) *
-                    </Text>
-                    <TextInput
-                      style={[
-                        styles.input,
-                        passwordError ? styles.inputError : null,
-                      ]}
-                      placeholder="Enter new password"
-                      value={newPassword}
-                      onChangeText={(val) => {
-                        setNewPassword(val);
-                        if (passwordError) setPasswordError("");
-                      }}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
-                    {passwordError ? (
-                      <Text style={styles.errorText}>{passwordError}</Text>
-                    ) : null}
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.divider} />
-              <Text style={styles.sectionHeader}>LIVING STATUS</Text>
-              <View
-                style={[
-                  styles.rowInputsContainer,
-                  {
-                    zIndex:
-                      showDropdowns.status || showDropdowns.ownership
-                        ? 3000
-                        : 10,
-                  },
-                ]}
-              >
-                {renderDropdown(
-                  "Occupancy",
-                  formData.status,
-                  ["VACANT", "OCCUPIED"],
-                  showDropdowns.status,
-                  (val) => {
-                    handleInputChange("status", val);
-                    setShowDropdowns({ ...showDropdowns, status: false });
-                  },
-                  () =>
-                    setShowDropdowns({
-                      ...showDropdowns,
-                      status: !showDropdowns.status,
-                    }),
-                  { flex: 1 },
-                )}
-                {renderDropdown(
-                  "Ownership",
-                  formData.ownership,
-                  ["SELF_OWNED", "RENTAL"],
-                  showDropdowns.ownership,
-                  (val) => {
-                    handleInputChange("ownership", val);
-                    if (val === "SELF_OWNED") {
-                      setFormData((prev: any) => ({
-                        ...prev,
-                        ownerName: "",
-                        ownerContact: "",
-                      }));
-                    }
-                    setShowDropdowns({ ...showDropdowns, ownership: false });
-                  },
-                  () =>
-                    setShowDropdowns({
-                      ...showDropdowns,
-                      ownership: !showDropdowns.ownership,
-                    }),
-                  { flex: 1 },
-                )}
-              </View>
-
-              {formData.ownership === "RENTAL" && (
-                <View
+                <Text
                   style={[
-                    styles.rowInputsContainer,
-                    { marginTop: 16, zIndex: 5 },
+                    styles.tabText,
+                    activeTab === "basic" && styles.activeTabText,
                   ]}
                 >
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Flat owner name</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Enter owner name"
-                      value={formData.ownerName}
-                      onChangeText={(val) =>
-                        handleInputChange("ownerName", val)
-                      }
-                    />
-                  </View>
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Flat owner contact number</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Enter owner contact"
-                      value={formData.ownerContact}
-                      onChangeText={(val) =>
-                        handleInputChange("ownerContact", val)
-                      }
-                      keyboardType="phone-pad"
-                      maxLength={10}
-                    />
-                  </View>
-                </View>
-              )}
+                  Basic
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.tab,
+                  activeTab === "advance" && styles.activeTab,
+                ]}
+                onPress={() => setActiveTab("advance")}
+              >
+                <Text
+                  style={[
+                    styles.tabText,
+                    activeTab === "advance" && styles.activeTabText,
+                  ]}
+                >
+                  Advance
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-              <View style={styles.divider} />
-              <Text style={styles.sectionHeader}>FAMILY MEMBERS</Text>
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Total members (Max 40)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Type count"
-                  value={formData.familyMemberCount}
-                  onChangeText={handleFamilyCountChange}
-                  keyboardType="numeric"
-                  maxLength={2}
-                />
-              </View>
-              {formData.familyDetails.map((member: any, index: number) => {
-                const isGOpen = showDropdowns.gender[index];
-                const isROpen = showDropdowns.relation[index];
-                const isBOpen = showDropdowns.blood[index];
-                return (
+            <View style={styles.card}>
+              {activeTab === "basic" ? (
+                <>
+                  <Text style={styles.sectionHeader}>PRIMARY RESIDENT</Text>
                   <View
-                    key={index}
                     style={[
-                      styles.dynamicRowCard,
+                      styles.rowInputsContainer,
+                      { zIndex: showDropdowns.residentGender ? 3000 : 20 },
+                    ]}
+                  >
+                    <View style={[styles.inputGroup, { flex: 1.5 }]}>
+                      <Text style={styles.label}>Full Name *</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={formData.residentName}
+                        onChangeText={(val) =>
+                          handleInputChange("residentName", val)
+                        }
+                        placeholder="Name"
+                      />
+                    </View>
+                    <View style={[styles.inputGroup, { flex: 0.6 }]}>
+                      <Text style={styles.label}>Age</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={formData.residentAge}
+                        onChangeText={(val) =>
+                          handleInputChange("residentAge", val)
+                        }
+                        placeholder="Age"
+                        keyboardType="numeric"
+                        maxLength={2}
+                      />
+                    </View>
+                    {renderDropdown(
+                      "Gender",
+                      formData.residentGender,
+                      ["Male", "Female", "Other"],
+                      showDropdowns.residentGender,
+                      (val) => {
+                        handleInputChange("residentGender", val);
+                        setShowDropdowns({
+                          ...showDropdowns,
+                          residentGender: false,
+                        });
+                      },
+                      () =>
+                        setShowDropdowns({
+                          ...showDropdowns,
+                          residentGender: !showDropdowns.residentGender,
+                        }),
+                      { flex: 0.9 },
+                    )}
+                  </View>
+
+                  <View
+                    style={[
+                      styles.rowInputsContainer,
+                      { zIndex: showDropdowns.residentBlood ? 3000 : 15 },
+                    ]}
+                  >
+                    <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <Text style={styles.label}>Mobile Number *</Text>
+                      <TextInput
+                        style={[
+                          styles.input,
+                          formErrors.residentMobile ? styles.inputError : null,
+                        ]}
+                        value={formData.residentMobile}
+                        onChangeText={(val) =>
+                          handleInputChange("residentMobile", val)
+                        }
+                        placeholder="e.g. 9876543210"
+                        placeholderTextColor="#94A3B8"
+                        keyboardType="phone-pad"
+                        maxLength={10}
+                      />
+                      {formErrors.residentMobile ? (
+                        <Text style={styles.errorText}>
+                          {formErrors.residentMobile}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <Text style={styles.label}>
+                        Alternate Mobile (Optional)
+                      </Text>
+                      <TextInput
+                        style={[
+                          styles.input,
+                          formErrors.alternateMobile ? styles.inputError : null,
+                        ]}
+                        value={formData.alternateMobile}
+                        onChangeText={(val) =>
+                          handleInputChange("alternateMobile", val)
+                        }
+                        placeholder="e.g. 9876543210"
+                        placeholderTextColor="#94A3B8"
+                        keyboardType="phone-pad"
+                        maxLength={10}
+                      />
+                      {formErrors.alternateMobile ? (
+                        <Text style={styles.errorText}>
+                          {formErrors.alternateMobile}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {renderDropdown(
+                      "Blood Group",
+                      formData.residentBloodGroup,
+                      BLOOD_GROUPS,
+                      showDropdowns.residentBlood,
+                      (val) => {
+                        handleInputChange("residentBloodGroup", val);
+                        setShowDropdowns({
+                          ...showDropdowns,
+                          residentBlood: false,
+                        });
+                      },
+                      () =>
+                        setShowDropdowns({
+                          ...showDropdowns,
+                          residentBlood: !showDropdowns.residentBlood,
+                        }),
+                      { flex: 1 },
+                    )}
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  <View style={styles.passwordSection}>
+                    <TouchableOpacity
+                      style={styles.passwordToggleBtn}
+                      onPress={() => setShowPasswordChange(!showPasswordChange)}
+                    >
+                      <Ionicons
+                        name={showPasswordChange ? "chevron-up" : "key-outline"}
+                        size={20}
+                        color="#3B82F6"
+                      />
+                      <Text style={styles.passwordToggleText}>
+                        {showPasswordChange
+                          ? "Cancel Password Change"
+                          : "Change Login Password"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {showPasswordChange && (
+                      <View style={styles.passwordInputContainer}>
+                        <Text style={styles.label}>
+                          New Password (6-14 chars, no spaces) *
+                        </Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            passwordError ? styles.inputError : null,
+                          ]}
+                          placeholder="Enter new password"
+                          value={newPassword}
+                          onChangeText={(val) => {
+                            setNewPassword(val.replace(/\s/g, ""));
+                            if (passwordError) setPasswordError("");
+                          }}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                        />
+                        {passwordError ? (
+                          <Text style={styles.errorText}>{passwordError}</Text>
+                        ) : null}
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.divider} />
+                  <Text style={styles.sectionHeader}>LIVING STATUS</Text>
+                  <View
+                    style={[
+                      styles.rowInputsContainer,
                       {
                         zIndex:
-                          isGOpen || isROpen || isBOpen ? 2000 : 100 - index,
+                          showDropdowns.status || showDropdowns.ownership
+                            ? 3000
+                            : 10,
                       },
                     ]}
                   >
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        marginBottom: 8,
-                      }}
-                    >
-                      <Text style={[styles.rowLabel, { marginBottom: 0 }]}>
-                        Member {index + 1}
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => removeFamilyMember(index)}
-                      >
-                        <Ionicons
-                          name="trash-outline"
-                          size={18}
-                          color="#EF4444"
-                        />
-                      </TouchableOpacity>
-                    </View>
-                    <View
-                      style={[
-                        styles.rowInputsContainer,
-                        { zIndex: isGOpen ? 3000 : 5 },
-                      ]}
-                    >
-                      <View style={{ flex: 1.5 }}>
-                        <TextInput
-                          style={styles.rowInput}
-                          placeholder="Full Name"
-                          value={member.name}
-                          onChangeText={(val) =>
-                            updateFamilyMember(index, "name", val)
-                          }
-                        />
-                      </View>
-                      <View style={{ flex: 0.5 }}>
-                        <TextInput
-                          style={styles.rowInput}
-                          placeholder="Age"
-                          value={member.age}
-                          onChangeText={(val) =>
-                            updateFamilyMember(index, "age", val)
-                          }
-                          keyboardType="numeric"
-                        />
-                      </View>
-                      {renderRowDropdown(
-                        "Gender",
-                        member.gender,
-                        ["Male", "Female", "Other"],
-                        isGOpen,
-                        (val) => {
-                          updateFamilyMember(index, "gender", val);
-                          setShowDropdowns({
-                            ...showDropdowns,
-                            gender: { ...showDropdowns.gender, [index]: false },
-                          });
-                        },
-                        () =>
-                          setShowDropdowns({
-                            ...showDropdowns,
-                            gender: {
-                              ...showDropdowns.gender,
-                              [index]: !isGOpen,
-                            },
-                          }),
-                        0.8,
-                      )}
-                    </View>
-                    <View
-                      style={[
-                        styles.rowInputsContainer,
-                        { zIndex: isROpen || isBOpen ? 3000 : 1 },
-                      ]}
-                    >
-                      {renderRowDropdown(
-                        "Relation",
-                        member.relation,
-                        RELATIONS,
-                        isROpen,
-                        (val) => {
-                          updateFamilyMember(index, "relation", val);
-                          setShowDropdowns({
-                            ...showDropdowns,
-                            relation: {
-                              ...showDropdowns.relation,
-                              [index]: false,
-                            },
-                          });
-                        },
-                        () =>
-                          setShowDropdowns({
-                            ...showDropdowns,
-                            relation: {
-                              ...showDropdowns.relation,
-                              [index]: !isROpen,
-                            },
-                          }),
-                      )}
-                      {renderRowDropdown(
-                        "Blood",
-                        member.bloodGroup,
-                        BLOOD_GROUPS,
-                        isBOpen,
-                        (val) => {
-                          updateFamilyMember(index, "bloodGroup", val);
-                          setShowDropdowns({
-                            ...showDropdowns,
-                            blood: { ...showDropdowns.blood, [index]: false },
-                          });
-                        },
-                        () =>
-                          setShowDropdowns({
-                            ...showDropdowns,
-                            blood: {
-                              ...showDropdowns.blood,
-                              [index]: !isBOpen,
-                            },
-                          }),
-                      )}
-                    </View>
-                    {member.relation === "Other" && (
-                      <TextInput
-                        style={[styles.rowInput, { marginTop: 4 }]}
-                        placeholder="Specify Relation"
-                        value={member.otherRelation}
-                        onChangeText={(val) =>
-                          updateFamilyMember(index, "otherRelation", val)
-                        }
-                      />
+                    {renderDropdown(
+                      "Occupancy",
+                      formData.status,
+                      ["Vacant", "Occupied"],
+                      showDropdowns.status,
+                      (val) => {
+                        handleInputChange("status", val);
+                        setShowDropdowns({ ...showDropdowns, status: false });
+                      },
+                      () =>
+                        setShowDropdowns({
+                          ...showDropdowns,
+                          status: !showDropdowns.status,
+                        }),
+                      { flex: 1 },
                     )}
-                    {member.bloodGroup === "Other" && (
-                      <TextInput
-                        style={[styles.rowInput, { marginTop: 4 }]}
-                        placeholder="Specify Blood Group"
-                        value={member.otherBloodGroup}
-                        onChangeText={(val) =>
-                          updateFamilyMember(index, "otherBloodGroup", val)
+                    {renderDropdown(
+                      "Ownership",
+                      formData.ownership,
+                      ["SELF_OWNED", "RENTAL"],
+                      showDropdowns.ownership,
+                      (val) => {
+                        handleInputChange("ownership", val);
+                        if (val === "SELF_OWNED") {
+                          setFormData((prev: any) => ({
+                            ...prev,
+                            ownerName: "",
+                            ownerContact: "",
+                          }));
                         }
-                      />
+                        setShowDropdowns({
+                          ...showDropdowns,
+                          ownership: false,
+                        });
+                      },
+                      () =>
+                        setShowDropdowns({
+                          ...showDropdowns,
+                          ownership: !showDropdowns.ownership,
+                        }),
+                      { flex: 1 },
                     )}
                   </View>
-                );
-              })}
 
-              <TouchableOpacity
-                style={styles.addMemberBtn}
-                onPress={addFamilyMember}
-              >
-                <Ionicons name="add-circle-outline" size={20} color="#3B82F6" />
-                <Text style={styles.addMemberText}>Add Member</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <Text style={styles.sectionHeader}>PROFESSIONAL INFO</Text>
-              <View
-                style={[
-                  styles.rowInputsContainer,
-                  { zIndex: showDropdowns.profession ? 3000 : 10 },
-                ]}
-              >
-                {renderDropdown(
-                  "Profession",
-                  formData.profession,
-                  PROFESSIONS,
-                  showDropdowns.profession,
-                  (val) => {
-                    handleInputChange("profession", val);
-                    setShowDropdowns({ ...showDropdowns, profession: false });
-                  },
-                  () =>
-                    setShowDropdowns({
-                      ...showDropdowns,
-                      profession: !showDropdowns.profession,
-                    }),
-                  { flex: 1 },
-                )}
-                <View style={[styles.inputGroup, { flex: 1.2 }]}>
-                  <Text style={styles.label}>Company/Business</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.companyName}
-                    onChangeText={(val) =>
-                      handleInputChange("companyName", val)
-                    }
-                    placeholder="Where work?"
-                  />
-                </View>
-              </View>
-              {formData.profession === "Other" && (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Specify Profession</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.otherProfession}
-                    onChangeText={(val) =>
-                      handleInputChange("otherProfession", val)
-                    }
-                    placeholder="Profession"
-                  />
-                </View>
-              )}
-              <View style={styles.divider} />
-              <Text style={styles.sectionHeader}>VEHICLES (MAX 200)</Text>
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Total Vehicles</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. 2"
-                  value={formData.vehicleCount}
-                  onChangeText={handleVehicleCountChange}
-                  keyboardType="numeric"
-                  maxLength={3}
-                />
-              </View>
-              {formData.vehicleDetails.map((v: any, index: number) => {
-                const isVOpen = showDropdowns.vehicleType[index];
-                return (
+                  {formData.ownership === "RENTAL" && (
+                    <View
+                      style={[
+                        styles.rowInputsContainer,
+                        { marginTop: 16, zIndex: 5 },
+                      ]}
+                    >
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Flat owner name</Text>
+                        <TextInput
+                          style={styles.input}
+                          placeholder="Enter owner name"
+                          value={formData.ownerName}
+                          onChangeText={(val) =>
+                            handleInputChange("ownerName", val)
+                          }
+                        />
+                      </View>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.label}>
+                          Flat owner contact number
+                        </Text>
+                        <TextInput
+                          style={styles.input}
+                          placeholder="Enter owner contact"
+                          value={formData.ownerContact}
+                          onChangeText={(val) =>
+                            handleInputChange("ownerContact", val)
+                          }
+                          keyboardType="phone-pad"
+                          maxLength={10}
+                        />
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={styles.divider} />
+                  <Text style={styles.sectionHeader}>FAMILY MEMBERS</Text>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Total members (Max 40)</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        formData.familyDetails.length > 0 && {
+                          backgroundColor: "#F1F5F9",
+                          color: "#64748B",
+                        },
+                      ]}
+                      placeholder="Type count"
+                      value={formData.familyMemberCount}
+                      onChangeText={handleFamilyCountChange}
+                      keyboardType="numeric"
+                      maxLength={2}
+                      editable={formData.familyDetails.length === 0}
+                    />
+                    {formData.familyDetails.length > 0 && (
+                      <Text
+                        style={{ fontSize: 11, color: "#94A3B8", marginTop: 4 }}
+                      >
+                        Note: Use Add Member below once initialized to prevent
+                        accidental loss.
+                      </Text>
+                    )}
+                  </View>
+                  {formData.familyDetails.map((member: any, index: number) => {
+                    const isGOpen = showDropdowns.gender[index];
+                    const isROpen = showDropdowns.relation[index];
+                    const isBOpen = showDropdowns.blood[index];
+                    return (
+                      <View
+                        key={index}
+                        style={[
+                          styles.dynamicRowCard,
+                          {
+                            zIndex:
+                              isGOpen ||
+                              isROpen ||
+                              isBOpen ||
+                              showDropdowns.familyProfession[index]
+                                ? 2000
+                                : 100 - index,
+                          },
+                        ]}
+                      >
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: 8,
+                          }}
+                        >
+                          <Text style={[styles.rowLabel, { marginBottom: 0 }]}>
+                            Member {index + 1}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => removeFamilyMember(index)}
+                          >
+                            <Ionicons
+                              name="trash-outline"
+                              size={18}
+                              color="#EF4444"
+                            />
+                          </TouchableOpacity>
+                        </View>
+                        <View
+                          style={[
+                            styles.rowInputsContainer,
+                            { zIndex: isGOpen ? 3000 : 5 },
+                          ]}
+                        >
+                          <View style={{ flex: 1.5 }}>
+                            <TextInput
+                              style={styles.rowInput}
+                              placeholder="Full Name"
+                              value={member.name}
+                              onChangeText={(val) =>
+                                updateFamilyMember(index, "name", val)
+                              }
+                            />
+                          </View>
+                          <View style={{ flex: 0.5 }}>
+                            <TextInput
+                              style={styles.rowInput}
+                              placeholder="Age"
+                              value={member.age}
+                              onChangeText={(val) =>
+                                updateFamilyMember(index, "age", val)
+                              }
+                              keyboardType="numeric"
+                            />
+                          </View>
+                          {renderRowDropdown(
+                            "Gender",
+                            member.gender,
+                            ["Male", "Female", "Other"],
+                            isGOpen,
+                            (val) => {
+                              updateFamilyMember(index, "gender", val);
+                              setShowDropdowns({
+                                ...showDropdowns,
+                                gender: {
+                                  ...showDropdowns.gender,
+                                  [index]: false,
+                                },
+                              });
+                            },
+                            () =>
+                              setShowDropdowns({
+                                ...showDropdowns,
+                                gender: {
+                                  ...showDropdowns.gender,
+                                  [index]: !isGOpen,
+                                },
+                              }),
+                            0.8,
+                          )}
+                        </View>
+                        <View
+                          style={[
+                            styles.rowInputsContainer,
+                            { zIndex: isROpen || isBOpen ? 3000 : 1 },
+                          ]}
+                        >
+                          {renderRowDropdown(
+                            "Relation",
+                            member.relation,
+                            RELATIONS,
+                            isROpen,
+                            (val) => {
+                              updateFamilyMember(index, "relation", val);
+                              setShowDropdowns({
+                                ...showDropdowns,
+                                relation: {
+                                  ...showDropdowns.relation,
+                                  [index]: false,
+                                },
+                              });
+                            },
+                            () =>
+                              setShowDropdowns({
+                                ...showDropdowns,
+                                relation: {
+                                  ...showDropdowns.relation,
+                                  [index]: !isROpen,
+                                },
+                              }),
+                          )}
+                          {renderRowDropdown(
+                            "Blood",
+                            member.bloodGroup,
+                            BLOOD_GROUPS,
+                            isBOpen,
+                            (val) => {
+                              updateFamilyMember(index, "bloodGroup", val);
+                              setShowDropdowns({
+                                ...showDropdowns,
+                                blood: {
+                                  ...showDropdowns.blood,
+                                  [index]: false,
+                                },
+                              });
+                            },
+                            () =>
+                              setShowDropdowns({
+                                ...showDropdowns,
+                                blood: {
+                                  ...showDropdowns.blood,
+                                  [index]: !isBOpen,
+                                },
+                              }),
+                          )}
+                        </View>
+                        {member.relation === "Other" && (
+                          <TextInput
+                            style={[styles.rowInput, { marginTop: 4 }]}
+                            placeholder="Specify Relation"
+                            value={member.otherRelation}
+                            onChangeText={(val) =>
+                              updateFamilyMember(index, "otherRelation", val)
+                            }
+                          />
+                        )}
+                        {member.bloodGroup === "Other" && (
+                          <TextInput
+                            style={[styles.rowInput, { marginTop: 4 }]}
+                            placeholder="Specify Blood Group"
+                            value={member.otherBloodGroup}
+                            onChangeText={(val) =>
+                              updateFamilyMember(index, "otherBloodGroup", val)
+                            }
+                          />
+                        )}
+
+                        <View
+                          style={[
+                            styles.rowInputsContainer,
+                            {
+                              zIndex: showDropdowns.familyProfession[index]
+                                ? 3000
+                                : 1,
+                              marginTop: 8,
+                            },
+                          ]}
+                        >
+                          {renderRowDropdown(
+                            "Profession",
+                            member.profession,
+                            PROFESSIONS,
+                            showDropdowns.familyProfession[index],
+                            (val) => {
+                              updateFamilyMember(index, "profession", val);
+                              setShowDropdowns({
+                                ...showDropdowns,
+                                familyProfession: {
+                                  ...showDropdowns.familyProfession,
+                                  [index]: false,
+                                },
+                              });
+                            },
+                            () =>
+                              setShowDropdowns({
+                                ...showDropdowns,
+                                familyProfession: {
+                                  ...showDropdowns.familyProfession,
+                                  [index]:
+                                    !showDropdowns.familyProfession[index],
+                                },
+                              }),
+                            1,
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <TextInput
+                              style={styles.rowInput}
+                              placeholder="Company/Buissness/School"
+                              value={member.companyName}
+                              onChangeText={(val) =>
+                                updateFamilyMember(index, "companyName", val)
+                              }
+                            />
+                          </View>
+                        </View>
+                        {member.profession === "Other" && (
+                          <TextInput
+                            style={[styles.rowInput, { marginTop: 4 }]}
+                            placeholder="Specify Profession"
+                            value={member.otherProfession}
+                            onChangeText={(val) =>
+                              updateFamilyMember(index, "otherProfession", val)
+                            }
+                          />
+                        )}
+                      </View>
+                    );
+                  })}
+
+                  <TouchableOpacity
+                    style={styles.addMemberBtn}
+                    onPress={addFamilyMember}
+                  >
+                    <Ionicons
+                      name="add-circle-outline"
+                      size={20}
+                      color="#3B82F6"
+                    />
+                    <Text style={styles.addMemberText}>Add Member</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.sectionHeader}>PROFESSIONAL INFO</Text>
                   <View
-                    key={index}
                     style={[
-                      styles.dynamicRowCard,
-                      { zIndex: isVOpen ? 2000 : 100 - index },
+                      styles.rowInputsContainer,
+                      { zIndex: showDropdowns.profession ? 3000 : 10 },
                     ]}
                   >
-                    <View style={styles.rowInputsContainer}>
-                      {renderRowDropdown(
-                        "Type",
-                        v.type,
-                        VEHICLE_TYPES,
-                        isVOpen,
-                        (val) => {
-                          updateVehicle(index, "type", val);
-                          setShowDropdowns({
-                            ...showDropdowns,
-                            vehicleType: {
-                              ...showDropdowns.vehicleType,
-                              [index]: false,
-                            },
-                          });
-                        },
-                        () =>
-                          setShowDropdowns({
-                            ...showDropdowns,
-                            vehicleType: {
-                              ...showDropdowns.vehicleType,
-                              [index]: !isVOpen,
-                            },
-                          }),
-                        0.8,
-                      )}
-                      <View style={{ flex: 1 }}>
-                        <TextInput
-                          style={styles.rowInput}
-                          placeholder="Model (e.g. Swift)"
-                          value={v.model}
-                          onChangeText={(val) =>
-                            updateVehicle(index, "model", val)
-                          }
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <TextInput
-                          style={styles.rowInput}
-                          placeholder="Number (MH12...)"
-                          value={v.plateNumber}
-                          onChangeText={(val) =>
-                            updateVehicle(index, "plateNumber", val)
-                          }
-                          autoCapitalize="characters"
-                        />
-                      </View>
+                    {renderDropdown(
+                      "Profession",
+                      formData.profession,
+                      PROFESSIONS,
+                      showDropdowns.profession,
+                      (val) => {
+                        handleInputChange("profession", val);
+                        setShowDropdowns({
+                          ...showDropdowns,
+                          profession: false,
+                        });
+                      },
+                      () =>
+                        setShowDropdowns({
+                          ...showDropdowns,
+                          profession: !showDropdowns.profession,
+                        }),
+                      { flex: 1 },
+                    )}
+                    <View style={[styles.inputGroup, { flex: 1.2 }]}>
+                      <Text style={styles.label}>Company/Business</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={formData.companyName}
+                        onChangeText={(val) =>
+                          handleInputChange("companyName", val)
+                        }
+                        placeholder="Where work?"
+                      />
                     </View>
                   </View>
-                );
-              })}
-              <View style={styles.divider} />
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Hobbies & Interests</Text>
-                <TextInput
-                  style={[styles.input, { height: 60 }]}
-                  multiline
-                  value={formData.hobbies}
-                  onChangeText={(val) => handleInputChange("hobbies", val)}
-                  placeholder="Hobbies..."
-                />
-              </View>
-            </>
-          )}
-          <TouchableOpacity
-            style={[
-              styles.primaryButton,
-              isSubmitting && styles.buttonDisabled,
-            ]}
-            onPress={handleSubmit}
-            disabled={isSubmitting}
-          >
-            <Text style={styles.buttonText}>
-              {isSubmitting ? "Saving..." : "Save Profile"}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-            disabled={isSubmitting}
-          >
-            <Text style={styles.backButtonText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
+                  {formData.profession === "Other" && (
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Specify Profession</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={formData.otherProfession}
+                        onChangeText={(val) =>
+                          handleInputChange("otherProfession", val)
+                        }
+                        placeholder="Profession"
+                      />
+                    </View>
+                  )}
+                  <View style={styles.divider} />
+                  <Text style={styles.sectionHeader}>VEHICLES (MAX 200)</Text>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Total Vehicles</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        formData.vehicleDetails.length > 0 && {
+                          backgroundColor: "#F1F5F9",
+                          color: "#64748B",
+                        },
+                      ]}
+                      placeholder="e.g. 2"
+                      value={formData.vehicleCount}
+                      onChangeText={handleVehicleCountChange}
+                      keyboardType="numeric"
+                      maxLength={3}
+                      editable={formData.vehicleDetails.length === 0}
+                    />
+                    {formData.vehicleDetails.length > 0 && (
+                      <Text
+                        style={{ fontSize: 11, color: "#94A3B8", marginTop: 4 }}
+                      >
+                        Note: Use Add Vehicle below once initialized to
+                        prevent accidental data loss.
+                      </Text>
+                    )}
+                  </View>
+                  {formData.vehicleDetails.map((v: any, index: number) => {
+                    const isVOpen = showDropdowns.vehicleType[index];
+                    return (
+                      <View
+                        key={index}
+                        style={[
+                          styles.dynamicRowCard,
+                          { zIndex: isVOpen ? 2000 : 100 - index },
+                        ]}
+                      >
+                        <View style={styles.rowInputsContainer}>
+                          {renderRowDropdown(
+                            "Type",
+                            v.type,
+                            VEHICLE_TYPES,
+                            isVOpen,
+                            (val) => {
+                              updateVehicle(index, "type", val);
+                              setShowDropdowns({
+                                ...showDropdowns,
+                                vehicleType: {
+                                  ...showDropdowns.vehicleType,
+                                  [index]: false,
+                                },
+                              });
+                            },
+                            () =>
+                              setShowDropdowns({
+                                ...showDropdowns,
+                                vehicleType: {
+                                  ...showDropdowns.vehicleType,
+                                  [index]: !isVOpen,
+                                },
+                              }),
+                            0.8,
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <TextInput
+                              style={styles.rowInput}
+                              placeholder="Model (e.g. Swift)"
+                              value={v.model}
+                              onChangeText={(val) =>
+                                updateVehicle(index, "model", val)
+                              }
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <TextInput
+                              style={styles.rowInput}
+                              placeholder="Number (MH12...)"
+                              value={v.plateNumber}
+                              onChangeText={(val) =>
+                                updateVehicle(index, "plateNumber", val)
+                              }
+                              autoCapitalize="characters"
+                            />
+                          </View>
+                          <TouchableOpacity
+                            style={styles.removeRowBtn}
+                            onPress={() => removeVehicle(index)}
+                          >
+                            <Ionicons
+                              name="trash-outline"
+                              size={18}
+                              color="#EF4444"
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                  <TouchableOpacity
+                    style={styles.addMemberBtn}
+                    onPress={addVehicle}
+                  >
+                    <Ionicons
+                      name="add-circle-outline"
+                      size={20}
+                      color="#3B82F6"
+                    />
+                    <Text style={styles.addMemberText}>Add Vehicle</Text>
+                  </TouchableOpacity>
+                  <View style={styles.divider} />
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Hobbies & Interests</Text>
+                    <TextInput
+                      style={[styles.input, { height: 60 }]}
+                      multiline
+                      value={formData.hobbies}
+                      onChangeText={(val) => handleInputChange("hobbies", val)}
+                      placeholder="Hobbies..."
+                    />
+                  </View>
+                </>
+              )}
+              <TouchableOpacity
+                style={[
+                  styles.primaryButton,
+                  isSubmitting && styles.buttonDisabled,
+                ]}
+                onPress={handleSubmit}
+                disabled={isSubmitting}
+              >
+                <Text style={styles.buttonText}>
+                  {isSubmitting ? "Saving..." : "Save Profile"}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={handleBack}
+                disabled={isSubmitting}
+              >
+                <Text style={styles.backButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -1386,4 +1633,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
   },
+  removeRowBtn: {
+    padding: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
 });
+
