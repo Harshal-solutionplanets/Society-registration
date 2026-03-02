@@ -2,27 +2,28 @@ import { appId, auth, db } from "@/configs/firebaseConfig";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
-    createUserWithEmailAndPassword,
-    getRedirectResult,
-    onAuthStateChanged,
-    sendPasswordResetEmail,
-    signInWithCustomToken,
-    signInWithEmailAndPassword,
-    signOut,
-    User,
+  createUserWithEmailAndPassword,
+  getRedirectResult,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithCustomToken,
+  signInWithEmailAndPassword,
+  signOut,
+  User,
 } from "firebase/auth";
 import { doc, getDoc, getDocFromServer } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Linking,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -366,7 +367,7 @@ export default function AdminAuth() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <ActivityIndicator size="large" color="#0E5D56" />
         <Text style={styles.loadingText}>Initializing Session...</Text>
       </View>
     );
@@ -381,7 +382,31 @@ export default function AdminAuth() {
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>Society Admin</Text>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: 20,
+          }}
+        >
+          <Image
+            source={require("../../assets/images/logo.png")}
+            style={{ width: 40, height: 40 }}
+            resizeMode="contain"
+          />
+          <Text
+            style={{
+              fontSize: 24,
+              fontWeight: "900",
+              color: "#14B8A6",
+              marginLeft: 10,
+              letterSpacing: -0.5,
+            }}
+          >
+            Zonect
+          </Text>
+        </View>
         <Text style={styles.subtitle}>
           {isLogin ? "Login to Manage your Society" : "Register your Society"}
         </Text>
@@ -412,7 +437,7 @@ export default function AdminAuth() {
             <TextInput
               style={[styles.input, emailError ? styles.inputError : null]}
               placeholder="admin@gmail.com"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor="#8D8271"
               value={email}
               onChangeText={handleEmailChange}
               keyboardType="email-address"
@@ -429,7 +454,7 @@ export default function AdminAuth() {
               <TextInput
                 style={[styles.input, { flex: 1 }]}
                 placeholder="••••••••"
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor="#8D8271"
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
@@ -441,7 +466,7 @@ export default function AdminAuth() {
                 <Ionicons
                   name={showPassword ? "eye-off-outline" : "eye-outline"}
                   size={20}
-                  color="#64748B"
+                  color="#6F675B"
                 />
               </TouchableOpacity>
             </View>
@@ -485,7 +510,7 @@ export default function AdminAuth() {
               <Ionicons
                 name="logo-google"
                 size={20}
-                color="#475569"
+                color="#5A5349"
                 style={styles.googleIcon}
               />
               <Text style={styles.googleButtonText}>
@@ -516,7 +541,7 @@ export default function AdminAuth() {
             <View style={styles.forgotHeader}>
               <Text style={styles.forgotTitle}>Reset Password</Text>
               <TouchableOpacity onPress={() => setShowForgotPassword(false)}>
-                <Ionicons name="close" size={24} color="#64748B" />
+                <Ionicons name="close" size={24} color="#6F675B" />
               </TouchableOpacity>
             </View>
 
@@ -559,7 +584,7 @@ export default function AdminAuth() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
   },
   scrollContainer: {
     flexGrow: 1,
@@ -569,24 +594,24 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#0F172A",
+    color: "#1F2937",
     textAlign: "center",
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 12,
     fontWeight: "500",
-    color: "#64748B",
+    color: "#6F675B",
     textAlign: "center",
     marginBottom: 20,
   },
   card: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#F1F5F9",
-    shadowColor: "#0F172A",
+    borderColor: "#EFE8DB",
+    shadowColor: "#1F2937",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.03,
     shadowRadius: 10,
@@ -604,15 +629,15 @@ const styles = StyleSheet.create({
     borderBottomColor: "transparent",
   },
   activeTab: {
-    borderBottomColor: "#3B82F6",
+    borderBottomColor: "#0E5D56",
   },
   tabText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#94A3B8",
+    color: "#8D8271",
   },
   activeTabText: {
-    color: "#3B82F6",
+    color: "#0E5D56",
   },
   inputGroup: {
     marginBottom: 20,
@@ -620,32 +645,32 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#1E293B",
+    color: "#243444",
     marginBottom: 8,
     marginLeft: 4,
   },
   passwordContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "#EFE8DB",
     borderRadius: 12,
   },
   input: {
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "#EFE8DB",
     borderRadius: 8,
     padding: 10,
     fontSize: 13,
-    color: "#0F172A",
+    color: "#1F2937",
   },
   eyeButton: {
     padding: 12,
   },
   button: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#0E5D56",
     padding: 12,
     borderRadius: 10,
     alignItems: "center",
-    shadowColor: "#3B82F6",
+    shadowColor: "#0E5D56",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -656,7 +681,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   buttonText: {
-    color: "#FFFFFF",
+    color: "#FFFCF6",
     fontSize: 16,
     fontWeight: "700",
   },
@@ -668,22 +693,22 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: "#E2E8F0",
+    backgroundColor: "#E3D8C6",
   },
   dividerText: {
     marginHorizontal: 12,
-    color: "#94A3B8",
+    color: "#8D8271",
     fontSize: 12,
     fontWeight: "700",
     textTransform: "uppercase",
   },
   googleButton: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     padding: 13,
     borderRadius: 12,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
   },
   googleButtonContent: {
     flexDirection: "row",
@@ -693,7 +718,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   googleButtonText: {
-    color: "#475569",
+    color: "#5A5349",
     fontSize: 14,
     fontWeight: "700",
   },
@@ -702,23 +727,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 12,
     borderRadius: 12,
-    backgroundColor: "#FEF2F2",
+    backgroundColor: "#FFF3F2",
   },
   backButtonText: {
-    color: "#EF4444",
+    color: "#C2413B",
     fontSize: 14,
     fontWeight: "700",
   },
   errorText: {
-    color: "#EF4444",
+    color: "#C2413B",
     fontSize: 11,
     marginTop: 4,
     marginLeft: 4,
     fontWeight: "600",
   },
   inputError: {
-    borderColor: "#EF4444",
-    backgroundColor: "#FFF1F2",
+    borderColor: "#C2413B",
+    backgroundColor: "#FFF3F2",
   },
   forgotLink: {
     alignSelf: "flex-end",
@@ -727,7 +752,7 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   forgotLinkText: {
-    color: "#3B82F6",
+    color: "#0E5D56",
     fontSize: 13,
     fontWeight: "700",
   },
@@ -738,7 +763,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   forgotCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     borderRadius: 24,
     padding: 24,
     shadowColor: "#000",
@@ -756,11 +781,11 @@ const styles = StyleSheet.create({
   forgotTitle: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#0F172A",
+    color: "#1F2937",
   },
   forgotDesc: {
     fontSize: 14,
-    color: "#64748B",
+    color: "#6F675B",
     lineHeight: 20,
     marginBottom: 20,
   },
@@ -768,11 +793,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
   },
   loadingText: {
     marginTop: 16,
-    color: "#64748B",
+    color: "#6F675B",
     fontSize: 14,
     fontWeight: "600",
   },

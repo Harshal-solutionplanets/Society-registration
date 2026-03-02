@@ -2,27 +2,28 @@ import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "expo-router";
 import {
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    getDocs,
-    setDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
 } from "firebase/firestore";
 import * as React from "react";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-    useWindowDimensions,
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -555,7 +556,7 @@ export default function CommitteeMembers() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color="#0E5D56" />
       </View>
     );
   }
@@ -580,7 +581,24 @@ export default function CommitteeMembers() {
               <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
                 <Text style={styles.backBtnText}>← Back</Text>
               </TouchableOpacity>
-              <Text style={styles.title}>Committee Members</Text>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Image
+                  source={require("../../assets/images/logo.png")}
+                  style={{ width: 32, height: 32 }}
+                  resizeMode="contain"
+                />
+                <Text
+                  style={{
+                    fontSize: 18,
+                    fontWeight: "900",
+                    color: "#14B8A6",
+                    marginLeft: 8,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  Zonect
+                </Text>
+              </View>
             </View>
 
             {wings.length > 1 && (
@@ -765,7 +783,7 @@ export default function CommitteeMembers() {
                   <Text
                     style={[
                       styles.dropdownButtonText,
-                      !post && { color: "#94A3B8" },
+                      !post && { color: "#8D8271" },
                     ]}
                   >
                     {post || "Select Post"}
@@ -820,7 +838,7 @@ export default function CommitteeMembers() {
                       style={[
                         styles.dropdownButtonText,
                         { fontSize: 13 },
-                        !wing && { color: "#94A3B8" },
+                        !wing && { color: "#8D8271" },
                       ]}
                       numberOfLines={1}
                     >
@@ -906,7 +924,7 @@ export default function CommitteeMembers() {
                           style={[
                             styles.dropdownButtonText,
                             { fontSize: 13 },
-                            !floor && { color: "#94A3B8" },
+                            !floor && { color: "#8D8271" },
                           ]}
                           numberOfLines={1}
                         >
@@ -955,7 +973,7 @@ export default function CommitteeMembers() {
                           style={[
                             styles.dropdownButtonText,
                             { fontSize: 13 },
-                            !flatNo && { color: "#94A3B8" },
+                            !flatNo && { color: "#8D8271" },
                           ]}
                           numberOfLines={1}
                         >
@@ -1082,7 +1100,7 @@ export default function CommitteeMembers() {
                                   style={[
                                     styles.dropdownButtonText,
                                     !additionalWingPosts[w.id] && {
-                                      color: "#94A3B8",
+                                      color: "#8D8271",
                                     },
                                   ]}
                                 >
@@ -1218,7 +1236,7 @@ export default function CommitteeMembers() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8F9FA",
+    backgroundColor: "#F7F3EB",
   },
   loadingContainer: {
     flex: 1,
@@ -1236,14 +1254,14 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   backBtnText: {
-    color: "#007AFF",
+    color: "#0E5D56",
     fontSize: 16,
     fontWeight: "600",
   },
   title: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#1A1A1A",
+    color: "#1F2937",
   },
   levelSelector: {
     padding: 20,
@@ -1268,17 +1286,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: "#F1F3F5",
+    backgroundColor: "#EFE8DB",
     marginRight: 10,
     borderWidth: 1,
-    borderColor: "#E9ECEF",
+    borderColor: "#E3D8C6",
   },
   levelBtnActive: {
-    backgroundColor: "#007AFF",
-    borderColor: "#007AFF",
+    backgroundColor: "#0E5D56",
+    borderColor: "#0E5D56",
   },
   levelBtnText: {
-    color: "#495057",
+    color: "#5A5349",
     fontWeight: "600",
   },
   levelBtnTextActive: {
@@ -1296,12 +1314,12 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   input: {
-    backgroundColor: "#F8F9FA",
+    backgroundColor: "#F7F3EB",
     padding: 12,
     borderRadius: 8,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: "#DEE2E6",
+    borderColor: "#E3D8C6",
     marginBottom: 12,
   },
   row: {
@@ -1309,7 +1327,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   addBtn: {
-    backgroundColor: "#34C759",
+    backgroundColor: "#1E7A57",
     padding: 15,
     borderRadius: 8,
     alignItems: "center",
@@ -1353,7 +1371,7 @@ const styles = StyleSheet.create({
   },
   memberContact: {
     fontSize: 13,
-    color: "#007AFF",
+    color: "#0E5D56",
   },
   deleteBtn: {
     padding: 8,
@@ -1361,7 +1379,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   deleteBtnText: {
-    color: "#FF3B30",
+    color: "#C2413B",
     fontWeight: "600",
   },
   memberActions: {
@@ -1371,22 +1389,22 @@ const styles = StyleSheet.create({
   },
   editBtn: {
     padding: 8,
-    backgroundColor: "#E7F3FF",
+    backgroundColor: "#EEF7F4",
     borderRadius: 6,
   },
   editBtnText: {
-    color: "#007AFF",
+    color: "#0E5D56",
     fontWeight: "600",
     fontSize: 13,
   },
   cancelBtn: {
-    backgroundColor: "#F1F3F5",
+    backgroundColor: "#EFE8DB",
     padding: 15,
     borderRadius: 8,
     alignItems: "center",
   },
   cancelBtnText: {
-    color: "#495057",
+    color: "#5A5349",
     fontWeight: "bold",
     fontSize: 16,
   },
@@ -1395,7 +1413,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   emptyText: {
-    color: "#94A3B8",
+    color: "#8D8271",
     fontSize: 14,
     textAlign: "center",
   },
@@ -1408,7 +1426,7 @@ const styles = StyleSheet.create({
   additionalWingsLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#495057",
+    color: "#5A5349",
     marginBottom: 12,
   },
   checkboxContainer: {
@@ -1419,25 +1437,25 @@ const styles = StyleSheet.create({
   checkboxRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F8F9FA",
+    backgroundColor: "#F7F3EB",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#DEE2E6",
+    borderColor: "#E3D8C6",
   },
   checkbox: {
     width: 18,
     height: 18,
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: "#007AFF",
+    borderColor: "#0E5D56",
     marginRight: 8,
     justifyContent: "center",
     alignItems: "center",
   },
   checkboxActive: {
-    backgroundColor: "#007AFF",
+    backgroundColor: "#0E5D56",
   },
   checkboxTick: {
     width: 8,
@@ -1447,15 +1465,15 @@ const styles = StyleSheet.create({
   },
   checkboxLabel: {
     fontSize: 13,
-    color: "#495057",
+    color: "#5A5349",
     fontWeight: "500",
   },
   dropdownButton: {
-    backgroundColor: "#F8F9FA",
+    backgroundColor: "#F7F3EB",
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#DEE2E6",
+    borderColor: "#E3D8C6",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -1477,7 +1495,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#DEE2E6",
+    borderColor: "#E3D8C6",
     zIndex: 1000,
     maxHeight: 200,
     shadowColor: "#000",
@@ -1492,23 +1510,23 @@ const styles = StyleSheet.create({
   dropdownItem: {
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F1F3F5",
+    borderBottomColor: "#EFE8DB",
   },
   dropdownItemSelected: {
-    backgroundColor: "#E7F3FF",
+    backgroundColor: "#EEF7F4",
   },
   dropdownItemText: {
     fontSize: 15,
     color: "#333",
   },
   dropdownItemTextSelected: {
-    color: "#007AFF",
+    color: "#0E5D56",
     fontWeight: "600",
   },
   suggestionBanner: {
     backgroundColor: "#F0F9FF",
     borderWidth: 1,
-    borderColor: "#BAE6FD",
+    borderColor: "#CFE8DE",
     borderRadius: 12,
     padding: 12,
     marginBottom: 16,
@@ -1523,7 +1541,7 @@ const styles = StyleSheet.create({
   suggestionTitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#0369A1",
+    color: "#0F5F58",
   },
   suggestionText: {
     fontSize: 11,
@@ -1535,7 +1553,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   suggestionBtnYes: {
-    backgroundColor: "#0369A1",
+    backgroundColor: "#0F5F58",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
@@ -1546,7 +1564,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: "#0369A1",
+    borderColor: "#0F5F58",
   },
   suggestionBtnTextYes: {
     color: "#fff",
@@ -1554,7 +1572,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   suggestionBtnTextNo: {
-    color: "#0369A1",
+    color: "#0F5F58",
     fontSize: 12,
     fontWeight: "700",
   },
@@ -1563,20 +1581,20 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    color: "#495057",
+    color: "#5A5349",
     marginBottom: 6,
     fontWeight: "500",
   },
   errorText: {
-    color: "#EF4444",
+    color: "#C2413B",
     fontSize: 11,
     marginTop: 4,
     marginLeft: 4,
     fontWeight: "600",
   },
   inputError: {
-    borderColor: "#EF4444",
-    backgroundColor: "#FFF1F2",
+    borderColor: "#C2413B",
+    backgroundColor: "#FFF3F2",
   },
   additionalWingItem: {
     marginBottom: 12,

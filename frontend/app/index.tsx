@@ -3,6 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useRef } from "react";
 import {
+  Image,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -36,13 +37,37 @@ export default function LandingPage() {
 
   return (
     <View style={styles.mainContainer}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFCF6" />
 
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerInner}>
-          <View style={styles.logoContainer}>
+          <TouchableOpacity
+            onPress={() => router.push("/")}
+            style={styles.logoContainer}
+          >
+            <Image
+              source={require("../assets/images/logo.png")}
+              style={{ width: 40, height: 40 }}
+              resizeMode="contain"
+            />
             <Text style={styles.logoText}>Zonect</Text>
+          </TouchableOpacity>
+          <View style={styles.navLinks}>
+            <TouchableOpacity
+              onPress={() => scrollToSection("features")}
+              style={styles.navLink}
+            >
+              <Text style={styles.navLinkText}>Features</Text>
+            </TouchableOpacity>
+            {!isDesktop && (
+              <TouchableOpacity
+                style={styles.getStartedButtonSmall}
+                onPress={() => router.push("/resident/auth" as any)}
+              >
+                <Text style={styles.getStartedButtonSmallText}>Login</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
@@ -62,14 +87,31 @@ export default function LandingPage() {
               </Text>
             </View>
             <Text style={styles.heroTitle}>
-              Track & Manage{" "}
-              <Text style={styles.heroTitleHighlight}>Home Assistants</Text> for
-              Your Society
+              Centralized Staff Records. {"\n"}
+              <Text style={styles.heroTitleHighlight}>
+                Society-Level Compliance.
+              </Text>{" "}
+              Zero Chaos.
             </Text>
+            <View
+              style={[
+                styles.badge,
+                {
+                  backgroundColor: "#F1F5F9",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                },
+              ]}
+            >
+              <Ionicons name="lock-closed" size={14} color="#334155" />
+              <Text style={[styles.badgeText, { color: "#334155" }]}>
+                Documents stored in your Society’s own Google Drive
+              </Text>
+            </View>
             <Text style={styles.heroSubtitle}>
-              Zonect helps residential societies store, track, and manage data
-              of domestic helpers — from cleaning staff to drivers — all in one
-              secure platform.
+              Maintain structured, organized, and easily retrievable records of
+              domestic helpers — designed for society-level governance.
             </Text>
             <View style={styles.heroButtons}>
               <TouchableOpacity
@@ -83,6 +125,14 @@ export default function LandingPage() {
                   color="#FFF"
                   style={{ marginLeft: 8 }}
                 />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={() => {}}
+              >
+                <Text style={styles.secondaryButtonText}>
+                  Request a Discussion
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -123,21 +173,116 @@ export default function LandingPage() {
                 </View>
               </View>
               <View style={styles.staffIcons}>
-                <Ionicons name="person-circle" size={40} color="#2D958E" />
+                <Ionicons name="person-circle" size={40} color="#14B8A6" />
                 <Ionicons
                   name="shield-checkmark"
                   size={30}
-                  color="#059669"
+                  color="#1E7A57"
                   style={{ marginTop: 20 }}
                 />
-                <Ionicons name="people" size={40} color="#2D958E" />
+                <Ionicons name="people" size={40} color="#14B8A6" />
               </View>
             </View>
           </View>
         </View>
 
+        {/* Ownership Section */}
+        <View
+          style={[
+            styles.section,
+            {
+              backgroundColor: "#F8FAFC",
+              borderTopWidth: 1,
+              borderTopColor: "#E2E8F0",
+            },
+          ]}
+        >
+          <View style={styles.heroContent}>
+            <Text
+              style={[
+                styles.sectionTitle,
+                { textAlign: "left", marginBottom: 10 },
+              ]}
+            >
+              🔐 Society-Owned Data. Full Control.
+            </Text>
+            <Text
+              style={[styles.heroSubtitle, { textAlign: "left", fontSize: 16 }]}
+            >
+              Unlike most platforms where sensitive staff documents are stored
+              on third-party servers, Zonect ensures all helper documents are
+              stored directly in your society’s own Google Drive.
+            </Text>
+
+            <View style={{ gap: 12, marginTop: 10 }}>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+              >
+                <Ionicons name="checkmark-circle" size={20} color="#14B8A6" />
+                <Text
+                  style={{ fontSize: 16, color: "#334155", fontWeight: "500" }}
+                >
+                  Society retains complete ownership
+                </Text>
+              </View>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+              >
+                <Ionicons name="checkmark-circle" size={20} color="#14B8A6" />
+                <Text
+                  style={{ fontSize: 16, color: "#334155", fontWeight: "500" }}
+                >
+                  Admin-controlled access
+                </Text>
+              </View>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+              >
+                <Ionicons name="checkmark-circle" size={20} color="#14B8A6" />
+                <Text
+                  style={{ fontSize: 16, color: "#334155", fontWeight: "500" }}
+                >
+                  No dependency on vendor data storage
+                </Text>
+              </View>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+              >
+                <Ionicons name="checkmark-circle" size={20} color="#14B8A6" />
+                <Text
+                  style={{ fontSize: 16, color: "#334155", fontWeight: "500" }}
+                >
+                  Structured indexing for quick retrieval
+                </Text>
+              </View>
+            </View>
+
+            <Text
+              style={[
+                styles.heroSubtitle,
+                {
+                  textAlign: "left",
+                  fontSize: 16,
+                  marginTop: 30,
+                  fontWeight: "700",
+                  color: "#0F2A3D",
+                },
+              ]}
+            >
+              Zonect provides the management interface — your society keeps the
+              documents.
+            </Text>
+          </View>
+        </View>
+
         {/* Features Section */}
-        <View style={styles.section} onLayout={handleLayout("features")}>
+        <View
+          style={[
+            styles.section,
+            { borderTopWidth: 1, borderTopColor: "#E2E8F0" },
+          ]}
+          onLayout={handleLayout("features")}
+        >
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>
               Everything Your Society Needs
@@ -157,8 +302,8 @@ export default function LandingPage() {
             />
             <FeatureCard
               styles={styles}
-              icon="person-outline"
-              title="Helper Profiles"
+              icon="shield-checkmark-outline"
+              title="Verified Staff Registry"
               description="Store complete profiles of domestic helpers — name, photo, ID proof, and work schedule."
             />
             <FeatureCard
@@ -175,27 +320,90 @@ export default function LandingPage() {
             />
             <FeatureCard
               styles={styles}
-              icon="clipboard-outline"
-              title="Entry & Exit Logs"
-              description="Maintain records of helper visits with timestamps for better security and accountability."
+              icon="reader-outline"
+              title="Record History & Documentation Trail"
+              description="Maintain an organized history of staff records — including profile updates, document uploads, and status changes."
             />
             <FeatureCard
               styles={styles}
-              icon="checkmark-circle-outline"
-              title="Verified & Secure"
-              description="Ensure all helper data is verified and securely stored with role-based access control."
+              icon="lock-closed-outline"
+              title="Role-Based Access & Society-Owned Secure Storage"
+              description="Ensure all helper data is verified and securely stored in Society-Owned Secure Storage."
             />
+          </View>
+        </View>
+
+        {/* Why This Matters Section */}
+        <View
+          style={[
+            styles.section,
+            {
+              backgroundColor: "#F8FAFC",
+              borderTopWidth: 1,
+              borderTopColor: "#E2E8F0",
+            },
+          ]}
+        >
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Why This Matters</Text>
+            <Text style={styles.sectionSubtitle}>
+              Why Structured Staff Documentation Matters?
+            </Text>
+          </View>
+
+          <View style={styles.featuresGrid}>
+            {[
+              "Committee accountability",
+              "Organized and centralized records",
+              "Quick retrieval during inquiries",
+              "Reduced dependency on scattered files",
+              "Long-term continuity even if committee changes",
+            ].map((text, idx) => (
+              <View
+                key={idx}
+                style={[
+                  styles.featureCard,
+                  {
+                    width: isDesktop ? "30%" : "100%",
+                    padding: 20,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="checkmark-done-circle"
+                  size={24}
+                  color="#14B8A6"
+                />
+                <Text
+                  style={{
+                    fontSize: 15,
+                    color: "#334155",
+                    fontWeight: "600",
+                    flex: 1,
+                  }}
+                >
+                  {text}
+                </Text>
+              </View>
+            ))}
           </View>
         </View>
 
         {/* How It Works Section */}
         <View
-          style={styles.howItWorksSection}
+          style={[
+            styles.howItWorksSection,
+            { borderTopWidth: 1, borderTopColor: "#E2E8F0" },
+          ]}
           onLayout={handleLayout("howItWorks")}
         >
           <Text style={styles.sectionTitle}>How Zonect Works</Text>
           <Text style={styles.sectionSubtitle}>
-            Get your society set up in minutes with a simple 4-step process.
+            Designed for structured documentation and quick retrieval when
+            needed.
           </Text>
 
           <View style={styles.stepsContainer}>
@@ -234,10 +442,11 @@ export default function LandingPage() {
           <View style={styles.ctaCard}>
             <Text style={styles.ctaTitle}>Ready to Manage Your Society?</Text>
             <Text style={styles.ctaSubtitle}>
-              Join hundreds of residential societies already using Zonect to
-              streamline domestic helper management.
+              Built specifically for organized housing societies in urban India.
             </Text>
-            <View style={{ height: 20 }} />
+            <TouchableOpacity style={styles.ctaButton} onPress={() => {}}>
+              <Text style={styles.ctaButtonText}>Request a Discussion</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -245,9 +454,19 @@ export default function LandingPage() {
         <View style={styles.footer}>
           <View style={styles.footerTop}>
             <View style={styles.footerLogo}>
-              <Text style={styles.logoText}>Zonect</Text>
+              <View style={styles.footerLogoHeader}>
+                <Image
+                  source={require("../assets/images/logo.png")}
+                  style={{
+                    width: 40,
+                    height: 40,
+                  }}
+                  resizeMode="contain"
+                />
+                <Text style={styles.footerLogoText}>Zonect</Text>
+              </View>
               <Text style={styles.footerTagline}>
-                Society management, simplified.
+                Society-Level Compliance. Zero Chaos.
               </Text>
             </View>
             <View style={styles.footerLinks}>
@@ -286,7 +505,7 @@ const FeatureCard = ({
 }) => (
   <View style={styles.featureCard}>
     <View style={styles.featureIconContainer}>
-      <Ionicons name={icon} size={24} color="#2D958E" />
+      <Ionicons name={icon} size={24} color="#14B8A6" />
     </View>
     <Text style={styles.featureTitle}>{title}</Text>
     <Text style={styles.featureDescription}>{description}</Text>
@@ -323,13 +542,13 @@ const getStyles = (isDesktop: boolean) =>
   StyleSheet.create({
     mainContainer: {
       flex: 1,
-      backgroundColor: "#FFFAF5",
+      backgroundColor: "#FFFFFF",
     },
     header: {
       height: 70,
-      backgroundColor: "rgba(255, 250, 245, 0.9)",
+      backgroundColor: "rgba(255, 255, 255, 0.95)",
       borderBottomWidth: 1,
-      borderBottomColor: "#F3F4F6",
+      borderBottomColor: "#F1F5F9",
       justifyContent: "center",
       paddingHorizontal: isDesktop ? 60 : 20,
       position: "absolute",
@@ -350,32 +569,34 @@ const getStyles = (isDesktop: boolean) =>
       flexDirection: "row",
       alignItems: "center",
     },
-    logoText: {
-      fontSize: 22,
-      fontWeight: "900",
-      color: "#2D958E",
-      letterSpacing: -0.5,
-    },
     navLinks: {
       flexDirection: "row",
+      alignItems: "center",
       gap: 30,
     },
     navLink: {
       paddingVertical: 8,
     },
     navLinkText: {
-      fontSize: 14,
+      fontSize: 15,
       fontWeight: "600",
-      color: "#4B5563",
+      color: "#0F2A3D",
+    },
+    logoText: {
+      fontSize: 24,
+      fontWeight: "900",
+      color: "#14B8A6",
+      marginLeft: 10,
+      letterSpacing: -0.5,
     },
     getStartedButtonSmall: {
-      backgroundColor: "#2D958E",
+      backgroundColor: "#14B8A6",
       paddingVertical: 10,
       paddingHorizontal: 20,
       borderRadius: 8,
     },
     getStartedButtonSmallText: {
-      color: "#FFFFFF",
+      color: "#FFFCF6",
       fontSize: 14,
       fontWeight: "700",
     },
@@ -400,31 +621,31 @@ const getStyles = (isDesktop: boolean) =>
       alignItems: isDesktop ? "flex-start" : "center",
     },
     badge: {
-      backgroundColor: "rgba(45, 149, 142, 0.1)",
+      backgroundColor: "#E6FFFA",
       paddingVertical: 6,
       paddingHorizontal: 16,
       borderRadius: 20,
       marginBottom: 20,
     },
     badgeText: {
-      color: "#2D958E",
+      color: "#14B8A6",
       fontSize: 13,
       fontWeight: "700",
     },
     heroTitle: {
-      fontSize: isDesktop ? 56 : 36,
+      fontSize: isDesktop ? 64 : 36,
       fontWeight: "900",
-      color: "#111827",
-      lineHeight: isDesktop ? 64 : 44,
+      color: "#0F2A3D",
+      lineHeight: isDesktop ? 72 : 44,
       textAlign: isDesktop ? "left" : "center",
-      marginBottom: 20,
+      marginBottom: 10,
     },
     heroTitleHighlight: {
-      color: "#2D958E",
+      color: "#14B8A6",
     },
     heroSubtitle: {
       fontSize: 18,
-      color: "#4B5563",
+      color: "#334155",
       lineHeight: 28,
       textAlign: isDesktop ? "left" : "center",
       marginBottom: 32,
@@ -435,32 +656,34 @@ const getStyles = (isDesktop: boolean) =>
       gap: 16,
     },
     primaryButton: {
-      backgroundColor: "#2D958E",
+      backgroundColor: "#14B8A6",
       paddingVertical: 16,
-      paddingHorizontal: 24,
-      borderRadius: 12,
+      paddingHorizontal: 28,
+      borderRadius: 8,
       flexDirection: "row",
       alignItems: "center",
-      shadowColor: "#2D958E",
+      shadowColor: "#14B8A6",
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.2,
       shadowRadius: 8,
       elevation: 4,
     },
     primaryButtonText: {
-      color: "#FFFFFF",
+      color: "#FFFCF6",
       fontSize: 16,
       fontWeight: "800",
     },
     secondaryButton: {
-      backgroundColor: "#F3F4F6",
+      backgroundColor: "transparent",
       paddingVertical: 16,
       paddingHorizontal: 24,
-      borderRadius: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: "#E2E8F0",
       justifyContent: "center",
     },
     secondaryButtonText: {
-      color: "#1F2937",
+      color: "#0F2A3D",
       fontSize: 16,
       fontWeight: "700",
     },
@@ -474,7 +697,7 @@ const getStyles = (isDesktop: boolean) =>
       width: "100%",
       maxWidth: 500,
       aspectRatio: 1.4,
-      backgroundColor: "rgba(45, 149, 142, 0.05)",
+      backgroundColor: "rgba(20, 184, 166, 0.05)",
       borderRadius: 30,
       justifyContent: "center",
       alignItems: "center",
@@ -490,7 +713,7 @@ const getStyles = (isDesktop: boolean) =>
     buildingBlock: {
       width: 60,
       height: 100,
-      backgroundColor: "#2D958E",
+      backgroundColor: "#14B8A6",
       opacity: 0.2,
       borderRadius: 8,
       padding: 10,
@@ -524,13 +747,13 @@ const getStyles = (isDesktop: boolean) =>
     sectionTitle: {
       fontSize: 32,
       fontWeight: "800",
-      color: "#111827",
+      color: "#0F2A3D",
       textAlign: "center",
       marginBottom: 16,
     },
     sectionSubtitle: {
-      fontSize: 16,
-      color: "#6B7280",
+      fontSize: 17,
+      color: "#334155",
       textAlign: "center",
       maxWidth: 600,
     },
@@ -545,18 +768,15 @@ const getStyles = (isDesktop: boolean) =>
     featureCard: {
       width: isDesktop ? "30.5%" : "100%",
       backgroundColor: "#FFFFFF",
-      borderRadius: 20,
+      borderRadius: 16,
       padding: 30,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.03,
-      shadowRadius: 10,
-      elevation: 2,
+      borderWidth: 1,
+      borderColor: "#F1F5F9",
     },
     featureIconContainer: {
       width: 50,
       height: 50,
-      backgroundColor: "rgba(45, 149, 142, 0.08)",
+      backgroundColor: "#E6FFFA",
       borderRadius: 12,
       justifyContent: "center",
       alignItems: "center",
@@ -565,12 +785,12 @@ const getStyles = (isDesktop: boolean) =>
     featureTitle: {
       fontSize: 18,
       fontWeight: "700",
-      color: "#111827",
+      color: "#0F2A3D",
       marginBottom: 12,
     },
     featureDescription: {
       fontSize: 14,
-      color: "#6B7280",
+      color: "#334155",
       lineHeight: 22,
     },
     howItWorksSection: {
@@ -593,20 +813,20 @@ const getStyles = (isDesktop: boolean) =>
     stepNumber: {
       fontSize: 64,
       fontWeight: "900",
-      color: "rgba(45, 149, 142, 0.05)",
+      color: "rgba(20, 184, 166, 0.05)",
       position: "absolute",
       top: -40,
     },
     stepTitle: {
       fontSize: 18,
       fontWeight: "800",
-      color: "#111827",
+      color: "#0F2A3D",
       marginBottom: 12,
       textAlign: "center",
     },
     stepDescription: {
       fontSize: 14,
-      color: "#6B7280",
+      color: "#334155",
       textAlign: "center",
       lineHeight: 22,
       paddingHorizontal: 20,
@@ -614,7 +834,7 @@ const getStyles = (isDesktop: boolean) =>
     stepLine: {
       width: 80,
       height: 2,
-      backgroundColor: "rgba(45, 149, 142, 0.1)",
+      backgroundColor: "#E2E8F0",
       marginHorizontal: 10,
     },
     ctaSection: {
@@ -625,9 +845,9 @@ const getStyles = (isDesktop: boolean) =>
       maxWidth: 1000,
       alignSelf: "center",
       width: "100%",
-      backgroundColor: "#2D958E",
-      borderRadius: 30,
-      padding: isDesktop ? 80 : 40,
+      backgroundColor: "#14B8A6",
+      borderRadius: 24,
+      padding: isDesktop ? 60 : 40,
       alignItems: "center",
     },
     ctaTitle: {
@@ -648,21 +868,19 @@ const getStyles = (isDesktop: boolean) =>
       backgroundColor: "#FFFFFF",
       paddingVertical: 18,
       paddingHorizontal: 36,
-      borderRadius: 12,
+      borderRadius: 8,
       flexDirection: "row",
       alignItems: "center",
     },
     ctaButtonText: {
-      color: "#2D958E",
+      color: "#14B8A6",
       fontSize: 16,
       fontWeight: "800",
     },
     footer: {
-      backgroundColor: "#FFFAF5",
+      backgroundColor: "#0F2A3D",
       paddingHorizontal: isDesktop ? 60 : 20,
       paddingVertical: 60,
-      borderTopWidth: 1,
-      borderTopColor: "#F3F4F6",
     },
     footerTop: {
       flexDirection: isDesktop ? "row" : "column",
@@ -677,9 +895,21 @@ const getStyles = (isDesktop: boolean) =>
       alignItems: isDesktop ? "flex-start" : "center",
       marginBottom: isDesktop ? 0 : 30,
     },
+    footerLogoHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 10,
+    },
+    footerLogoText: {
+      fontSize: 24,
+      fontWeight: "900",
+      color: "#FFFFFF",
+      marginLeft: 10,
+      letterSpacing: -0.5,
+    },
     footerTagline: {
       fontSize: 14,
-      color: "#6B7280",
+      color: "#94A3B8",
       marginTop: 8,
     },
     footerLinks: {
@@ -688,17 +918,17 @@ const getStyles = (isDesktop: boolean) =>
     },
     footerLinkText: {
       fontSize: 14,
-      color: "#6B7280",
+      color: "#E2E8F0",
       fontWeight: "600",
     },
     footerBottom: {
       borderTopWidth: 1,
-      borderTopColor: "#F3F4F6",
+      borderTopColor: "rgba(255, 255, 255, 0.1)",
       paddingTop: 30,
       alignItems: "center",
     },
     copyrightText: {
       fontSize: 12,
-      color: "#9CA3AF",
+      color: "#94A3B8",
     },
   });

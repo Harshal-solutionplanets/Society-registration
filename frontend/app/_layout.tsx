@@ -36,7 +36,7 @@ function LayoutContent() {
   if (appState === "loading") {
     return (
       <View style={{ flex: 1, justifyContent: "center" }}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color="#0E5D56" />
       </View>
     );
   }

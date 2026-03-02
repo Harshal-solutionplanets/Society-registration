@@ -94,6 +94,14 @@ service cloud.firestore {
         allow write: if true; // Allow residents to update linkedUnits and create profiles
       }
       
+      // Audit logs for resident staff edits
+      match /Resident_Staff_Audit/{staffId} {
+        allow read, write: if isAuthenticated();
+        match /Logs/{logId} {
+          allow read, write: if isAuthenticated();
+        }
+      }
+      
       // --------------------------------------------
       // COMMITTEE MEMBERS (Admin-only)
       // --------------------------------------------

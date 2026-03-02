@@ -7,14 +7,19 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
+  orderBy,
+  query,
   setDoc,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -75,6 +80,19 @@ export default function UnitDetails() {
   const [expandedFamily, setExpandedFamily] = useState(false);
   const [expandedVehicles, setExpandedVehicles] = useState(false);
   const [expandedStaff, setExpandedStaff] = useState(false);
+
+  // Audit Data States
+  const [auditModalVisible, setAuditModalVisible] = useState(false);
+  const [auditHistory, setAuditHistory] = useState<any[]>([]);
+  const [isFetchingAudit, setIsFetchingAudit] = useState(false);
+  const [selectedStaffName, setSelectedStaffName] = useState("");
+
+  // Document preview modal state
+  const [previewModal, setPreviewModal] = useState<{
+    visible: boolean;
+    uri: string;
+    label: string;
+  }>({ visible: false, uri: "", label: "" });
 
   useEffect(() => {
     if (user && unitId) {
@@ -317,23 +335,72 @@ export default function UnitDetails() {
     }
   };
 
-  const handleDownload = async (url: string, label: string) => {
+  const handlePreview = (url: string, label: string) => {
     if (!url) return;
-    try {
-      if (url.startsWith("data:")) {
-        Toast.show({
-          type: "info",
-          text1: "Doc Preview",
-          text2: "Opening document preview in browser...",
-        });
+    const isPdf = url.startsWith("data:application/pdf");
+    const isImage = url.startsWith("data:image");
+
+    if (isPdf && Platform.OS === "web") {
+      // Open PDF in new browser tab
+      const win = window.open();
+      if (win) {
+        win.document.write(
+          `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`,
+        );
+        win.document.title = label;
       }
-      await Linking.openURL(url);
-    } catch (error) {
+    } else if (Platform.OS !== "web") {
+      // Direct open/download on mobile
+      Linking.openURL(url).catch(() => {
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: "Could not open document.",
+        });
+      });
+    } else if (isImage) {
+      // Show image in modal overlay
+      setPreviewModal({ visible: true, uri: url, label });
+    } else {
+      // Fallback: try to open externally
+      Linking.openURL(url).catch(() => {
+        Toast.show({
+          type: "error",
+          text1: "Error",
+          text2: "Could not open document.",
+        });
+      });
+    }
+  };
+
+  const showAuditData = async (staffId?: string, name?: string) => {
+    setSelectedStaffName(name || "Staff Member");
+    setAuditModalVisible(true);
+    setIsFetchingAudit(true);
+    setAuditHistory([]);
+
+    try {
+      if (!staffId) throw new Error("Missing staff identity");
+      const auditLogRef = collection(
+        db,
+        `artifacts/${appId}/public/data/societies/${user?.uid}/Resident_Staff_Audit/${staffId}/Logs`,
+      );
+      const q = query(auditLogRef, orderBy("timestamp", "desc"));
+      const snapshot = await getDocs(q);
+      const history = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setAuditHistory(history);
+    } catch (err) {
+      console.error("Fetch Audit Error:", err);
       Toast.show({
         type: "error",
-        text1: "Error",
-        text2: "Could not open document link.",
+        text1: "Fetch Error",
+        text2: "Could not retrieve audit history.",
       });
+    } finally {
+      setIsFetchingAudit(false);
     }
   };
 
@@ -365,9 +432,23 @@ export default function UnitDetails() {
               <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
                 <Ionicons name="arrow-back" size={24} color="#0F172A" />
               </TouchableOpacity>
-              <View>
-                <Text style={styles.headerTitle}>{editUnitName}</Text>
-                <Text style={styles.headerSubtitle}>{wingName}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Image
+                  source={require("../../assets/images/logo.png")}
+                  style={{ width: 32, height: 32 }}
+                  resizeMode="contain"
+                />
+                <Text
+                  style={{
+                    fontSize: 18,
+                    fontWeight: "900",
+                    color: "#14B8A6",
+                    marginLeft: 8,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  Zonect
+                </Text>
               </View>
             </View>
 
@@ -692,14 +773,115 @@ export default function UnitDetails() {
                   linkedStaff.map((s: any, idx: number) => (
                     <View key={idx} style={styles.staffCard}>
                       <View style={styles.staffHeader}>
-                        <Text style={styles.itemName}>{s.staffName}</Text>
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 6,
+                            flexWrap: "wrap",
+                            flex: 1,
+                          }}
+                        >
+                          <Text style={styles.itemName}>{s.staffName}</Text>
+                          {s.sourceRegistryId && (
+                            <View
+                              style={{
+                                backgroundColor: "#DCFCE7",
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 4,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 9,
+                                  fontWeight: "700",
+                                  color: "#1E7A57",
+                                }}
+                              >
+                                Linked
+                              </Text>
+                            </View>
+                          )}
+                        </View>
                         <Text style={styles.staffPos}>{s.staffType}</Text>
                       </View>
+                      {/* Full metadata details */}
+                      <View style={styles.staffMeta}>
+                        {s.contact && (
+                          <View style={styles.metaRow}>
+                            <Text style={styles.metaLabel}>Contact:</Text>
+                            <Text style={styles.metaValue}>{s.contact}</Text>
+                          </View>
+                        )}
+                        {s.nativePlace && (
+                          <View style={styles.metaRow}>
+                            <Text style={styles.metaLabel}>Native Place:</Text>
+                            <Text style={styles.metaValue}>
+                              {s.nativePlace}
+                            </Text>
+                          </View>
+                        )}
+                        {s.guardianName && (
+                          <View style={styles.metaRow}>
+                            <Text style={styles.metaLabel}>Guardian:</Text>
+                            <Text style={styles.metaValue}>
+                              {s.guardianName}
+                            </Text>
+                          </View>
+                        )}
+                        {s.guardianContact && (
+                          <View style={styles.metaRow}>
+                            <Text style={styles.metaLabel}>
+                              Guardian Phone:
+                            </Text>
+                            <Text style={styles.metaValue}>
+                              {s.guardianContact}
+                            </Text>
+                          </View>
+                        )}
+                        {s.guardianAddress && (
+                          <View style={styles.metaRow}>
+                            <Text style={styles.metaLabel}>
+                              Guardian Address:
+                            </Text>
+                            <Text style={styles.metaValue} numberOfLines={2}>
+                              {s.guardianAddress}
+                            </Text>
+                          </View>
+                        )}
+                        {s.uploadedAt && (
+                          <View style={styles.metaRow}>
+                            <Text style={styles.metaLabel}>
+                              Registered Date:
+                            </Text>
+                            <Text style={styles.metaValue}>
+                              {new Date(s.uploadedAt).toLocaleDateString()}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      {/* Edit audit trail */}
+                      {s.lastEditedUnit && (
+                        <View style={styles.auditRow}>
+                          <Ionicons name="pencil" size={11} color="#94A3B8" />
+                          <Text style={styles.auditText}>
+                            Updated by {s.lastEditedUnit} on{" "}
+                            {s.lastEditedAt
+                              ? new Date(s.lastEditedAt).toLocaleDateString()
+                              : "N/A"}
+                            {s.lastEditField
+                              ? ` — Changed: ${s.lastEditField}`
+                              : ""}
+                          </Text>
+                        </View>
+                      )}
+                      {/* Document preview buttons */}
                       <View style={styles.staffDocs}>
                         {s.photo && (
                           <TouchableOpacity
                             style={styles.docBtn}
-                            onPress={() => handleDownload(s.photo, "Photo")}
+                            onPress={() => handlePreview(s.photo, "Photo")}
                           >
                             <Ionicons
                               name="person-circle"
@@ -712,23 +894,46 @@ export default function UnitDetails() {
                         {s.idCard && (
                           <TouchableOpacity
                             style={styles.docBtn}
-                            onPress={() => handleDownload(s.idCard, "ID Card")}
+                            onPress={() =>
+                              handlePreview(s.idCard, "Photo ID Proof")
+                            }
                           >
                             <Ionicons name="card" size={16} color="#4F46E5" />
-                            <Text style={styles.docBtnText}>ID Card</Text>
+                            <Text style={styles.docBtnText}>
+                              Photo ID Proof
+                            </Text>
                           </TouchableOpacity>
                         )}
                         {s.addressProof && (
                           <TouchableOpacity
                             style={styles.docBtn}
                             onPress={() =>
-                              handleDownload(s.addressProof, "Address")
+                              handlePreview(s.addressProof, "Address Proof")
                             }
                           >
                             <Ionicons name="home" size={16} color="#4F46E5" />
-                            <Text style={styles.docBtnText}>Address</Text>
+                            <Text style={styles.docBtnText}>Address Proof</Text>
                           </TouchableOpacity>
                         )}
+                        <TouchableOpacity
+                          style={[
+                            styles.docBtn,
+                            {
+                              backgroundColor: "#F1F5F9",
+                              borderColor: "#E2E8F0",
+                            },
+                          ]}
+                          onPress={() =>
+                            showAuditData(s.sourceRegistryId, s.staffName)
+                          }
+                        >
+                          <Ionicons name="time" size={16} color="#64748B" />
+                          <Text
+                            style={[styles.docBtnText, { color: "#64748B" }]}
+                          >
+                            Audit data
+                          </Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
                   ))
@@ -742,6 +947,216 @@ export default function UnitDetails() {
           </View>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Document Preview Modal */}
+      <Modal
+        visible={previewModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() =>
+          setPreviewModal({ visible: false, uri: "", label: "" })
+        }
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.previewContainer}>
+            <View style={styles.previewHeader}>
+              <Text style={styles.previewTitle}>{previewModal.label}</Text>
+              <TouchableOpacity
+                onPress={() =>
+                  setPreviewModal({ visible: false, uri: "", label: "" })
+                }
+                style={styles.previewCloseBtn}
+              >
+                <Ionicons name="close" size={22} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+            {previewModal.uri ? (
+              <Image
+                source={{ uri: previewModal.uri }}
+                style={styles.previewImage}
+                resizeMode="contain"
+              />
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Audit Data Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={auditModalVisible}
+        onRequestClose={() => setAuditModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: "80%" }]}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>
+                  History: {selectedStaffName}
+                </Text>
+                <Text style={{ fontSize: 12, color: "#64748B" }}>
+                  Profile Audit Trail
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setAuditModalVisible(false)}
+                style={styles.closeBtn}
+              >
+                <Ionicons name="close" size={24} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ padding: 16 }}>
+              {isFetchingAudit ? (
+                <ActivityIndicator
+                  size="large"
+                  color="#3B82F6"
+                  style={{ marginVertical: 40 }}
+                />
+              ) : auditHistory.length === 0 ? (
+                <View style={{ alignItems: "center", marginVertical: 40 }}>
+                  <Ionicons
+                    name="documents-outline"
+                    size={48}
+                    color="#CBD5E1"
+                  />
+                  <Text style={{ marginTop: 12, color: "#64748B" }}>
+                    No audit history found.
+                  </Text>
+                </View>
+              ) : (
+                auditHistory.map((log, idx) => (
+                  <View key={log.id} style={styles.auditLogItem}>
+                    <View style={styles.auditLogMarker}>
+                      <View style={styles.markerCircle} />
+                      {idx < auditHistory.length - 1 && (
+                        <View style={styles.markerLine} />
+                      )}
+                    </View>
+                    <View style={styles.auditLogBody}>
+                      <View style={styles.auditHeaderRow}>
+                        <Text style={styles.auditEditor}>
+                          Unit {log.editedUnit}
+                        </Text>
+                        <Text style={styles.auditDate}>
+                          {log.editedAt
+                            ? new Date(log.editedAt).toLocaleString()
+                            : "N/A"}
+                        </Text>
+                      </View>
+                      <Text style={styles.auditFields}>
+                        Changed:{" "}
+                        <Text style={{ fontWeight: "700", color: "#0F172A" }}>
+                          {log.changedFields}
+                        </Text>
+                      </Text>
+
+                      {log.previousData && (
+                        <View style={styles.prevDataBox}>
+                          <Text style={styles.prevDataTitle}>
+                            Previous version values:
+                          </Text>
+                          {(() => {
+                            const AUDIT_FIELD_LABELS: Record<string, string> = {
+                              staffName: "Staff Name",
+                              contact: "Contact Number",
+                              staffType: "Staff Category",
+                              nativePlace: "Native Place Address",
+                              guardianName: "Guardian Name",
+                              guardianContact: "Guardian Contact",
+                              guardianAddress: "Guardian Address",
+                              photo: "Photo",
+                              idCard: "Photo ID Proof",
+                              addressProof: "Address Proof",
+                            };
+                            const changedFieldList = (log.changedFields || "")
+                              .split(", ")
+                              .filter(Boolean);
+                            return Object.entries(log.previousData)
+                              .filter(([key, val]) => {
+                                if (
+                                  changedFieldList.length > 0 &&
+                                  !changedFieldList.includes(key)
+                                )
+                                  return false;
+                                return (
+                                  val !== undefined &&
+                                  val !== null &&
+                                  val !== ""
+                                );
+                              })
+                              .map(([key, val]: [string, any]) => {
+                                const isDoc = [
+                                  "photo",
+                                  "idCard",
+                                  "addressProof",
+                                ].includes(key);
+                                if (isDoc && val.startsWith("data:")) {
+                                  let label = "Document";
+                                  let icon: any = "document";
+                                  if (key === "photo") {
+                                    label = "Photo";
+                                    icon = "person-circle";
+                                  } else if (key === "idCard") {
+                                    label = "Photo ID Proof";
+                                    icon = "card";
+                                  } else if (key === "addressProof") {
+                                    label = "Address Proof";
+                                    icon = "home";
+                                  }
+
+                                  return (
+                                    <TouchableOpacity
+                                      key={key}
+                                      style={[
+                                        styles.docBtn,
+                                        {
+                                          marginTop: 4,
+                                          alignSelf: "flex-start",
+                                        },
+                                      ]}
+                                      onPress={() => handlePreview(val, label)}
+                                    >
+                                      <Ionicons
+                                        name={icon}
+                                        size={14}
+                                        color="#4F46E5"
+                                      />
+                                      <Text
+                                        style={[
+                                          styles.docBtnText,
+                                          { fontSize: 10 },
+                                        ]}
+                                      >
+                                        Prev {label}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  );
+                                }
+
+                                return (
+                                  <Text key={key} style={styles.prevDataLine}>
+                                    •{" "}
+                                    {AUDIT_FIELD_LABELS[key] ||
+                                      key
+                                        .replace(/([A-Z])/g, " $1")
+                                        .toLowerCase()}
+                                    : {val}
+                                  </Text>
+                                );
+                              });
+                          })()}
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -964,7 +1379,42 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
   },
-  staffDocs: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  staffDocs: { flexDirection: "row", gap: 6, flexWrap: "wrap", marginTop: 8 },
+  staffMeta: { marginTop: 4, marginBottom: 4 },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginBottom: 3,
+  },
+  metaLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#94A3B8",
+    minWidth: 85,
+  },
+  metaValue: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#334155",
+    flex: 1,
+  },
+  auditRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+  },
+  auditText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#94A3B8",
+    fontStyle: "italic",
+    flex: 1,
+  },
   docBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -990,5 +1440,135 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     padding: 15,
     fontSize: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  previewContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    width: "90%",
+    maxWidth: 500,
+    maxHeight: "85%",
+    overflow: "hidden",
+    elevation: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+  },
+  previewHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+  previewTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  previewCloseBtn: {
+    padding: 4,
+    borderRadius: 8,
+    backgroundColor: "#F1F5F9",
+  },
+  previewImage: {
+    width: "100%",
+    height: 400,
+    backgroundColor: "#F8FAFC",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+  modalContent: {
+    backgroundColor: "white",
+    borderRadius: 24,
+    width: "90%",
+    maxWidth: 500,
+    overflow: "hidden",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  // Audit History Styles
+  auditLogItem: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 4,
+  },
+  auditLogMarker: {
+    alignItems: "center",
+    width: 20,
+  },
+  markerCircle: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#3B82F6",
+    marginTop: 6,
+  },
+  markerLine: {
+    width: 2,
+    flex: 1,
+    backgroundColor: "#E2E8F0",
+    marginVertical: 4,
+  },
+  auditLogBody: {
+    flex: 1,
+    paddingBottom: 20,
+  },
+  auditHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  auditEditor: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  auditDate: {
+    fontSize: 11,
+    color: "#94A3B8",
+  },
+  auditFields: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 4,
+  },
+  prevDataBox: {
+    marginTop: 8,
+    backgroundColor: "#F8FAFC",
+    padding: 10,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: "#CBD5E1",
+  },
+  prevDataTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#475569",
+    marginBottom: 4,
+  },
+  prevDataLine: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 1,
   },
 });

@@ -1,4 +1,4 @@
-import { appId, db } from "@/configs/firebaseConfig";
+﻿import { appId, db } from "@/configs/firebaseConfig";
 import { COLLECTIONS } from "@/constants/Config";
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,30 +7,32 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import { useRouter } from "expo-router";
 import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
-  orderBy,
-  query,
-  setDoc,
-  updateDoc,
-  where,
+    addDoc,
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    onSnapshot,
+    orderBy,
+    query,
+    serverTimestamp,
+    setDoc,
+    updateDoc,
+    where,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -151,6 +153,27 @@ export default function ResidentStaff() {
     setShowProfileDropdown(false);
     setShowTypeDropdown(false);
   };
+  const setFolderPublic = async (folderId: string, token: string) => {
+    try {
+      await fetch(
+        `https://www.googleapis.com/drive/v3/files/${folderId}/permissions`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            role: "reader",
+            type: "anyone",
+          }),
+        },
+      );
+    } catch (e) {
+      console.warn("Could not set folder permissions:", e);
+    }
+  };
+
   // Drive helpers
   const findOrCreateFolder = async (
     name: string,
@@ -187,7 +210,12 @@ export default function ResidentStaff() {
       );
       if (!createRes.ok) throw new Error("Drive Create Failed");
       const createData = await createRes.json();
-      return createData.id;
+      const folderId = createData.id;
+
+      // Set permission to "Anyone with the link"
+      await setFolderPublic(folderId, token);
+
+      return folderId;
     } catch (error) {
       console.error("findOrCreateFolder error", error);
       throw error;
@@ -355,10 +383,11 @@ export default function ResidentStaff() {
 
           // Size Check (220KB = 225280 bytes)
           if (asset.size && asset.size > 225280) {
-            Alert.alert(
-              "Error",
-              "File size too large. Maximum limit is 220KB.",
-            );
+            Toast.show({
+              type: "error",
+              text1: "File Too Large",
+              text2: "Maximum file size is 220KB.",
+            });
             return;
           }
 
@@ -406,17 +435,57 @@ export default function ResidentStaff() {
             : `Address_Proof${ext}`;
 
       try {
-        // 1. Update Firestore (Society & Local)
-        const updateObj = {
-          [type]: newValue || "",
-          updatedAt: new Date().toISOString(),
-        };
-
         const societyPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${editingId}`;
         const localPath = `users/${user.uid}/${COLLECTIONS.STAFF}/${editingId}`;
 
+        const existingMember = staffList.find((s) => s.id === editingId);
+        const auditObj = {
+          lastEditedBy: user.uid,
+          lastEditedUnit: unitId,
+          lastEditedAt: new Date().toISOString(),
+          lastEditField: type,
+        };
+
+        const updateObj = {
+          [type]: newValue || "",
+          updatedAt: new Date().toISOString(),
+          ...auditObj,
+        };
+
         await setDoc(doc(db, societyPath), updateObj, { merge: true });
         await setDoc(doc(db, localPath), updateObj, { merge: true });
+
+        // 1.5 Update Registry if linked
+        if (existingMember?.sourceRegistryId) {
+          const registryId = existingMember.sourceRegistryId;
+          const registryPath = `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff/${registryId}`;
+          await setDoc(doc(db, registryPath), updateObj, { merge: true });
+
+          // CRITICAL SYNC: Propagate immediate file update to other linked units
+          try {
+            const registrySnap = await getDoc(doc(db, registryPath));
+            if (registrySnap.exists()) {
+              const linkedUnits = registrySnap.data().linkedUnits || [];
+              for (const lUnitId of linkedUnits) {
+                if (lUnitId === unitId) continue;
+                const otherUnitStaffRef = collection(
+                  db,
+                  `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${lUnitId}/StaffMembers`,
+                );
+                const q = query(
+                  otherUnitStaffRef,
+                  where("sourceRegistryId", "==", registryId),
+                );
+                const otherStaffSnap = await getDocs(q);
+                for (const otherDoc of otherStaffSnap.docs) {
+                  await updateDoc(otherDoc.ref, updateObj);
+                }
+              }
+            }
+          } catch (syncErr) {
+            console.warn("Immediate file sync to other units failed:", syncErr);
+          }
+        }
 
         // 2. Drive Update (if photo picked or deleted)
         if (flatFolderId) {
@@ -431,10 +500,26 @@ export default function ResidentStaff() {
           )?.driveFolderId;
 
           // Exhaustive Cleanup: Clear ALL extensions (via backend)
-          await deleteResFile(`${baseName}.jpg`, flatFolderId, staffFolderId);
-          await deleteResFile(`${baseName}.pdf`, flatFolderId, staffFolderId);
-          await deleteResFile(`${baseName}.png`, flatFolderId, staffFolderId);
-          await deleteResFile(`${baseName}.jpeg`, flatFolderId, staffFolderId);
+          await deleteResFile(
+            `${baseName}.jpg`,
+            flatFolderId,
+            staffFolderId,
+          ).catch(() => {});
+          await deleteResFile(
+            `${baseName}.pdf`,
+            flatFolderId,
+            staffFolderId,
+          ).catch(() => {});
+          await deleteResFile(
+            `${baseName}.png`,
+            flatFolderId,
+            staffFolderId,
+          ).catch(() => {});
+          await deleteResFile(
+            `${baseName}.jpeg`,
+            flatFolderId,
+            staffFolderId,
+          ).catch(() => {});
 
           if (newValue) {
             // Upload new file (original form)
@@ -504,14 +589,55 @@ export default function ResidentStaff() {
             ? `ID_Card${ext}`
             : `Address_Proof${ext}`;
       try {
+        const existingMember = staffList.find((s) => s.id === editingId);
+        const auditObj = {
+          lastEditedBy: user.uid,
+          lastEditedUnit: unitId,
+          lastEditedAt: new Date().toISOString(),
+          lastEditField: type,
+        };
+
         const updateObj = {
           [type]: base64String,
           updatedAt: new Date().toISOString(),
+          ...auditObj,
         };
         const societyPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${editingId}`;
         const localPath = `users/${user.uid}/${COLLECTIONS.STAFF}/${editingId}`;
         await setDoc(doc(db, societyPath), updateObj, { merge: true });
         await setDoc(doc(db, localPath), updateObj, { merge: true });
+
+        // Sync to registry
+        if (existingMember?.sourceRegistryId) {
+          const registryId = existingMember.sourceRegistryId;
+          const registryPath = `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff/${registryId}`;
+          await setDoc(doc(db, registryPath), updateObj, { merge: true });
+
+          // SYNC BACK: Update all other units linked to this registry profile
+          try {
+            const registrySnap = await getDoc(doc(db, registryPath));
+            if (registrySnap.exists()) {
+              const linkedUnits = registrySnap.data().linkedUnits || [];
+              for (const lUnitId of linkedUnits) {
+                if (lUnitId === unitId) continue;
+                const otherUnitRef = collection(
+                  db,
+                  `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${lUnitId}/StaffMembers`,
+                );
+                const q = query(
+                  otherUnitRef,
+                  where("sourceRegistryId", "==", registryId),
+                );
+                const otherSnap = await getDocs(q);
+                for (const oDoc of otherSnap.docs) {
+                  await updateDoc(oDoc.ref, updateObj);
+                }
+              }
+            }
+          } catch (syncErr) {
+            console.warn("DropZone sync to other units failed:", syncErr);
+          }
+        }
 
         if (flatFolderId) {
           const baseName =
@@ -523,10 +649,26 @@ export default function ResidentStaff() {
           const staffFolderId = staffList.find(
             (s) => s.id === editingId,
           )?.driveFolderId;
-          await deleteResFile(`${baseName}.jpg`, flatFolderId, staffFolderId);
-          await deleteResFile(`${baseName}.pdf`, flatFolderId, staffFolderId);
-          await deleteResFile(`${baseName}.png`, flatFolderId, staffFolderId);
-          await deleteResFile(`${baseName}.jpeg`, flatFolderId, staffFolderId);
+          await deleteResFile(
+            `${baseName}.jpg`,
+            flatFolderId,
+            staffFolderId,
+          ).catch(() => {});
+          await deleteResFile(
+            `${baseName}.pdf`,
+            flatFolderId,
+            staffFolderId,
+          ).catch(() => {});
+          await deleteResFile(
+            `${baseName}.png`,
+            flatFolderId,
+            staffFolderId,
+          ).catch(() => {});
+          await deleteResFile(
+            `${baseName}.jpeg`,
+            flatFolderId,
+            staffFolderId,
+          ).catch(() => {});
           await uploadImageToDrive(base64String, fileName, flatFolderId);
         }
         Toast.show({
@@ -548,7 +690,9 @@ export default function ResidentStaff() {
     type: "photo" | "idCard" | "addressProof";
     children: React.ReactNode;
   }) => {
-    if (Platform.OS !== "web") return <>{children}</>;
+    if (Platform.OS !== "web") {
+      return <View style={styles.uploadWrapper}>{children}</View>;
+    }
     return (
       <div
         onDragOver={(e: any) => {
@@ -561,7 +705,7 @@ export default function ResidentStaff() {
           const file = e.dataTransfer?.files?.[0];
           if (file) handleFileDrop(file, type);
         }}
-        style={{ flex: 1, position: "relative" }}
+        style={styles.uploadWrapper as any}
       >
         {children}
       </div>
@@ -772,6 +916,10 @@ export default function ResidentStaff() {
             originalValue: string | null | undefined,
             docType: "photo" | "idCard" | "addressProof",
           ) => {
+            // SKIP if document has NOT changed from existing version
+            if (currentBase64 === originalValue) return;
+            if (!currentBase64 && !originalValue) return;
+
             // Determine correct file extension based on content type
             const isPdf = currentBase64?.startsWith("data:application/pdf");
             const ext = isPdf ? ".pdf" : ".jpg";
@@ -789,7 +937,7 @@ export default function ResidentStaff() {
                   ? "ID_Card"
                   : "Address_Proof";
 
-            // Exhaustive Cleanup: Delete ALL potential extensions before upload/removal
+            // Cleanup old versions from Drive only if document actually changed
             await deleteResFile(
               `${baseFileName}.jpg`,
               flatFolderId,
@@ -811,7 +959,7 @@ export default function ResidentStaff() {
               staffFolderId,
             ).catch(() => {});
 
-            // 1. If we have a document (original form), upload it
+            // Upload new document only if we have one
             if (
               currentBase64 &&
               (currentBase64.startsWith("data:image") ||
@@ -822,7 +970,7 @@ export default function ResidentStaff() {
                 fileName,
                 flatFolderId,
               );
-              if (!staffFolderId) staffFolderId = fid; // Capture created folder ID
+              if (!staffFolderId) staffFolderId = fid;
             }
           };
 
@@ -852,6 +1000,42 @@ export default function ResidentStaff() {
         );
       }
 
+      // Compute audit trail for edits
+      let auditFields: Record<string, any> = {};
+      if (editingId) {
+        const existingMember = staffList.find((s) => s.id === editingId);
+        if (existingMember) {
+          const changedFields: string[] = [];
+          if (existingMember.staffName !== staffName)
+            changedFields.push("staffName");
+          if (existingMember.staffType !== finalStaffType)
+            changedFields.push("staffType");
+          if (existingMember.contact !== contact) changedFields.push("contact");
+          if (existingMember.nativePlace !== nativePlace)
+            changedFields.push("nativePlace");
+          if (existingMember.guardianName !== guardianName)
+            changedFields.push("guardianName");
+          if (existingMember.guardianContact !== guardianContact)
+            changedFields.push("guardianContact");
+          if (existingMember.guardianAddress !== guardianAddress)
+            changedFields.push("guardianAddress");
+          if (existingMember.photo !== photo) changedFields.push("photo");
+          if (existingMember.idCard !== (idCard || ""))
+            changedFields.push("idCard");
+          if (existingMember.addressProof !== (addressProof || ""))
+            changedFields.push("addressProof");
+
+          if (changedFields.length > 0) {
+            auditFields = {
+              lastEditedBy: user.uid,
+              lastEditedUnit: unitId,
+              lastEditedAt: new Date().toISOString(),
+              lastEditField: changedFields.join(", "),
+            };
+          }
+        }
+      }
+
       const staffData = {
         id: staffId,
         staffName,
@@ -868,7 +1052,11 @@ export default function ResidentStaff() {
         adminUID,
         unitId,
         driveFolderId: staffFolderId,
-        uploadedAt: new Date().toISOString(),
+        uploadedAt: editingId
+          ? staffList.find((s) => s.id === editingId)?.uploadedAt ||
+            new Date().toISOString()
+          : new Date().toISOString(),
+        ...auditFields,
       };
 
       // 1. Store in Society collection (Requested location)
@@ -888,25 +1076,44 @@ export default function ResidentStaff() {
           `artifacts/${appId}/public/data/societies/${societyAdminUID}/Resident_Staff`,
         );
 
-        // Use contact as the stable key to find existing profiles
-        const existingQuery = query(
-          registryRef,
-          where("contact", "==", contact),
-        );
-        const existingSnap = await getDocs(existingQuery);
-
-        let registryId: string;
+        // IDENTITY PERSISTENCE:
+        // 1. If we are editing a linked member, use their existing registry ID.
+        // 2. Otherwise, check if a profile with this contact already exists.
+        // 3. Fallback: Create a new ID.
+        const existingMember = editingId
+          ? staffList.find((s) => s.id === editingId)
+          : null;
+        let registryId = existingMember?.sourceRegistryId;
         let existingData: any = {};
 
-        if (!existingSnap.empty) {
-          const doc = existingSnap.docs[0];
-          registryId = doc.id;
-          existingData = doc.data();
-          console.log("DEBUG: Found existing registry profile:", registryId);
+        if (!registryId) {
+          const existingQuery = query(
+            registryRef,
+            where("contact", "==", contact),
+          );
+          const existingSnap = await getDocs(existingQuery);
+          if (!existingSnap.empty) {
+            const doc = existingSnap.docs[0];
+            registryId = doc.id;
+            existingData = doc.data();
+          } else {
+            registryId = `reg_${contact}_${societyAdminUID}`;
+          }
         } else {
-          registryId = `reg_${contact}_${societyAdminUID}`;
-          console.log("DEBUG: Creating new registry profile:", registryId);
+          // Fetch existing data for merge
+          const regDoc = await getDoc(
+            doc(
+              db,
+              `artifacts/${appId}/public/data/societies/${societyAdminUID}/Resident_Staff/${registryId}`,
+            ),
+          );
+          if (regDoc.exists()) existingData = regDoc.data();
         }
+
+        const currentLinked = existingData.linkedUnits || [];
+        const updatedLinked = currentLinked.includes(unitId)
+          ? currentLinked
+          : [...currentLinked, unitId];
 
         const registryData = {
           id: registryId,
@@ -921,14 +1128,35 @@ export default function ResidentStaff() {
           idCard: idCard || "",
           addressProof: addressProof || "",
           driveFolderId: staffFolderId,
-          updatedAt: new Date().toISOString(),
-          societyId: appId,
-          adminUID: societyAdminUID,
-          // Track which units this staff member is serving
-          linkedUnits: Array.from(
-            new Set([...(existingData.linkedUnits || []), unitId]),
-          ),
+          linkedUnits: updatedLinked,
+          ...auditFields,
         };
+
+        // CREATE AUDIT LOG ENTRY (History) — Only store CHANGED values
+        if (auditFields.lastEditedAt) {
+          const changedFieldList = (auditFields.lastEditField || "").split(
+            ", ",
+          );
+          const previousData: Record<string, any> = {};
+          for (const field of changedFieldList) {
+            if (field && existingData[field] !== undefined) {
+              previousData[field] = existingData[field] || "";
+            }
+          }
+
+          const auditLogRef = collection(
+            db,
+            `artifacts/${appId}/public/data/societies/${societyAdminUID}/Resident_Staff_Audit/${registryId}/Logs`,
+          );
+          await addDoc(auditLogRef, {
+            editedBy: user.uid,
+            editedUnit: unitId,
+            editedAt: auditFields.lastEditedAt,
+            changedFields: auditFields.lastEditField,
+            previousData,
+            timestamp: serverTimestamp(),
+          });
+        }
 
         await setDoc(
           doc(
@@ -943,6 +1171,47 @@ export default function ResidentStaff() {
         await updateDoc(doc(db, societyStaffPath), {
           sourceRegistryId: registryId,
         });
+
+        // CRITICAL SYNC: Propagate shared profile data to ALL linked units
+        // IMPORTANT: Only sync shared fields, never overwrite unit-specific fields (id, unitId, linkedBy, uploadedBy)
+        try {
+          const linkedUnits = updatedLinked;
+          const sharedUpdate = {
+            staffName,
+            staffType: finalStaffType,
+            contact,
+            nativePlace,
+            guardianName,
+            guardianContact,
+            guardianAddress,
+            photo,
+            idCard: idCard || "",
+            addressProof: addressProof || "",
+            driveFolderId: staffFolderId,
+            ...auditFields,
+            updatedAt: new Date().toISOString(),
+          };
+
+          for (const lUnitId of linkedUnits) {
+            if (lUnitId === unitId) continue;
+
+            const otherUnitStaffPath = collection(
+              db,
+              `artifacts/${appId}/public/data/societies/${societyAdminUID}/Residents/${lUnitId}/StaffMembers`,
+            );
+            const q = query(
+              otherUnitStaffPath,
+              where("sourceRegistryId", "==", registryId),
+            );
+            const otherStaffSnap = await getDocs(q);
+
+            for (const otherDoc of otherStaffSnap.docs) {
+              await updateDoc(otherDoc.ref, sharedUpdate);
+            }
+          }
+        } catch (syncErr) {
+          console.error("Propagation sync failed:", syncErr);
+        }
 
         console.log(
           "DEBUG: Resident_Staff registry updated successfully at:",
@@ -993,14 +1262,14 @@ export default function ResidentStaff() {
       Platform.OS === "web"
         ? window.confirm(confirmMessage)
         : await new Promise<boolean>((resolve) => {
-            Alert.alert("Delete Staff", confirmMessage, [
+            Alert.alert("Remove Staff", confirmMessage, [
               {
                 text: "Cancel",
                 style: "cancel",
                 onPress: () => resolve(false),
               },
               {
-                text: "Delete",
+                text: "Remove",
                 style: "destructive",
                 onPress: () => resolve(true),
               },
@@ -1011,7 +1280,7 @@ export default function ResidentStaff() {
 
     setIsUploading(true);
     try {
-      const { adminUID, id: unitId, driveFolderId: flatFolderId } = sessionData;
+      const { adminUID, id: unitId } = sessionData;
       const member = staffList.find((s) => s.id === staffId);
 
       if (!member) throw new Error("Staff member not found locally.");
@@ -1021,27 +1290,23 @@ export default function ResidentStaff() {
         resetForm();
       }
 
-      // Archive via Backend (Handles both Drive AND Firestore to bypass local permission rules)
+      // Delink via Backend (Only removes Firestore link, no Drive moves)
       const backendUrl =
         process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
-      const res = await fetch(
-        `${backendUrl}/api/drive/archive-resident-staff`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            adminUID,
-            parentFolderId: flatFolderId,
-            staffFolderId: member.driveFolderId || "", // If empty, drive part will skip in backend
-            appId,
-            unitId,
-            staffId: member.id,
-          }),
-        },
-      );
+      const res = await fetch(`${backendUrl}/api/drive/delink-resident-staff`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminUID,
+          appId,
+          unitId,
+          staffId: member.id,
+          sourceRegistryId: member.sourceRegistryId || "",
+        }),
+      });
 
       if (!res.ok) {
-        let errorMsg = "Backend archiving failed";
+        let errorMsg = "Backend delink failed";
         try {
           const contentType = res.headers.get("content-type");
           if (contentType && contentType.includes("application/json")) {
@@ -1058,7 +1323,7 @@ export default function ResidentStaff() {
         throw new Error(errorMsg);
       }
 
-      // Also delete from local personal user records if exists (this might still need permission check)
+      // Also delete from local personal user records if exists
       try {
         await deleteDoc(
           doc(db, `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`),
@@ -1067,10 +1332,10 @@ export default function ResidentStaff() {
         console.log("Local record delete failed or not found (non-critical)");
       }
 
-      Toast.show({ type: "info", text1: "Staff Archived Successfully" });
+      Toast.show({ type: "info", text1: "Staff Removed Successfully" });
     } catch (error: any) {
       console.error("Delete Error:", error);
-      Alert.alert("Deletion Failed", error.message);
+      Alert.alert("Removal Failed", error.message);
     } finally {
       setIsUploading(false);
     }
@@ -1083,7 +1348,24 @@ export default function ResidentStaff() {
           <Ionicons name="arrow-back" size={24} color="#3B82F6" />
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Manage Personal Staff</Text>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Image
+            source={require("../../assets/images/logo.png")}
+            style={{ width: 32, height: 32 }}
+            resizeMode="contain"
+          />
+          <Text
+            style={{
+              fontSize: 18,
+              fontWeight: "900",
+              color: "#14B8A6",
+              marginLeft: 8,
+              letterSpacing: -0.5,
+            }}
+          >
+            Zonect
+          </Text>
+        </View>
       </View>
 
       <ScrollView
@@ -1094,7 +1376,7 @@ export default function ResidentStaff() {
         <TouchableOpacity
           activeOpacity={1}
           onPress={closeAllDropdowns}
-          style={{ flex: 1 }}
+          style={{ flex: 1, zIndex: 5000 }}
         >
           <View style={[styles.form, { zIndex: 5000, elevation: 5 }]}>
             {/* Mode Toggle Tabs (hidden when editing) */}
@@ -1163,7 +1445,12 @@ export default function ResidentStaff() {
             {addMode === "existing" && !editingId && (
               <View>
                 {/* Dropdown 1: Staff Category */}
-                <View style={[styles.inputGroup, { zIndex: 2000 }]}>
+                <View
+                  style={[
+                    styles.inputGroup,
+                    { zIndex: showCategoryDropdown ? 3000 : 2000 },
+                  ]}
+                >
                   <Text style={styles.label}>Staff Category *</Text>
                   <TouchableOpacity
                     style={styles.dropdownButton}
@@ -1228,7 +1515,12 @@ export default function ResidentStaff() {
 
                 {/* Dropdown 2: Staff Profiles */}
                 {selectedCategory !== "" && (
-                  <View style={[styles.inputGroup, { zIndex: 1500 }]}>
+                  <View
+                    style={[
+                      styles.inputGroup,
+                      { zIndex: showProfileDropdown ? 2500 : 1500 },
+                    ]}
+                  >
                     <Text style={styles.label}>Select Staff Profile *</Text>
                     {isLoadingProfiles ? (
                       <ActivityIndicator
@@ -1303,9 +1595,17 @@ export default function ResidentStaff() {
                                         color: "#94A3B8",
                                       }}
                                     >
-                                      ðŸ“ž {profile.contact}
+                                      <Ionicons name="call-outline" size={12} />{" "}
+                                      {profile.contact}
+                                      {profile.nativePlace ? ` • ` : ""}
+                                      {profile.nativePlace && (
+                                        <Ionicons
+                                          name="location-outline"
+                                          size={12}
+                                        />
+                                      )}
                                       {profile.nativePlace
-                                        ? ` â€¢ ðŸ“ ${profile.nativePlace}`
+                                        ? ` ${profile.nativePlace}`
                                         : ""}
                                     </Text>
                                   </View>
@@ -1351,16 +1651,16 @@ export default function ResidentStaff() {
                           {selectedProfile.staffName}
                         </Text>
                         <Text style={styles.previewDetail}>
-                          ðŸ“ž {selectedProfile.contact}
+                          Contact: {selectedProfile.contact}
                         </Text>
                         {selectedProfile.nativePlace ? (
                           <Text style={styles.previewDetail}>
-                            ðŸ“ {selectedProfile.nativePlace}
+                            Native Place: {selectedProfile.nativePlace}
                           </Text>
                         ) : null}
                         {selectedProfile.guardianName ? (
                           <Text style={styles.previewDetail}>
-                            G: {selectedProfile.guardianName}
+                            Guardian: {selectedProfile.guardianName}
                           </Text>
                         ) : null}
                       </View>
@@ -1381,7 +1681,12 @@ export default function ResidentStaff() {
                         </View>
                       ) : (
                         <Text style={styles.submitText}>
-                          âœ“ Add to My Household
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={18}
+                            color="white"
+                          />{" "}
+                          Add to My Household
                         </Text>
                       )}
                     </TouchableOpacity>
@@ -1390,68 +1695,104 @@ export default function ResidentStaff() {
               </View>
             )}
 
-            {/* â•â•â•â•â•â• MODE 1: Add New Staff (existing form) â•â•â•â•â•â• */}
+            {/* â•â•â•â•â••â• MODE 1: Add New Staff (existing form) â•â•â•â•â•â• */}
             {(addMode === "new" || editingId) && (
               <View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Staff Name *</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. Maya Devi"
-                    value={staffName}
-                    onChangeText={setStaffName}
-                  />
+                <View style={styles.row}>
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.label}>Staff Name *</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g. Maya Devi"
+                      value={staffName}
+                      onChangeText={setStaffName}
+                    />
+                  </View>
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.label}>Contact Number *</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        formErrors.contact ? styles.inputError : null,
+                      ]}
+                      value={contact}
+                      onChangeText={handleContactChange}
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                    />
+                    {formErrors.contact ? (
+                      <Text style={styles.errorText}>{formErrors.contact}</Text>
+                    ) : null}
+                  </View>
                 </View>
 
-                <View style={[styles.inputGroup, { zIndex: 1000 }]}>
-                  <Text style={styles.label}>Staff Category *</Text>
-                  <TouchableOpacity
-                    style={styles.dropdownButton}
-                    onPress={() => setShowTypeDropdown(!showTypeDropdown)}
-                  >
-                    <Text style={styles.dropdownText}>{staffType}</Text>
-                    <Ionicons
-                      name={showTypeDropdown ? "chevron-up" : "chevron-down"}
-                      size={20}
-                      color="#64748B"
-                    />
-                  </TouchableOpacity>
+                <View
+                  style={[
+                    styles.row,
+                    { zIndex: showTypeDropdown ? 3500 : 1000 },
+                  ]}
+                >
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.label}>Staff Category *</Text>
+                    <TouchableOpacity
+                      style={styles.dropdownButton}
+                      onPress={() => setShowTypeDropdown(!showTypeDropdown)}
+                    >
+                      <Text style={styles.dropdownText}>{staffType}</Text>
+                      <Ionicons
+                        name={showTypeDropdown ? "chevron-up" : "chevron-down"}
+                        size={20}
+                        color="#64748B"
+                      />
+                    </TouchableOpacity>
 
-                  {showTypeDropdown && (
-                    <View style={styles.dropdownListContainer}>
-                      <ScrollView
-                        style={styles.dropdownList}
-                        nestedScrollEnabled={true}
-                      >
-                        {STAFF_TYPES.map((item) => (
-                          <TouchableOpacity
-                            key={item}
-                            style={styles.dropdownItem}
-                            onPress={() => {
-                              setStaffType(item);
-                              setShowTypeDropdown(false);
-                            }}
-                          >
-                            <Text
-                              style={[
-                                styles.dropdownItemText,
-                                staffType === item && styles.activeDropdownText,
-                              ]}
+                    {showTypeDropdown && (
+                      <View style={styles.dropdownListContainer}>
+                        <ScrollView
+                          style={styles.dropdownList}
+                          nestedScrollEnabled={true}
+                        >
+                          {STAFF_TYPES.map((item) => (
+                            <TouchableOpacity
+                              key={item}
+                              style={styles.dropdownItem}
+                              onPress={() => {
+                                setStaffType(item);
+                                setShowTypeDropdown(false);
+                              }}
                             >
-                              {item}
-                            </Text>
-                            {staffType === item && (
-                              <Ionicons
-                                name="checkmark"
-                                size={18}
-                                color="#3B82F6"
-                              />
-                            )}
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
+                              <Text
+                                style={[
+                                  styles.dropdownItemText,
+                                  staffType === item &&
+                                    styles.activeDropdownText,
+                                ]}
+                              >
+                                {item}
+                              </Text>
+                              {staffType === item && (
+                                <Ionicons
+                                  name="checkmark"
+                                  size={18}
+                                  color="#3B82F6"
+                                />
+                              )}
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={[styles.inputGroup, { flex: 1, zIndex: 1 }]}>
+                    <Text style={styles.label}>Native Place Address</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g. Mohan Nagar, Nashik"
+                      value={nativePlace}
+                      onChangeText={setNativePlace}
+                    />
+                  </View>
                 </View>
 
                 {staffType === "Other" && (
@@ -1466,47 +1807,19 @@ export default function ResidentStaff() {
                   </View>
                 )}
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Native Place Address</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. Mohan Nagar, Nashik"
-                    value={nativePlace}
-                    onChangeText={setNativePlace}
-                  />
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Contact Number *</Text>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      formErrors.contact ? styles.inputError : null,
-                    ]}
-                    value={contact}
-                    onChangeText={handleContactChange}
-                    keyboardType="phone-pad"
-                    maxLength={10}
-                  />
-                  {formErrors.contact ? (
-                    <Text style={styles.errorText}>{formErrors.contact}</Text>
-                  ) : null}
-                </View>
-
                 <View style={styles.divider} />
 
                 <Text style={styles.subsectionTitle}>Guardian Details</Text>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Guardian Name</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. Husband/Father Name"
-                    value={guardianName}
-                    onChangeText={setGuardianName}
-                  />
-                </View>
-
                 <View style={styles.row}>
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.label}>Guardian Name</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g. Husband/Father Name"
+                      value={guardianName}
+                      onChangeText={setGuardianName}
+                    />
+                  </View>
                   <View style={[styles.inputGroup, { flex: 1 }]}>
                     <Text style={styles.label}>Guardian Contact</Text>
                     <TextInput
@@ -1853,26 +2166,50 @@ export default function ResidentStaff() {
                       </View>
                     )}
                   </View>
-                  <Text style={styles.staffContact}>ðŸ“ž {staff.contact}</Text>
+                  <Text style={styles.staffContact}>
+                    <Ionicons name="call-outline" size={13} color="#64748B" />{" "}
+                    {staff.contact}
+                  </Text>
                   <Text style={styles.staffNative}>
-                    ðŸ“ {staff.nativePlace || "N/A"}
+                    <Ionicons
+                      name="location-outline"
+                      size={12}
+                      color="#3B82F6"
+                    />{" "}
+                    {staff.nativePlace || "N/A"}
                   </Text>
                   {staff.guardianName && (
                     <Text style={styles.staffGuardian}>
                       G: {staff.guardianName}
                     </Text>
                   )}
+                  {staff.lastEditedUnit && (
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        color: "#94A3B8",
+                        fontStyle: "italic",
+                        marginTop: 3,
+                      }}
+                    >
+                      Updated by {staff.lastEditedUnit} on{" "}
+                      {staff.lastEditedAt
+                        ? new Date(staff.lastEditedAt).toLocaleDateString()
+                        : "N/A"}
+                      {staff.lastEditField
+                        ? ` — Changed: ${staff.lastEditField}`
+                        : ""}
+                    </Text>
+                  )}
                 </View>
               </View>
               <View style={styles.cardActions}>
-                {!staff.sourceRegistryId && (
-                  <TouchableOpacity
-                    onPress={() => handleEdit(staff)}
-                    style={styles.editBtn}
-                  >
-                    <Ionicons name="create-outline" size={20} color="#3B82F6" />
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity
+                  onPress={() => handleEdit(staff)}
+                  style={styles.editBtn}
+                >
+                  <Ionicons name="create-outline" size={20} color="#0E5D56" />
+                </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => handleDelete(staff.id)}
                   style={styles.deleteBtn}
@@ -2042,7 +2379,7 @@ const styles = StyleSheet.create({
   uploadBox: {
     flex: 1,
     backgroundColor: "#F8FAFC",
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderStyle: "dashed",
     borderColor: "#CBD5E1",
     borderRadius: 16,
@@ -2050,29 +2387,25 @@ const styles = StyleSheet.create({
     position: "relative",
     justifyContent: "center",
     alignItems: "center",
-    minHeight: 120,
-    marginVertical: 4,
+    minHeight: 180,
   },
   uploadPlaceholder: {
     alignItems: "center",
-    gap: 8,
   },
   uploadIcon: {
-    fontSize: 24,
+    fontSize: 22,
+    marginBottom: 4,
   },
   uploadLabel: {
-    fontSize: 11,
-    fontWeight: "800",
+    fontSize: 10,
+    fontWeight: "700",
     color: "#64748B",
     textTransform: "uppercase",
-    textAlign: "center",
-    marginTop: 4,
   },
   previewImage: {
     width: "100%",
     height: "100%",
-    resizeMode: "contain",
-    backgroundColor: "#F1F5F9",
+    resizeMode: "cover",
   },
   formButtons: {
     marginTop: 10,
@@ -2364,14 +2697,16 @@ const styles = StyleSheet.create({
   },
   previewName: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#0F172A",
     marginBottom: 2,
   },
   previewDetail: {
     fontSize: 13,
-    color: "#64748B",
-    marginTop: 1,
+    color: "#1E293B",
+    marginTop: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
 });
-

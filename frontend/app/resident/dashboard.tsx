@@ -4,26 +4,27 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
+    collection,
+    doc,
+    onSnapshot,
+    orderBy,
+    query,
 } from "firebase/firestore";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Image,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 
 export default function ResidentDashboard() {
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const [loading, setLoading] = useState(true);
   const [residentData, setResidentData] = useState<any>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -139,7 +140,7 @@ export default function ResidentDashboard() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <ActivityIndicator size="large" color="#0E5D56" />
       </View>
     );
   }
@@ -155,9 +156,30 @@ export default function ResidentDashboard() {
         {/* Header Card */}
         <View style={styles.headerCard}>
           <View style={styles.headerLeft}>
-            <Text style={styles.societyName}>
-              {residentData?.societyName || "Society Hub"}
-            </Text>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 4,
+              }}
+            >
+              <Image
+                source={require("../../assets/images/logo.png")}
+                style={{ width: 32, height: 32 }}
+                resizeMode="contain"
+              />
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "900",
+                  color: "#14B8A6",
+                  marginLeft: 8,
+                  letterSpacing: -0.5,
+                }}
+              >
+                Zonect
+              </Text>
+            </View>
             <Text style={styles.welcomeText}>
               Welcome, {residentData?.residentName || "Resident"}
             </Text>
@@ -181,7 +203,7 @@ export default function ResidentDashboard() {
             <Text style={styles.sectionTitle}>Notifications</Text>
             {notifications.map((notif) => (
               <View key={notif.id} style={styles.notificationCard}>
-                <Ionicons name="notifications" size={20} color="#EF4444" />
+                <Ionicons name="notifications" size={20} color="#C2413B" />
                 <Text style={styles.notificationText}>{notif.message}</Text>
               </View>
             ))}
@@ -190,8 +212,29 @@ export default function ResidentDashboard() {
 
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
-          <View style={styles.iconContainer}>
-            <Ionicons name="home" size={40} color="#3B82F6" />
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              marginBottom: 16,
+            }}
+          >
+            <Image
+              source={require("../../assets/images/logo.png")}
+              style={{ width: 40, height: 40 }}
+              resizeMode="contain"
+            />
+            <Text
+              style={{
+                fontSize: 24,
+                fontWeight: "900",
+                color: "#14B8A6",
+                marginLeft: 10,
+                letterSpacing: -0.5,
+              }}
+            >
+              Zonect
+            </Text>
           </View>
           <Text style={styles.greeting}>
             Welcome to {residentData?.societyName || "your society"}
@@ -209,14 +252,14 @@ export default function ResidentDashboard() {
             onPress={() => router.push("/resident/residentform")}
           >
             <View style={styles.bannerContent}>
-              <Ionicons name="alert-circle" size={24} color="#F59E0B" />
+              <Ionicons name="alert-circle" size={24} color="#B8892D" />
               <View style={styles.bannerTextContainer}>
                 <Text style={styles.bannerTitle}>Complete Your Profile</Text>
                 <Text style={styles.bannerSub}>
                   Add your contact details and family info
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
+              <Ionicons name="chevron-forward" size={20} color="#8D8271" />
             </View>
           </TouchableOpacity>
         )}
@@ -238,8 +281,8 @@ export default function ResidentDashboard() {
             style={styles.actionCard}
             onPress={() => router.push("/resident/staff")}
           >
-            <View style={[styles.actionIcon, { backgroundColor: "#EFF6FF" }]}>
-              <Ionicons name="people" size={24} color="#3B82F6" />
+            <View style={[styles.actionIcon, { backgroundColor: "#EEF7F4" }]}>
+              <Ionicons name="people" size={24} color="#0E5D56" />
             </View>
             <Text style={styles.actionLabel}>Manage Staff</Text>
             <Text style={styles.actionSub}>Help & Helpers</Text>
@@ -249,14 +292,14 @@ export default function ResidentDashboard() {
             style={[styles.actionCard, { opacity: 0.8 }]}
             disabled={true}
           >
-            <View style={[styles.actionIcon, { backgroundColor: "#FDF2F8" }]}>
-              <Ionicons name="notifications" size={24} color="#DB2777" />
+            <View style={[styles.actionIcon, { backgroundColor: "#F9F0E5" }]}>
+              <Ionicons name="notifications" size={24} color="#A35A2A" />
             </View>
             <Text style={styles.actionLabel}>Notice Board</Text>
             <Text
               style={[
                 styles.actionSub,
-                { color: "#DB2777", fontWeight: "700" },
+                { color: "#A35A2A", fontWeight: "700" },
               ]}
             >
               Coming Soon
@@ -280,7 +323,7 @@ export default function ResidentDashboard() {
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
   },
   container: {
     flex: 1,
@@ -294,16 +337,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
   },
   headerCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     borderRadius: 24,
     padding: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    shadowColor: "#6366F1",
+    shadowColor: "#0D4F49",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 15,
@@ -323,18 +366,18 @@ const styles = StyleSheet.create({
   societyName: {
     fontSize: 16,
     fontWeight: "900",
-    color: "#4338CA",
+    color: "#0D4F49",
     letterSpacing: -0.3,
     textTransform: "uppercase",
   },
   welcomeText: {
     fontSize: 12,
-    color: "#64748B",
+    color: "#6F675B",
     marginTop: 2,
     fontWeight: "600",
   },
   profileHeaderBtn: {
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#E6F3F0",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
@@ -342,33 +385,33 @@ const styles = StyleSheet.create({
     borderColor: "#C7D2FE",
   },
   profileHeaderText: {
-    color: "#4338CA",
+    color: "#0D4F49",
     fontWeight: "700",
     fontSize: 12,
   },
   logoutBtn: {
-    backgroundColor: "#FFF1F2",
+    backgroundColor: "#FFF3F2",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#FFE4E6",
+    borderColor: "#F7D8D6",
   },
   logoutText: {
-    color: "#E11D48",
+    color: "#C2413B",
     fontWeight: "700",
     fontSize: 12,
   },
   welcomeSection: {
     alignItems: "center",
     marginBottom: 24,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#E6F3F0",
     paddingVertical: 30,
     paddingHorizontal: 20,
     borderRadius: 32,
     borderWidth: 1,
     borderColor: "#C7D2FE",
-    shadowColor: "#4F46E5",
+    shadowColor: "#0D4F49",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.05,
     shadowRadius: 20,
@@ -378,13 +421,13 @@ const styles = StyleSheet.create({
     width: 70,
     height: 70,
     borderRadius: 35,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#E0E7FF",
-    shadowColor: "#4F46E5",
+    borderColor: "#DFF3EF",
+    shadowColor: "#0D4F49",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -393,16 +436,16 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#1E293B",
+    color: "#243444",
     textAlign: "center",
     lineHeight: 28,
   },
   unitInfo: {
     fontSize: 13,
-    color: "#4338CA",
+    color: "#0D4F49",
     marginTop: 8,
     fontWeight: "800",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 20,
@@ -417,26 +460,26 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: "#E0F2FE",
+    backgroundColor: "#EAF5EF",
     padding: 16,
     borderRadius: 20,
     alignItems: "center",
-    shadowColor: "#0EA5E9",
+    shadowColor: "#0F766E",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 10,
     elevation: 2,
     borderWidth: 1,
-    borderColor: "#BAE6FD",
+    borderColor: "#CFE8DE",
   },
   statValue: {
     fontSize: 24,
     fontWeight: "900",
-    color: "#0369A1",
+    color: "#0F5F58",
   },
   statLabel: {
     fontSize: 11,
-    color: "#075985",
+    color: "#0F5F58",
     fontWeight: "800",
     marginTop: 2,
     textTransform: "uppercase",
@@ -445,11 +488,11 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 17,
     fontWeight: "800",
-    color: "#1E293B",
+    color: "#243444",
     marginBottom: 16,
     marginLeft: 4,
     borderLeftWidth: 4,
-    borderLeftColor: "#6366F1",
+    borderLeftColor: "#0D4F49",
     paddingLeft: 10,
   },
   actionsGrid: {
@@ -459,13 +502,13 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   profileBanner: {
-    backgroundColor: "#FFFBEB",
+    backgroundColor: "#FAF1DE",
     borderRadius: 20,
     padding: 16,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: "#FCD34D",
-    shadowColor: "#F59E0B",
+    borderColor: "#D0A74F",
+    shadowColor: "#B8892D",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
@@ -491,11 +534,11 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     padding: 16,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "#F1F5F9",
+    borderColor: "#EFE8DB",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.06,
@@ -516,33 +559,33 @@ const styles = StyleSheet.create({
   actionLabel: {
     fontSize: 14,
     fontWeight: "800",
-    color: "#1E293B",
+    color: "#243444",
     marginBottom: 2,
   },
   actionSub: {
     fontSize: 11,
-    color: "#64748B",
+    color: "#6F675B",
     fontWeight: "600",
   },
   infoBox: {
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "#EFE8DB",
     borderRadius: 20,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
     marginTop: 8,
   },
   infoTitle: {
     fontSize: 14,
     fontWeight: "800",
-    color: "#475569",
+    color: "#5A5349",
     marginBottom: 8,
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   infoText: {
     fontSize: 12,
-    color: "#64748B",
+    color: "#6F675B",
     lineHeight: 18,
     fontWeight: "600",
   },
@@ -552,11 +595,11 @@ const styles = StyleSheet.create({
   notificationCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FEF2F2",
+    backgroundColor: "#FFF3F2",
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#FECACA",
+    borderColor: "#EDB7B3",
     marginBottom: 8,
   },
   notificationText: {
@@ -567,4 +610,3 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
-

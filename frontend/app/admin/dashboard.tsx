@@ -2,28 +2,30 @@ import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-  updateDoc,
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    onSnapshot,
+    setDoc,
+    updateDoc,
 } from "firebase/firestore";
 import * as React from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  GestureResponderEvent,
-  Linking,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  useWindowDimensions,
-  View,
+    ActivityIndicator,
+    Alert,
+    GestureResponderEvent,
+    Image,
+    Linking,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    useWindowDimensions,
+    View,
 } from "react-native";
 
 interface Wing {
@@ -59,6 +61,39 @@ export default function AdminDashboard() {
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
 
+  React.useEffect(() => {
+    if (!user?.uid) return;
+
+    const societyPath = `artifacts/${appId}/public/data/societies`;
+    const societyDocRef = doc(db, societyPath, user.uid);
+    const wingsRef = collection(db, `${societyPath}/${user.uid}/wings`);
+
+    // 1. Listen to Society Data
+    const unsubscribeSociety = onSnapshot(societyDocRef, (societySnap) => {
+      if (societySnap.exists()) {
+        setSocietyData(societySnap.data());
+      } else {
+        router.replace("/admin/setup");
+      }
+    });
+
+    // 2. Listen to Wings Collection
+    const unsubscribeWings = onSnapshot(wingsRef, (wingsSnap) => {
+      const fetchedWings = wingsSnap.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Wing[];
+      setWings(fetchedWings);
+      setLoading(false);
+    });
+
+    return () => {
+      unsubscribeSociety();
+      unsubscribeWings();
+    };
+  }, [user]);
+
+  // Handle migrations or initial data fetch if needed
   const fetchData = React.useCallback(async () => {
     if (!user?.uid) return;
     try {
@@ -67,8 +102,6 @@ export default function AdminDashboard() {
 
       if (societyDoc.exists()) {
         const data = societyDoc.data();
-        setSocietyData(data);
-
         const wingsRef = collection(db, `${societyPath}/${user.uid}/wings`);
         const wingsSnapshot = await getDocs(wingsRef);
         let fetchedWings = wingsSnapshot.docs.map((doc) => ({
@@ -106,22 +139,11 @@ export default function AdminDashboard() {
 
           if (added) {
             await batch.commit();
-            const updatedSnapshot = await getDocs(wingsRef);
-            fetchedWings = updatedSnapshot.docs.map((doc) => ({
-              id: doc.id,
-              ...doc.data(),
-            })) as Wing[];
           }
         }
-        setWings(fetchedWings);
-      } else {
-        router.replace("/admin/setup");
       }
     } catch (error) {
       console.error(error);
-      Alert.alert("Error", "Failed to fetch data");
-    } finally {
-      setLoading(false);
     }
   }, [user]);
 
@@ -378,7 +400,7 @@ export default function AdminDashboard() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <ActivityIndicator size="large" color="#0E5D56" />
       </View>
     );
   }
@@ -406,9 +428,30 @@ export default function AdminDashboard() {
           <View
             style={[styles.headerLeft, isMobile && styles.headerLeftMobile]}
           >
-            <Text style={styles.societyName}>
-              {societyData?.societyName || "Admin Hub"}
-            </Text>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 4,
+              }}
+            >
+              <Image
+                source={require("../../assets/images/logo.png")}
+                style={{ width: 32, height: 32 }}
+                resizeMode="contain"
+              />
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "900",
+                  color: "#14B8A6",
+                  marginLeft: 8,
+                  letterSpacing: -0.5,
+                }}
+              >
+                Zonect
+              </Text>
+            </View>
             <Text style={styles.welcomeText}>
               Welcome {user?.displayName || user?.email || "Admin"}
             </Text>
@@ -619,7 +662,7 @@ export default function AdminDashboard() {
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
   },
   container: {
     flex: 1,
@@ -633,23 +676,23 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
   },
   headerCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     borderRadius: 24,
     padding: 20,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    shadowColor: "#3B82F6",
+    shadowColor: "#0E5D56",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 20,
     elevation: 5,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
   },
   headerCardMobile: {
     flexDirection: "column",
@@ -682,25 +725,25 @@ const styles = StyleSheet.create({
   societyName: {
     fontSize: 22,
     fontWeight: "900",
-    color: "#0F172A",
+    color: "#1F2937",
     letterSpacing: -0.5,
     textTransform: "uppercase",
   },
   welcomeText: {
     fontSize: 13,
-    color: "#64748B",
+    color: "#6F675B",
     marginTop: 2,
   },
   headerBtn: {
-    backgroundColor: "#F0F7FF",
+    backgroundColor: "#EEF7F4",
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E0E7FF",
+    borderColor: "#DFF3EF",
   },
   headerBtnText: {
-    color: "#3B82F6",
+    color: "#0E5D56",
     fontWeight: "700",
     fontSize: 12,
   },
@@ -713,7 +756,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   logoutBtn: {
-    backgroundColor: "#FEF2F2",
+    backgroundColor: "#FFF3F2",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
@@ -723,7 +766,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   logoutText: {
-    color: "#EF4444",
+    color: "#C2413B",
     fontWeight: "700",
     fontSize: 13,
   },
@@ -737,26 +780,26 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     padding: 20,
     borderRadius: 20,
     alignItems: "center",
-    shadowColor: "#0F172A",
+    shadowColor: "#1F2937",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 12,
     elevation: 2,
     borderWidth: 1,
-    borderColor: "#F1F5F9",
+    borderColor: "#EFE8DB",
   },
   statValue: {
     fontSize: 24,
     fontWeight: "800",
-    color: "#3B82F6",
+    color: "#0E5D56",
   },
   statLabel: {
     fontSize: 12,
-    color: "#64748B",
+    color: "#6F675B",
     fontWeight: "600",
     marginTop: 4,
     textTransform: "uppercase",
@@ -765,7 +808,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#0F172A",
+    color: "#1F2937",
     marginBottom: 16,
     marginLeft: 4,
   },
@@ -777,18 +820,18 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   wingCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     borderRadius: 20,
     padding: 16,
     paddingTop: 35,
     borderWidth: 2,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
     minHeight: 200,
     maxWidth: 320,
     minWidth: 260,
     position: "relative",
     overflow: "hidden",
-    shadowColor: "#64748B",
+    shadowColor: "#6F675B",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 15,
@@ -796,17 +839,17 @@ const styles = StyleSheet.create({
   },
   wingCardConfigured: {
     backgroundColor: "#F0FDF4",
-    borderColor: "#22C55E",
+    borderColor: "#2C8A64",
     borderStyle: "solid",
-    shadowColor: "#22C55E",
+    shadowColor: "#2C8A64",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 2,
   },
   wingCardPending: {
-    backgroundColor: "#EFF6FF",
-    borderColor: "#3B82F6",
+    backgroundColor: "#EEF7F4",
+    borderColor: "#0E5D56",
     borderStyle: "dashed",
   },
   wingCardContent: {
@@ -817,10 +860,10 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   wingLetterConfigured: {
-    color: "#16A34A",
+    color: "#1E7A57",
   },
   wingLetterPending: {
-    color: "#3B82F6",
+    color: "#0E5D56",
   },
   wingName: {
     fontSize: 14,
@@ -829,7 +872,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   wingNameConfigured: {
-    color: "#166534",
+    color: "#145A3E",
   },
   wingNamePending: {
     color: "#1E40AF",
@@ -841,41 +884,41 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   badgeSuccess: {
-    backgroundColor: "#10B981",
+    backgroundColor: "#1E7A57",
   },
   badgeInfo: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#0E5D56",
   },
   badgeText: {
     fontSize: 10,
     fontWeight: "900",
     textTransform: "uppercase",
-    color: "#FFFFFF",
+    color: "#FFFCF6",
     letterSpacing: 0.5,
   },
   badgeTextSuccess: {
-    color: "#FFFFFF",
+    color: "#FFFCF6",
   },
   badgeTextInfo: {
-    color: "#FFFFFF",
+    color: "#FFFCF6",
   },
   infoBox: {
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
     marginTop: 8,
   },
   infoTitle: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#475569",
+    color: "#5A5349",
     marginBottom: 10,
   },
   infoText: {
     fontSize: 13,
-    color: "#64748B",
+    color: "#6F675B",
     lineHeight: 20,
   },
   towerTop: {
@@ -888,10 +931,10 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 10,
   },
   towerTopConfigured: {
-    backgroundColor: "#22C55E",
+    backgroundColor: "#2C8A64",
   },
   towerTopPending: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#0E5D56",
   },
   windowGrid: {
     position: "absolute",
@@ -906,7 +949,7 @@ const styles = StyleSheet.create({
   window: {
     width: 6,
     height: 6,
-    backgroundColor: "#E2E8F0",
+    backgroundColor: "#E3D8C6",
     borderRadius: 1,
   },
   sectionHeader: {
@@ -922,10 +965,10 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#22C55E",
+    borderColor: "#2C8A64",
   },
   addWingBtnText: {
-    color: "#166534",
+    color: "#145A3E",
     fontSize: 12,
     fontWeight: "700",
   },
@@ -944,7 +987,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(239, 68, 68, 0.2)",
   },
   deleteWingIconText: {
-    color: "#EF4444",
+    color: "#C2413B",
     fontSize: 18,
     fontWeight: "800",
     lineHeight: 20,

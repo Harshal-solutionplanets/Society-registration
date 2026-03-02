@@ -390,6 +390,8 @@ router.get("/auth/google/refresh", async (req, res) => {
 
 /**
  * Upload Documents
+ * Staff documents are stored under the unit's own Drive folder:
+ * Society_ROOT/Wing/Floor/FlatFolder/StaffName/Current Profile/
  */
 router.post("/drive/upload-resident-staff", async (req, res) => {
   const { adminUID, parentFolderId, staffName, fileName, base64Data, appId } =
@@ -411,56 +413,24 @@ router.post("/drive/upload-resident-staff", async (req, res) => {
       return res.status(404).json({ error: "Google Drive not linked." });
     }
 
-    // Creating local client to avoid race conditions
     const client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
       process.env.GOOGLE_REDIRECT_URI,
     );
-
-    client.setCredentials({
-      refresh_token: tokenDoc.data().refreshToken,
-    });
+    client.setCredentials({ refresh_token: tokenDoc.data().refreshToken });
     const drive = google.drive({ version: "v3", auth: client });
 
-    // 0. Get society root Drive folder (for Resident_Staff root)
-    const societyDoc = await db
-      .collection("artifacts")
-      .doc(targetAppId)
-      .collection("public")
-      .doc("data")
-      .collection("societies")
-      .doc(adminUID)
-      .get();
-
-    let effectiveParentId = parentFolderId; // fallback to provided
-    if (societyDoc.exists && societyDoc.data().driveFolderId) {
-      const rootDriveId = societyDoc.data().driveFolderId;
-      // Find or Create "Resident_Staff" folder under society root
-      const rsSearch = await drive.files.list({
-        q: `name = 'Resident_Staff' and '${rootDriveId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-        fields: "files(id)",
-      });
-      if (rsSearch.data.files && rsSearch.data.files.length > 0) {
-        effectiveParentId = rsSearch.data.files[0].id;
-      } else {
-        const rsFolder = await drive.files.create({
-          resource: {
-            name: "Resident_Staff",
-            mimeType: "application/vnd.google-apps.folder",
-            parents: [rootDriveId],
-          },
-          fields: "id",
-        });
-        effectiveParentId = rsFolder.data.id;
-      }
+    const effectiveParentId = parentFolderId;
+    if (!effectiveParentId) {
+      return res
+        .status(400)
+        .json({ error: "No flat folder ID provided. Check admin wing setup." });
     }
 
-    // 1. Find/Create/Rename staff member folder under Resident_Staff
+    // 1. Find/Create staff member folder
     let staffFolderId = req.body.staffFolderId;
-
     if (staffFolderId) {
-      // Check if rename needed
       try {
         const existingFolder = await drive.files.get({
           fileId: staffFolderId,
@@ -473,9 +443,6 @@ router.post("/drive/upload-resident-staff", async (req, res) => {
           });
         }
       } catch (e) {
-        console.warn(
-          "Folder ID provided but not found, falling back to name search.",
-        );
         staffFolderId = null;
       }
     }
@@ -485,7 +452,6 @@ router.post("/drive/upload-resident-staff", async (req, res) => {
         q: `name = '${staffName}' and '${effectiveParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: "files(id)",
       });
-
       if (folderSearch.data.files && folderSearch.data.files.length > 0) {
         staffFolderId = folderSearch.data.files[0].id;
       } else {
@@ -501,24 +467,48 @@ router.post("/drive/upload-resident-staff", async (req, res) => {
       }
     }
 
-    // 2. EXHAUSTIVE CLEANUP: Delete all existing instances of the document (jpg, pdf, etc.)
+    // 2. Find/Create "Current Profile" folder inside staff folder
+    let currentProfileFolderId;
+    const currentFolderSearch = await drive.files.list({
+      q: `name = 'Current Profile' and '${staffFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: "files(id)",
+    });
+
+    if (
+      currentFolderSearch.data.files &&
+      currentFolderSearch.data.files.length > 0
+    ) {
+      currentProfileFolderId = currentFolderSearch.data.files[0].id;
+    } else {
+      const currentRes = await drive.files.create({
+        resource: {
+          name: "Current Profile",
+          mimeType: "application/vnd.google-apps.folder",
+          parents: [staffFolderId],
+        },
+        fields: "id",
+      });
+      currentProfileFolderId = currentRes.data.id;
+    }
+
+    // 3. Delete old file from "Current Profile" (previous versions are stored in Firestore audit logs)
     const baseFileName = fileName.split(".")[0];
     const extensions = [".jpg", ".jpeg", ".pdf", ".png"];
 
     for (const ext of extensions) {
       const searchName = `${baseFileName}${ext}`;
       const search = await drive.files.list({
-        q: `name = '${searchName}' and '${staffFolderId}' in parents and trashed = false`,
+        q: `name = '${searchName}' and '${currentProfileFolderId}' in parents and trashed = false`,
         fields: "files(id)",
       });
       if (search.data.files && search.data.files.length > 0) {
         for (const f of search.data.files) {
-          await drive.files.delete({ fileId: f.id }).catch(() => {});
+          await drive.files.delete({ fileId: f.id });
         }
       }
     }
 
-    // 3. UPLOAD: Create new file
+    // 4. UPLOAD: Create new file in "Current Profile"
     const mimeMatch = base64Data.match(/^data:(.*);base64,/);
     const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
     const buffer = Buffer.from(
@@ -531,7 +521,7 @@ router.post("/drive/upload-resident-staff", async (req, res) => {
     stream.push(null);
 
     const createRes = await drive.files.create({
-      requestBody: { name: fileName, parents: [staffFolderId] },
+      requestBody: { name: fileName, parents: [currentProfileFolderId] },
       media: { mimeType: mimeType, body: stream },
     });
 
@@ -544,7 +534,6 @@ router.post("/drive/upload-resident-staff", async (req, res) => {
 
 router.post("/drive/delete-resident-file", async (req, res) => {
   const { adminUID, appId, staffFolderId, fileName } = req.body;
-
   if (!adminUID || !staffFolderId || !fileName) {
     return res.status(400).json({ error: "Missing required fields" });
   }
@@ -561,19 +550,29 @@ router.post("/drive/delete-resident-file", async (req, res) => {
       return res.status(404).json({ error: "Google Drive not linked." });
     }
 
-    // Creating local client to avoid race conditions
     const client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
       process.env.GOOGLE_REDIRECT_URI,
     );
-
-    client.setCredentials({
-      refresh_token: tokenDoc.data().refreshToken,
-    });
+    client.setCredentials({ refresh_token: tokenDoc.data().refreshToken });
     const drive = google.drive({ version: "v3", auth: client });
 
-    // Exhaustive cleanup for deletion
+    // 1. Find "Current Profile" folder
+    const currentFolderSearch = await drive.files.list({
+      q: `name = 'Current Profile' and '${staffFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: "files(id)",
+    });
+
+    if (
+      !currentFolderSearch.data.files ||
+      currentFolderSearch.data.files.length === 0
+    ) {
+      return res.json({ success: true, message: "No Current Profile found." });
+    }
+    const currentProfileFolderId = currentFolderSearch.data.files[0].id;
+
+    // 2. Delete file from Current Profile (previous versions are in Firestore audit logs)
     const baseFileName = fileName.split(".")[0];
     const extensions = [".jpg", ".jpeg", ".pdf", ".png"];
     let deletedCount = 0;
@@ -581,13 +580,13 @@ router.post("/drive/delete-resident-file", async (req, res) => {
     for (const ext of extensions) {
       const searchName = `${baseFileName}${ext}`;
       const fileSearch = await drive.files.list({
-        q: `name = '${searchName}' and '${staffFolderId}' in parents and trashed = false`,
+        q: `name = '${searchName}' and '${currentProfileFolderId}' in parents and trashed = false`,
         fields: "files(id)",
       });
 
       if (fileSearch.data.files && fileSearch.data.files.length > 0) {
         for (const file of fileSearch.data.files) {
-          await drive.files.delete({ fileId: file.id }).catch(() => {});
+          await drive.files.delete({ fileId: file.id });
           deletedCount++;
         }
       }
@@ -595,7 +594,7 @@ router.post("/drive/delete-resident-file", async (req, res) => {
 
     res.json({
       success: true,
-      message: `Cleanup complete. Deleted ${deletedCount} files.`,
+      message: `Deleted ${deletedCount} files from Current Profile.`,
     });
   } catch (error) {
     console.error("Delete Error:", error);
@@ -604,14 +603,14 @@ router.post("/drive/delete-resident-file", async (req, res) => {
 });
 
 /**
- * Archive Staff (The route that was giving 404)
+ * Delink Staff — Remove staff from a resident's unit without moving Drive files
+ * Only deletes the Firestore link and updates the registry's linkedUnits array
  */
-router.post("/drive/archive-resident-staff", async (req, res) => {
-  const { adminUID, parentFolderId, staffFolderId, appId, unitId, staffId } =
-    req.body;
-  console.log("DEBUG: Archive request received for", { staffId, unitId });
+router.post("/drive/delink-resident-staff", async (req, res) => {
+  const { adminUID, appId, unitId, staffId, sourceRegistryId } = req.body;
+  console.log("DEBUG: Delink request received for", { staffId, unitId });
 
-  if (!adminUID || !parentFolderId || !unitId || !staffId) {
+  if (!adminUID || !unitId || !staffId) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
@@ -635,85 +634,43 @@ router.post("/drive/archive-resident-staff", async (req, res) => {
     }
     const staffData = snapshot.data();
 
-    // Move Drive Folder if possible
-    let driveArchived = false;
-    const tokenDoc = await db
-      .collection("artifacts")
-      .doc(societyId)
-      .collection("secure")
-      .doc(adminUID)
-      .get();
+    // Delete the staff member document from this unit
+    await activeDocRef.delete();
 
-    if (tokenDoc.exists && tokenDoc.data().refreshToken && staffFolderId) {
+    // Update the Resident_Staff registry — remove this unit from linkedUnits
+    const registryId = sourceRegistryId || staffData.sourceRegistryId;
+    if (registryId) {
       try {
-        // Creating local client to avoid race conditions
-        const client = new google.auth.OAuth2(
-          process.env.GOOGLE_CLIENT_ID,
-          process.env.GOOGLE_CLIENT_SECRET,
-          process.env.GOOGLE_REDIRECT_URI,
-        );
+        const registryDocRef = db
+          .collection("artifacts")
+          .doc(societyId)
+          .collection("public")
+          .doc("data")
+          .collection("societies")
+          .doc(adminUID)
+          .collection("Resident_Staff")
+          .doc(registryId);
 
-        client.setCredentials({
-          refresh_token: tokenDoc.data().refreshToken,
-        });
-        const drive = google.drive({ version: "v3", auth: client });
-
-        // Find/Create "Archived Staff" folder
-        const archiveSearch = await drive.files.list({
-          q: `name = 'Archived Staff' and '${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-          fields: "files(id)",
-        });
-
-        let archiveFolderId;
-        if (archiveSearch.data.files && archiveSearch.data.files.length > 0) {
-          archiveFolderId = archiveSearch.data.files[0].id;
-        } else {
-          const folderRes = await drive.files.create({
-            resource: {
-              name: "Archived Staff",
-              mimeType: "application/vnd.google-apps.folder",
-              parents: [parentFolderId],
-            },
-            fields: "id",
-          });
-          archiveFolderId = folderRes.data.id;
+        const registrySnap = await registryDocRef.get();
+        if (registrySnap.exists) {
+          const currentLinked = registrySnap.data().linkedUnits || [];
+          const updatedLinked = currentLinked.filter((u) => u !== unitId);
+          await registryDocRef.update({ linkedUnits: updatedLinked });
         }
-
-        await drive.files.update({
-          fileId: staffFolderId,
-          addParents: archiveFolderId,
-          removeParents: parentFolderId, // Assumes it was in the parent
-          fields: "id, parents",
-        });
-        driveArchived = true;
-      } catch (e) {
-        console.warn("Drive folder move failed:", e.message);
+      } catch (regErr) {
+        console.warn(
+          "Registry delink update failed (non-critical):",
+          regErr.message,
+        );
       }
     }
 
-    // Move Firestore metadata
-    const archivedDocRef = db
-      .collection("artifacts")
-      .doc(societyId)
-      .collection("public")
-      .doc("data")
-      .collection("societies")
-      .doc(adminUID)
-      .collection("Residents")
-      .doc(unitId)
-      .collection("ArchivedStaff")
-      .doc(staffId);
-
-    await archivedDocRef.set({
-      ...staffData,
-      archivedAt: FieldValue.serverTimestamp(),
-      driveArchived,
+    res.json({
+      success: true,
+      message: "Staff delinked from unit successfully.",
     });
-
-    await activeDocRef.delete();
-    res.json({ success: true, driveArchived });
   } catch (error) {
-    console.error("Archive Error:", error);
+    console.error("Delink Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -918,8 +875,423 @@ router.post("/auth/reset-password", async (req, res) => {
 });
 
 // Mount router on both root and /api to handle all environments (Hosting vs Direct)
+/**
+ * Step Extra: Generate Wing Report (Docx)
+ * Fetches all units and staff for a wing, makes the wing folder public-access (viewer),
+ * and generates a Word document with metadata and hyperlinks.
+ */
+router.post("/drive/generate-wing-report", async (req, res) => {
+  const { adminUID, wingId, appId, wingName } = req.body;
+  if (!adminUID || !wingId || !appId) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    const tokenDoc = await db
+      .collection("artifacts")
+      .doc(appId)
+      .collection("secure")
+      .doc(adminUID)
+      .get();
+    if (!tokenDoc.exists || !tokenDoc.data().refreshToken) {
+      return res.status(404).json({ error: "Google Drive not linked." });
+    }
+
+    const client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI,
+    );
+    client.setCredentials({ refresh_token: tokenDoc.data().refreshToken });
+    const drive = google.drive({ version: "v3", auth: client });
+
+    // 1. Fetch Wing Metadata
+    const wingRef = db
+      .collection("artifacts")
+      .doc(appId)
+      .collection("public")
+      .doc("data")
+      .collection("societies")
+      .doc(adminUID)
+      .collection("wings")
+      .doc(wingId);
+    const wingDoc = await wingRef.get();
+    if (!wingDoc.exists) {
+      return res.status(404).json({ error: "Wing not found." });
+    }
+    const wingData = wingDoc.data();
+
+    // 2. Set Drive Sharing to 'Anyone with Link' for the wing folder
+    if (wingData.driveFolderId) {
+      try {
+        await drive.permissions.create({
+          fileId: wingData.driveFolderId,
+          requestBody: {
+            role: "reader",
+            type: "anyone",
+          },
+        });
+      } catch (e) {
+        console.warn("Could not set Drive permissions:", e.message);
+      }
+    }
+
+    // 3. Fetch Units and Staff
+    const floorGroups = [];
+    const floors = wingData.floors || [];
+
+    for (const floor of floors) {
+      const floorUnits = [];
+      const unitsSnap = await wingRef
+        .collection(String(floor.floorNumber))
+        .get();
+      for (const unitDoc of unitsSnap.docs) {
+        const u = unitDoc.data();
+        const staffSnap = await db
+          .collection("artifacts")
+          .doc(appId)
+          .collection("public")
+          .doc("data")
+          .collection("societies")
+          .doc(adminUID)
+          .collection("Residents")
+          .doc(unitDoc.id)
+          .collection("StaffMembers")
+          .get();
+
+        const staffList = staffSnap.docs.map((s) => s.data());
+        floorUnits.push({ ...u, staffMembers: staffList });
+      }
+      if (floorUnits.length > 0) {
+        floorGroups.push({
+          floorName: floor.floorName || `Floor ${floor.floorNumber}`,
+          units: floorUnits,
+        });
+      }
+    }
+
+    // 4. Generate DOCX
+    const {
+      Document,
+      Packer,
+      Paragraph,
+      TextRun,
+      HeadingLevel,
+      Table,
+      TableRow,
+      TableCell,
+      WidthType,
+      ExternalHyperlink,
+      InternalHyperlink,
+      AlignmentType,
+      Bookmark,
+    } = require("docx");
+
+    const docItems = [
+      new Paragraph({
+        text: `Wing Report: ${wingName || wingData.name}`,
+        heading: HeadingLevel.HEADING_1,
+        alignment: AlignmentType.CENTER,
+      }),
+      new Paragraph({
+        text: `Generated on: ${new Date().toLocaleString()}`,
+        alignment: AlignmentType.CENTER,
+      }),
+      new Paragraph({ text: "" }),
+    ];
+
+    // Table of Contents (Navigation)
+    docItems.push(
+      new Paragraph({
+        text: "Table of Contents:",
+        heading: HeadingLevel.HEADING_2,
+      }),
+    );
+    floorGroups.forEach((fg) => {
+      docItems.push(
+        new Paragraph({
+          text: `Floor: ${fg.floorName}`,
+          heading: HeadingLevel.HEADING_3,
+        }),
+      );
+      fg.units.forEach((u) => {
+        const bookmarkId = `unit_${u.id.replace(/[^a-zA-Z0-9]/g, "_")}`;
+        docItems.push(
+          new Paragraph({
+            children: [
+              new InternalHyperlink({
+                children: [
+                  new TextRun({
+                    text: `  • Unit ${u.displayName || u.unitName}`,
+                    color: "0000FF",
+                    underline: {},
+                  }),
+                ],
+                anchor: bookmarkId,
+              }),
+            ],
+          }),
+        );
+      });
+    });
+    docItems.push(new Paragraph({ text: "" }));
+
+    // Detailed Body
+    for (const fg of floorGroups) {
+      docItems.push(
+        new Paragraph({
+          text: `Floor: ${fg.floorName}`,
+          heading: HeadingLevel.HEADING_1,
+          spacing: { before: 800 },
+        }),
+      );
+
+      for (const u of fg.units) {
+        const bookmarkId = `unit_${u.id.replace(/[^a-zA-Z0-9]/g, "_")}`;
+        docItems.push(
+          new Paragraph({
+            children: [
+              new Bookmark({
+                id: bookmarkId,
+                children: [
+                  new TextRun({
+                    text: `Unit: ${u.displayName || u.unitName}`,
+                    bold: true,
+                    size: 28,
+                  }),
+                ],
+              }),
+            ],
+            heading: HeadingLevel.HEADING_2,
+            spacing: { before: 400 },
+          }),
+        );
+        docItems.push(
+          new Paragraph({
+            children: [
+              new TextRun({ text: "Resident Name: ", bold: true }),
+              new TextRun({ text: u.residentName || "N/A" }),
+            ],
+          }),
+        );
+
+        if (u.staffMembers && u.staffMembers.length > 0) {
+          docItems.push(
+            new Paragraph({
+              text: "Staff Details:",
+              heading: HeadingLevel.HEADING_3,
+              spacing: { before: 200 },
+            }),
+          );
+
+          u.staffMembers.forEach((s) => {
+            const rows = [
+              new TableRow({
+                children: [
+                  new TableCell({
+                    children: [
+                      new Paragraph({ text: "Attribute", bold: true }),
+                    ],
+                  }),
+                  new TableCell({
+                    children: [new Paragraph({ text: "Details", bold: true })],
+                  }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph("Staff Name")] }),
+                  new TableCell({
+                    children: [new Paragraph(s.staffName || "N/A")],
+                  }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph("Category")] }),
+                  new TableCell({
+                    children: [new Paragraph(s.staffType || "N/A")],
+                  }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph("Contact")] }),
+                  new TableCell({
+                    children: [new Paragraph(s.contact || "N/A")],
+                  }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph("Native Place")] }),
+                  new TableCell({
+                    children: [new Paragraph(s.nativePlace || "N/A")],
+                  }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph("Guardian")] }),
+                  new TableCell({
+                    children: [
+                      new Paragraph(
+                        `${s.guardianName || "N/A"} (${s.guardianContact || "N/A"})`,
+                      ),
+                    ],
+                  }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({
+                    children: [new Paragraph("Guardian Address")],
+                  }),
+                  new TableCell({
+                    children: [new Paragraph(s.guardianAddress || "N/A")],
+                  }),
+                ],
+              }),
+            ];
+
+            if (s.driveFolderId) {
+              rows.push(
+                new TableRow({
+                  children: [
+                    new TableCell({ children: [new Paragraph("Documents")] }),
+                    new TableCell({
+                      children: [
+                        new Paragraph({
+                          children: [
+                            new ExternalHyperlink({
+                              children: [
+                                new TextRun({
+                                  text: "View Docs (Google Drive)",
+                                  color: "0000FF",
+                                  underline: {},
+                                }),
+                              ],
+                              link: `https://drive.google.com/drive/folders/${s.driveFolderId}`,
+                            }),
+                          ],
+                        }),
+                      ],
+                    }),
+                  ],
+                }),
+              );
+            }
+
+            docItems.push(
+              new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: rows,
+              }),
+            );
+            docItems.push(new Paragraph({ text: "" }));
+          });
+        } else {
+          docItems.push(
+            new Paragraph({
+              text: "No staff members registered for this unit.",
+            }),
+          );
+        }
+      }
+    }
+
+    const docx = new Document({
+      sections: [{ children: docItems }],
+    });
+
+    const b64Data = await Packer.toBase64String(docx);
+    res.json({
+      success: true,
+      fileName: `Wing_Report_${wingName || "Wing"}.docx`,
+      data: b64Data,
+    });
+  } catch (error) {
+    console.error("Report Generation Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.use("/", router);
 app.use("/api", router);
+
+/**
+ * Propagate Staff Update
+ * When a registry document in Resident_Staff is updated,
+ * propagate those changes to all units listed in linkedUnits.
+ */
+exports.propagateStaffUpdate = functions
+  .region("asia-south1")
+  .firestore.document(
+    "artifacts/{appId}/public/data/societies/{adminUID}/Resident_Staff/{staffId}",
+  )
+  .onUpdate(async (change, context) => {
+    const newData = change.after.data();
+    const oldData = change.before.data();
+
+    // Skip if nothing relevant changed (avoid infinite loops if fields matched)
+    if (JSON.stringify(newData) === JSON.stringify(oldData)) return;
+
+    const { appId, adminUID, staffId } = context.params;
+    const linkedUnits = newData.linkedUnits || [];
+    if (linkedUnits.length === 0) return;
+
+    console.log(
+      `[Propagation] Staff ${staffId} updated. Propagating to ${linkedUnits.length} units.`,
+    );
+
+    const batch = db.batch();
+    const societyBase = db
+      .collection("artifacts")
+      .doc(appId)
+      .collection("public")
+      .doc("data")
+      .collection("societies")
+      .doc(adminUID);
+
+    for (const unitId of linkedUnits) {
+      const unitStaffMembersRef = societyBase
+        .collection("Residents")
+        .doc(unitId)
+        .collection("StaffMembers");
+
+      // Find local links to this registry profile
+      const snapshot = await unitStaffMembersRef
+        .where("sourceRegistryId", "==", staffId)
+        .get();
+
+      snapshot.forEach((docSnap) => {
+        batch.set(
+          docSnap.ref,
+          {
+            staffName: newData.staffName,
+            staffType: newData.staffType,
+            contact: newData.contact,
+            photo: newData.photo,
+            idCard: newData.idCard,
+            addressProof: newData.addressProof,
+            nativePlace: newData.nativePlace,
+            guardianName: newData.guardianName,
+            guardianContact: newData.guardianContact,
+            guardianAddress: newData.guardianAddress,
+            // propagate audit trail
+            lastEditedBy: newData.lastEditedBy || "",
+            lastEditedUnit: newData.lastEditedUnit || "",
+            lastEditedAt: newData.lastEditedAt || "",
+            lastEditField: newData.lastEditField || "",
+            updatedAt: newData.updatedAt || new Date().toISOString(),
+          },
+          { merge: true },
+        );
+      });
+    }
+
+    return batch.commit();
+  });
 
 // Replace app.listen with exports.api
 exports.api = functions.region("asia-south1").https.onRequest(app);

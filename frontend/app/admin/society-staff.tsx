@@ -5,26 +5,26 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import { useRouter } from "expo-router";
 import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    setDoc,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -83,6 +83,27 @@ const StaffLoader = () => {
   );
 };
 
+const setFolderPublic = async (folderId: string, token: string) => {
+  try {
+    await fetch(
+      `https://www.googleapis.com/drive/v3/files/${folderId}/permissions`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          role: "reader",
+          type: "anyone",
+        }),
+      },
+    );
+  } catch (e) {
+    console.warn("Could not set folder permissions:", e);
+  }
+};
+
 const findOrCreateFolder = async (
   name: string,
   parentId: string,
@@ -133,7 +154,12 @@ const findOrCreateFolder = async (
     }
 
     const createData = await createRes.json();
-    return createData.id;
+    const folderId = createData.id;
+
+    // Set permission to "Anyone with the link"
+    await setFolderPublic(folderId, token);
+
+    return folderId;
   } catch (error) {
     console.error("DEBUG: findOrCreateFolder error", error);
     throw error;
@@ -363,10 +389,11 @@ export default function SocietyStaff() {
 
           // Size Check (500KB = 512000 bytes)
           if (asset.size && asset.size > 512000) {
-            Alert.alert(
-              "Error",
-              "File size too large. Maximum limit is 500KB.",
-            );
+            Toast.show({
+              type: "error",
+              text1: "File Too Large",
+              text2: "Maximum file size is 500KB.",
+            });
             return;
           }
 
@@ -983,7 +1010,7 @@ export default function SocietyStaff() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <ActivityIndicator size="large" color="#0E5D56" />
       </View>
     );
   }
@@ -1008,7 +1035,24 @@ export default function SocietyStaff() {
               <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
                 <Text style={styles.backBtnText}>← Back</Text>
               </TouchableOpacity>
-              <Text style={styles.title}>Society Staff</Text>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Image
+                  source={require("../../assets/images/logo.png")}
+                  style={{ width: 32, height: 32 }}
+                  resizeMode="contain"
+                />
+                <Text
+                  style={{
+                    fontSize: 18,
+                    fontWeight: "900",
+                    color: "#14B8A6",
+                    marginLeft: 8,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  Zonect
+                </Text>
+              </View>
             </View>
 
             <View style={styles.formSection}>
@@ -1045,7 +1089,15 @@ export default function SocietyStaff() {
                 </View>
               </View>
 
-              <View style={[styles.row, { zIndex: 1000 }]}>
+              <View
+                style={[
+                  styles.row,
+                  {
+                    zIndex:
+                      showPositionDropdown || showShiftDropdown ? 3500 : 1000,
+                  },
+                ]}
+              >
                 <View style={{ flex: 1 }}>
                   <Text style={styles.label}>Position *</Text>
                   <TouchableOpacity
@@ -1057,7 +1109,7 @@ export default function SocietyStaff() {
                     <Text
                       style={[
                         styles.dropdownText,
-                        !position && { color: "#94A3B8" },
+                        !position && { color: "#8D8271" },
                       ]}
                     >
                       {position || "Select Position"}
@@ -1165,14 +1217,14 @@ export default function SocietyStaff() {
                               {
                                 justifyContent: "center",
                                 alignItems: "center",
-                                backgroundColor: "#F1F5F9",
+                                backgroundColor: "#EFE8DB",
                               },
                             ]}
                           >
                             <Ionicons
                               name="document-text"
                               size={32}
-                              color="#EF4444"
+                              color="#C2413B"
                             />
                             <Text style={{ fontSize: 10, color: "#334155" }}>
                               PDF
@@ -1186,7 +1238,7 @@ export default function SocietyStaff() {
                         )
                       ) : (
                         <View style={styles.uploadPlaceholder}>
-                          <Ionicons name="person" size={24} color="#6366F1" />
+                          <Ionicons name="person" size={24} color="#0D4F49" />
                           <Text style={styles.uploadLabel}>Photo</Text>
                         </View>
                       )}
@@ -1226,14 +1278,14 @@ export default function SocietyStaff() {
                               {
                                 justifyContent: "center",
                                 alignItems: "center",
-                                backgroundColor: "#F1F5F9",
+                                backgroundColor: "#EFE8DB",
                               },
                             ]}
                           >
                             <Ionicons
                               name="document-text"
                               size={32}
-                              color="#EF4444"
+                              color="#C2413B"
                             />
                             <Text style={{ fontSize: 10, color: "#334155" }}>
                               PDF
@@ -1247,8 +1299,8 @@ export default function SocietyStaff() {
                         )
                       ) : (
                         <View style={styles.uploadPlaceholder}>
-                          <Ionicons name="card" size={24} color="#0EA5E9" />
-                          <Text style={styles.uploadLabel}>ID Card</Text>
+                          <Ionicons name="card" size={24} color="#0F766E" />
+                          <Text style={styles.uploadLabel}>Photo ID Proof</Text>
                         </View>
                       )}
                     </TouchableOpacity>
@@ -1288,14 +1340,14 @@ export default function SocietyStaff() {
                               {
                                 justifyContent: "center",
                                 alignItems: "center",
-                                backgroundColor: "#F1F5F9",
+                                backgroundColor: "#EFE8DB",
                               },
                             ]}
                           >
                             <Ionicons
                               name="document-text"
                               size={32}
-                              color="#EF4444"
+                              color="#C2413B"
                             />
                             <Text style={{ fontSize: 10, color: "#334155" }}>
                               PDF
@@ -1309,8 +1361,8 @@ export default function SocietyStaff() {
                         )
                       ) : (
                         <View style={styles.uploadPlaceholder}>
-                          <Ionicons name="home" size={24} color="#F59E0B" />
-                          <Text style={styles.uploadLabel}>Address</Text>
+                          <Ionicons name="home" size={24} color="#B8892D" />
+                          <Text style={styles.uploadLabel}>Address Proof</Text>
                         </View>
                       )}
                     </TouchableOpacity>
@@ -1400,7 +1452,7 @@ export default function SocietyStaff() {
                       <Ionicons
                         name="document-text"
                         size={24}
-                        color="#EF4444"
+                        color="#C2413B"
                       />
                     </View>
                   ) : (
@@ -1447,12 +1499,12 @@ export default function SocietyStaff() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F1F5F9" },
+  container: { flex: 1, backgroundColor: "#EFE8DB" },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: { padding: 24, paddingTop: 60, backgroundColor: "#fff" },
   backBtn: { marginBottom: 12 },
-  backBtnText: { color: "#3B82F6", fontSize: 16, fontWeight: "600" },
-  title: { fontSize: 26, fontWeight: "800", color: "#0F172A" },
+  backBtnText: { color: "#0E5D56", fontSize: 16, fontWeight: "600" },
+  title: { fontSize: 26, fontWeight: "800", color: "#1F2937" },
   formSection: {
     margin: 20,
     padding: 20,
@@ -1463,22 +1515,22 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#1E293B",
+    color: "#243444",
     marginBottom: 16,
   },
   inputGroup: { marginBottom: 16 },
-  label: { fontSize: 13, fontWeight: "600", color: "#475569", marginBottom: 6 },
+  label: { fontSize: 13, fontWeight: "600", color: "#5A5349", marginBottom: 6 },
   input: {
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
     borderRadius: 12,
     padding: 12,
     fontSize: 16,
   },
-  inputError: { borderColor: "#EF4444", backgroundColor: "#FFF1F2" },
+  inputError: { borderColor: "#C2413B", backgroundColor: "#FFF3F2" },
   errorText: {
-    color: "#EF4444",
+    color: "#C2413B",
     fontSize: 11,
     marginTop: 4,
     fontWeight: "600",
@@ -1488,13 +1540,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
     borderRadius: 12,
     padding: 12,
   },
-  dropdownText: { fontSize: 15, color: "#1E293B" },
+  dropdownText: { fontSize: 15, color: "#243444" },
   dropdownListContainer: {
     position: "absolute",
     top: 75,
@@ -1503,7 +1555,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
     elevation: 10,
     zIndex: 2000,
     maxHeight: 180,
@@ -1512,23 +1564,23 @@ const styles = StyleSheet.create({
   dropdownItem: {
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F1F5F9",
+    borderBottomColor: "#EFE8DB",
   },
   uploadSection: { marginBottom: 20 },
   uploadRow: { flexDirection: "row", gap: 10 },
-  uploadWrapper: { flex: 1, position: "relative" },
+  uploadWrapper: { flex: 1, position: "relative", aspectRatio: 1 },
   uploadBox: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
     borderWidth: 1.5,
     borderStyle: "dashed",
-    borderColor: "#CBD5E1",
+    borderColor: "#D6C9B3",
     borderRadius: 16,
     overflow: "hidden",
     position: "relative",
     justifyContent: "center",
     alignItems: "center",
-    minHeight: 140,
+    minHeight: 180,
   },
   uploadPlaceholder: {
     alignItems: "center",
@@ -1540,7 +1592,7 @@ const styles = StyleSheet.create({
   uploadLabel: {
     fontSize: 11,
     fontWeight: "800",
-    color: "#64748B",
+    color: "#6F675B",
     textTransform: "uppercase",
     textAlign: "center",
     marginTop: 4,
@@ -1548,8 +1600,8 @@ const styles = StyleSheet.create({
   previewImage: {
     width: "100%",
     height: "100%",
-    resizeMode: "contain",
-    backgroundColor: "#F1F5F9",
+    resizeMode: "cover",
+    backgroundColor: "#EFE8DB",
   },
   overlayControls: {
     position: "absolute",
@@ -1566,10 +1618,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     elevation: 2,
   },
-  editOverlay: { backgroundColor: "#3B82F6" },
-  deleteOverlay: { backgroundColor: "#EF4444" },
+  editOverlay: { backgroundColor: "#0E5D56" },
+  deleteOverlay: { backgroundColor: "#C2413B" },
   addBtn: {
-    backgroundColor: "#0F172A",
+    backgroundColor: "#1F2937",
     borderRadius: 12,
     padding: 16,
     alignItems: "center",
@@ -1577,7 +1629,7 @@ const styles = StyleSheet.create({
   addBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
   disabledBtn: { opacity: 0.5 },
   cancelBtn: { marginTop: 12, padding: 8, alignItems: "center" },
-  cancelBtnText: { color: "#64748B", fontWeight: "600" },
+  cancelBtnText: { color: "#6F675B", fontWeight: "600" },
   listSection: { paddingHorizontal: 20 },
   memberCard: {
     backgroundColor: "#fff",
@@ -1589,22 +1641,22 @@ const styles = StyleSheet.create({
   memberHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   memberAvatar: { width: 50, height: 50, borderRadius: 25 },
   placeholderAvatar: {
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "#EFE8DB",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
   },
   avatarText: { fontSize: 20, fontWeight: "700" },
   memberInfo: { flex: 1 },
-  memberName: { fontSize: 16, fontWeight: "700", color: "#1E293B" },
+  memberName: { fontSize: 16, fontWeight: "700", color: "#243444" },
   memberMeta: {
     fontSize: 13,
-    color: "#3B82F6",
+    color: "#0E5D56",
     fontWeight: "600",
     marginTop: 2,
   },
-  memberContact: { fontSize: 12, color: "#64748B", marginTop: 2 },
+  memberContact: { fontSize: 12, color: "#6F675B", marginTop: 2 },
   memberActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -1612,10 +1664,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: "#F1F5F9",
+    borderTopColor: "#EFE8DB",
   },
   editBtn: { padding: 4 },
-  editBtnText: { color: "#3B82F6", fontWeight: "700" },
+  editBtnText: { color: "#0E5D56", fontWeight: "700" },
   deleteBtn: { padding: 4 },
-  deleteBtnText: { color: "#EF4444", fontWeight: "700" },
+  deleteBtnText: { color: "#C2413B", fontWeight: "700" },
 });

@@ -6,16 +6,17 @@ import { Redirect, useRouter } from "expo-router";
 import { signInAnonymously } from "firebase/auth";
 import React, { useState } from "react";
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -117,7 +118,7 @@ export default function ResidentAuth() {
         onPress={() => router.replace("/")}
       >
         <Ionicons name="arrow-back" size={24} color="#3B82F6" />
-        <Text style={styles.backButtonText}>Back Home</Text>
+        <Text style={styles.backButtonText}>Back</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -132,8 +133,29 @@ export default function ResidentAuth() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.headerSection}>
-          <View style={styles.iconContainer}>
-            <Ionicons name="home" size={36} color="#059669" />
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              marginBottom: 20,
+            }}
+          >
+            <Image
+              source={require("../../assets/images/logo.png")}
+              style={{ width: 40, height: 40 }}
+              resizeMode="contain"
+            />
+            <Text
+              style={{
+                fontSize: 24,
+                fontWeight: "900",
+                color: "#14B8A6",
+                marginLeft: 10,
+                letterSpacing: -0.5,
+              }}
+            >
+              Zonect
+            </Text>
           </View>
           <Text style={styles.title}>Resident Access</Text>
           <Text style={styles.subtitle}>

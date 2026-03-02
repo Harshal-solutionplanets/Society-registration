@@ -7,6 +7,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -506,7 +507,7 @@ export default function ResidentForm() {
         <Ionicons
           name={isOpen ? "chevron-up" : "chevron-down"}
           size={20}
-          color="#64748B"
+          color="#6F675B"
         />
       </TouchableOpacity>
       {isOpen && (
@@ -531,7 +532,7 @@ export default function ResidentForm() {
                   {opt}
                 </Text>
                 {currentValue === opt && (
-                  <Ionicons name="checkmark" size={18} color="#3B82F6" />
+                  <Ionicons name="checkmark" size={18} color="#0E5D56" />
                 )}
               </TouchableOpacity>
             ))}
@@ -564,7 +565,7 @@ export default function ResidentForm() {
       >
         <Text
           style={{
-            color: currentValue ? "#0F172A" : "#94A3B8",
+            color: currentValue ? "#1F2937" : "#8D8271",
             fontSize: 13,
             fontWeight: "500",
           }}
@@ -574,7 +575,7 @@ export default function ResidentForm() {
         <Ionicons
           name={isOpen ? "chevron-up" : "chevron-down"}
           size={14}
-          color="#64748B"
+          color="#6F675B"
         />
       </TouchableOpacity>
       {isOpen && (
@@ -608,7 +609,7 @@ export default function ResidentForm() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <ActivityIndicator size="large" color="#0E5D56" />
       </View>
     );
   }
@@ -632,12 +633,24 @@ export default function ResidentForm() {
           <View>
             <View style={styles.headerContainer}>
               <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
-                <Ionicons name="arrow-back" size={24} color="#3B82F6" />
+                <Ionicons name="arrow-back" size={24} color="#0E5D56" />
               </TouchableOpacity>
-              <View style={{ alignItems: "center", flex: 1, marginRight: 40 }}>
-                <Text style={styles.title}>My Profile</Text>
-                <Text style={styles.unitBadge}>
-                  {sessionData?.wingName} - {sessionData?.unitName}
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Image
+                  source={require("../../assets/images/logo.png")}
+                  style={{ width: 32, height: 32 }}
+                  resizeMode="contain"
+                />
+                <Text
+                  style={{
+                    fontSize: 18,
+                    fontWeight: "900",
+                    color: "#14B8A6",
+                    marginLeft: 8,
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  Zonect
                 </Text>
               </View>
             </View>
@@ -747,7 +760,7 @@ export default function ResidentForm() {
                           handleInputChange("residentMobile", val)
                         }
                         placeholder="e.g. 9876543210"
-                        placeholderTextColor="#94A3B8"
+                        placeholderTextColor="#8D8271"
                         keyboardType="phone-pad"
                         maxLength={10}
                       />
@@ -772,7 +785,7 @@ export default function ResidentForm() {
                           handleInputChange("alternateMobile", val)
                         }
                         placeholder="e.g. 9876543210"
-                        placeholderTextColor="#94A3B8"
+                        placeholderTextColor="#8D8271"
                         keyboardType="phone-pad"
                         maxLength={10}
                       />
@@ -813,7 +826,7 @@ export default function ResidentForm() {
                       <Ionicons
                         name={showPasswordChange ? "chevron-up" : "key-outline"}
                         size={20}
-                        color="#3B82F6"
+                        color="#0E5D56"
                       />
                       <Text style={styles.passwordToggleText}>
                         {showPasswordChange
@@ -949,8 +962,8 @@ export default function ResidentForm() {
                       style={[
                         styles.input,
                         formData.familyDetails.length > 0 && {
-                          backgroundColor: "#F1F5F9",
-                          color: "#64748B",
+                          backgroundColor: "#EFE8DB",
+                          color: "#6F675B",
                         },
                       ]}
                       placeholder="Type count"
@@ -962,7 +975,7 @@ export default function ResidentForm() {
                     />
                     {formData.familyDetails.length > 0 && (
                       <Text
-                        style={{ fontSize: 11, color: "#94A3B8", marginTop: 4 }}
+                        style={{ fontSize: 11, color: "#8D8271", marginTop: 4 }}
                       >
                         Note: Use Add Member below once initialized to prevent
                         accidental loss.
@@ -1006,7 +1019,7 @@ export default function ResidentForm() {
                             <Ionicons
                               name="trash-outline"
                               size={18}
-                              color="#EF4444"
+                              color="#C2413B"
                             />
                           </TouchableOpacity>
                         </View>
@@ -1208,7 +1221,7 @@ export default function ResidentForm() {
                     <Ionicons
                       name="add-circle-outline"
                       size={20}
-                      color="#3B82F6"
+                      color="#0E5D56"
                     />
                     <Text style={styles.addMemberText}>Add Member</Text>
                   </TouchableOpacity>
@@ -1274,8 +1287,8 @@ export default function ResidentForm() {
                       style={[
                         styles.input,
                         formData.vehicleDetails.length > 0 && {
-                          backgroundColor: "#F1F5F9",
-                          color: "#64748B",
+                          backgroundColor: "#EFE8DB",
+                          color: "#6F675B",
                         },
                       ]}
                       placeholder="e.g. 2"
@@ -1287,10 +1300,10 @@ export default function ResidentForm() {
                     />
                     {formData.vehicleDetails.length > 0 && (
                       <Text
-                        style={{ fontSize: 11, color: "#94A3B8", marginTop: 4 }}
+                        style={{ fontSize: 11, color: "#8D8271", marginTop: 4 }}
                       >
-                        Note: Use Add Vehicle below once initialized to
-                        prevent accidental data loss.
+                        Note: Use Add Vehicle below once initialized to prevent
+                        accidental data loss.
                       </Text>
                     )}
                   </View>
@@ -1358,7 +1371,7 @@ export default function ResidentForm() {
                             <Ionicons
                               name="trash-outline"
                               size={18}
-                              color="#EF4444"
+                              color="#C2413B"
                             />
                           </TouchableOpacity>
                         </View>
@@ -1373,7 +1386,7 @@ export default function ResidentForm() {
                     <Ionicons
                       name="add-circle-outline"
                       size={20}
-                      color="#3B82F6"
+                      color="#0E5D56"
                     />
                     <Text style={styles.addMemberText}>Add Vehicle</Text>
                   </TouchableOpacity>
@@ -1418,7 +1431,7 @@ export default function ResidentForm() {
 }
 
 const styles = StyleSheet.create({
-  mainContainer: { flex: 1, backgroundColor: "#F8FAFC" },
+  mainContainer: { flex: 1, backgroundColor: "#F7F3EB" },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 16,
@@ -1429,7 +1442,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
   },
   headerContainer: {
     marginBottom: 20,
@@ -1439,14 +1452,14 @@ const styles = StyleSheet.create({
   backBtn: {
     padding: 8,
     borderRadius: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
   },
-  title: { fontSize: 24, fontWeight: "800", color: "#0F172A", marginBottom: 4 },
+  title: { fontSize: 24, fontWeight: "800", color: "#1F2937", marginBottom: 4 },
   unitBadge: {
-    backgroundColor: "#3B82F6",
-    color: "#FFFFFF",
+    backgroundColor: "#0E5D56",
+    color: "#FFFCF6",
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 20,
@@ -1455,38 +1468,38 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: "row",
-    backgroundColor: "#E2E8F0",
+    backgroundColor: "#E3D8C6",
     borderRadius: 12,
     padding: 4,
     marginBottom: 20,
   },
   tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 10 },
   activeTab: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  tabText: { fontSize: 14, fontWeight: "700", color: "#64748B" },
-  activeTabText: { color: "#3B82F6" },
+  tabText: { fontSize: 14, fontWeight: "700", color: "#6F675B" },
+  activeTabText: { color: "#0E5D56" },
   placeholderText: {
-    color: "#94A3B8",
+    color: "#8D8271",
   },
   errorText: {
-    color: "#EF4444",
+    color: "#C2413B",
     fontSize: 11,
     marginTop: 4,
     marginLeft: 4,
     fontWeight: "600",
   },
   inputError: {
-    borderColor: "#EF4444",
-    backgroundColor: "#FFF1F2",
+    borderColor: "#C2413B",
+    backgroundColor: "#FFF3F2",
   },
   card: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     borderRadius: 20,
     padding: 15,
     shadowColor: "#000",
@@ -1497,7 +1510,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     fontSize: 11,
     fontWeight: "800",
-    color: "#3B82F6",
+    color: "#0E5D56",
     letterSpacing: 0.5,
     marginBottom: 12,
     marginTop: 4,
@@ -1506,39 +1519,39 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#475569",
+    color: "#5A5349",
     marginBottom: 4,
     marginLeft: 2,
   },
   input: {
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
     padding: 10,
     borderRadius: 10,
     fontSize: 14,
-    color: "#0F172A",
+    color: "#1F2937",
   },
   dropdownButton: {
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7F3EB",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
     padding: 10,
     borderRadius: 10,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  dropdownButtonText: { fontSize: 14, color: "#0F172A", fontWeight: "500" },
+  dropdownButtonText: { fontSize: 14, color: "#1F2937", fontWeight: "500" },
   dropdownListContainer: {
     position: "absolute",
     top: 55,
     left: 0,
     right: 0,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#E3D8C6",
     maxHeight: 180,
     zIndex: 4000,
     elevation: 10,
@@ -1554,11 +1567,11 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#F1F5F9",
+    borderBottomColor: "#EFE8DB",
   },
-  dropdownItemText: { fontSize: 13, color: "#475569", fontWeight: "500" },
-  activeDropdownText: { color: "#3B82F6", fontWeight: "700" },
-  divider: { height: 1, backgroundColor: "#F1F5F9", marginVertical: 15 },
+  dropdownItemText: { fontSize: 13, color: "#5A5349", fontWeight: "500" },
+  activeDropdownText: { color: "#0E5D56", fontWeight: "700" },
+  divider: { height: 1, backgroundColor: "#EFE8DB", marginVertical: 15 },
   passwordSection: {
     paddingVertical: 10,
   },
@@ -1569,7 +1582,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   passwordToggleText: {
-    color: "#3B82F6",
+    color: "#0E5D56",
     fontWeight: "700",
     fontSize: 14,
   },
@@ -1577,7 +1590,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   dynamicRowCard: {
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "#EFE8DB",
     borderRadius: 12,
     padding: 10,
     marginBottom: 8,
@@ -1586,31 +1599,31 @@ const styles = StyleSheet.create({
   rowLabel: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#64748B",
+    color: "#6F675B",
     marginBottom: 6,
   },
   rowInput: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFFCF6",
     borderWidth: 1,
-    borderColor: "#CBD5E1",
+    borderColor: "#D6C9B3",
     padding: 8,
     borderRadius: 8,
     fontSize: 13,
-    color: "#0F172A",
+    color: "#1F2937",
   },
   rowInputsContainer: { flexDirection: "row", gap: 6, marginBottom: 6 },
   primaryButton: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#0E5D56",
     padding: 14,
     borderRadius: 12,
     alignItems: "center",
     marginTop: 15,
   },
-  buttonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
+  buttonText: { color: "#FFFCF6", fontSize: 15, fontWeight: "700" },
   buttonDisabled: { opacity: 0.6 },
   backButton: { marginTop: 12, padding: 8, alignItems: "center" },
   backButtonText: {
-    color: "#64748B",
+    color: "#6F675B",
     fontSize: 13,
     fontWeight: "600",
     textDecorationLine: "underline",
@@ -1622,14 +1635,14 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#3B82F6",
+    borderColor: "#0E5D56",
     borderStyle: "dashed",
     marginTop: 8,
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "#EEF7F4",
   },
   addMemberText: {
     marginLeft: 8,
-    color: "#3B82F6",
+    color: "#0E5D56",
     fontSize: 14,
     fontWeight: "700",
   },
@@ -1639,4 +1652,3 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 });
-

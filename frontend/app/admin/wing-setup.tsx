@@ -1,30 +1,36 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  collection,
-  deleteField,
-  doc,
-  getDoc,
-  getDocs,
-  writeBatch,
+    documentDirectory,
+    EncodingType,
+    writeAsStringAsync,
+} from "expo-file-system";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { isAvailableAsync, shareAsync } from "expo-sharing";
+import {
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    writeBatch,
 } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  Easing,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Animated,
+    Easing,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -111,13 +117,14 @@ export default function WingSetup() {
   const [floorCount, setFloorCount] = useState("");
   const [floors, setFloors] = useState<FloorData[]>([]);
   const [deletedFloors, setDeletedFloors] = useState<
-    { floorNumber: number; driveFolderId?: string }[]
+    { floorNumber: number; driveFolderId?: string; fullClear?: boolean }[]
   >([]);
   const [isInitialFlatSetup, setIsInitialFlatSetup] = useState(true);
   const [existingWingData, setExistingWingData] = useState<any>(null);
   const [editStatus, setEditStatus] = useState<"Vacant" | "Occupied">(
     "Occupied",
   );
+  const [generatingReport, setGeneratingReport] = useState(false);
 
   const handleBack = () => {
     if (!user) {
@@ -151,6 +158,7 @@ export default function WingSetup() {
 
   const [selectedFloor, setSelectedFloor] = useState<number | null>(null);
   const [flatInput, setFlatInput] = useState("");
+  const [floorNumberInput, setFloorNumberInput] = useState("");
   const [floorNameInput, setFloorNameInput] = useState("");
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -205,8 +213,14 @@ export default function WingSetup() {
           setIsInitialFlatSetup(false);
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      Toast.show({
+        type: "error",
+        text1: "Fetch Failed",
+        text2:
+          "Could not load wing data. Check your connection or login again.",
+      });
     } finally {
       setLoading(false);
     }
@@ -226,8 +240,13 @@ export default function WingSetup() {
       if (!res.ok) throw new Error("Refresh failed");
       const data = await res.json();
       return data.accessToken;
-    } catch (error) {
+    } catch (error: any) {
       console.error("DEBUG: Token refresh failed:", error);
+      Toast.show({
+        type: "error",
+        text1: "Drive Access Error",
+        text2: "Drive token refresh failed, please login again.",
+      });
       return null;
     }
   };
@@ -308,6 +327,7 @@ export default function WingSetup() {
         {
           floorNumber: floorToDelete.floorNumber,
           driveFolderId: floorToDelete.driveFolderId,
+          fullClear: true,
         },
       ]);
 
@@ -342,9 +362,39 @@ export default function WingSetup() {
     }
   };
 
+  const handleFloorNumberInputChange = (val: string) => {
+    const sanitized = val.replace(/[^0-9]/g, "");
+    setFloorNumberInput(sanitized);
+
+    if (sanitized !== "") {
+      const num = parseInt(sanitized);
+      const baseName = num === 0 ? "Ground Floor" : `Floor ${num}`;
+
+      // Check if this name already exists in OTHER floors
+      let finalName = baseName;
+      let counter = 2;
+      while (
+        floors.some(
+          (f) =>
+            f.floorNumber !== selectedFloor &&
+            (f.floorName === finalName ||
+              (!f.floorName &&
+                (f.floorNumber === 0
+                  ? "Ground Floor"
+                  : `Floor ${f.floorNumber}`) === finalName)),
+        )
+      ) {
+        finalName = `${baseName} (${counter})`;
+        counter++;
+      }
+      setFloorNameInput(finalName);
+    }
+  };
+
   const openFloorModal = (floorNumber: number) => {
     const floor = floors.find((f) => f.floorNumber === floorNumber);
     setSelectedFloor(floorNumber);
+    setFloorNumberInput(floorNumber.toString());
     setFlatInput(floor?.flatCount.toString() || "0");
     setFloorNameInput(
       floor?.floorName ||
@@ -356,9 +406,6 @@ export default function WingSetup() {
   const handleSaveFlats = () => {
     if (selectedFloor === null) return;
     const numFlats = parseInt(flatInput) || 0;
-    const allFloorsEmpty = floors.every((f) => f.flatCount === 0);
-    const trimmedName = floorNameInput.trim();
-
     // Cap flat count to 40
     if (numFlats > 40) {
       Toast.show({
@@ -367,6 +414,44 @@ export default function WingSetup() {
         text2: "Maximum 40 flats are allowed per floor.",
       });
       return;
+    }
+    const allFloorsEmpty = floors.every((f) => f.flatCount === 0);
+    const trimmedName = floorNameInput.trim();
+
+    const newFloorNumber = parseInt(floorNumberInput);
+    if (isNaN(newFloorNumber)) {
+      Toast.show({
+        type: "error",
+        text1: "Invalid Number",
+        text2: "Please enter a valid floor number.",
+      });
+      return;
+    }
+
+    // Validate unique floor number
+    const isNumDuplicate = floors.some(
+      (f) =>
+        f.floorNumber !== selectedFloor && f.floorNumber === newFloorNumber,
+    );
+    if (isNumDuplicate) {
+      Toast.show({
+        type: "error",
+        text1: "Duplicate Floor Number",
+        text2: `Floor number ${newFloorNumber} already exists in this wing.`,
+      });
+      return;
+    }
+
+    // Handle floor number change for existing floors - queue old one for Firestore migration cleanup
+    if (newFloorNumber !== selectedFloor) {
+      const oldFound = floors.find((f) => f.floorNumber === selectedFloor);
+      if (oldFound) {
+        // We set fullClear to false because we are moving data, not deleting it permanently
+        setDeletedFloors((prev) => [
+          ...prev,
+          { floorNumber: selectedFloor as number, fullClear: false },
+        ]);
+      }
     }
 
     // Validate unique floor name
@@ -427,6 +512,7 @@ export default function WingSetup() {
           f.floorNumber === selectedFloor
             ? {
                 ...f,
+                floorNumber: newFloorNumber,
                 flatCount: isFlatCountLocked
                   ? existingFloor.flatCount
                   : numFlats,
@@ -438,7 +524,7 @@ export default function WingSetup() {
       Toast.show({
         type: "success",
         text1: "Floor Updated",
-        text2: `${trimmedName || `Floor ${selectedFloor}`} ${isFlatCountLocked ? "name updated" : `set to ${numFlats} flats`}`,
+        text2: `${trimmedName || `Floor ${newFloorNumber}`} ${isFlatCountLocked ? "name updated" : `set to ${numFlats} flats`}`,
       });
     }
     setModalVisible(false);
@@ -459,6 +545,27 @@ export default function WingSetup() {
     ];
 
     setFloors(newFloors);
+  };
+
+  const setFolderPublic = async (folderId: string, token: string) => {
+    try {
+      await fetch(
+        `https://www.googleapis.com/drive/v3/files/${folderId}/permissions`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            role: "reader",
+            type: "anyone",
+          }),
+        },
+      );
+    } catch (e) {
+      console.warn("Could not set folder permissions:", e);
+    }
   };
 
   const createDriveFolder = async (
@@ -489,7 +596,12 @@ export default function WingSetup() {
         );
       }
       const data = await response.json();
-      return data.id;
+      const folderId = data.id;
+
+      // Set permission to "Anyone with the link"
+      await setFolderPublic(folderId, token);
+
+      return folderId;
     } catch (error) {
       console.error(`Error creating folder ${name}:`, error);
       throw error;
@@ -614,28 +726,41 @@ export default function WingSetup() {
       const finalDeletedQueue = [...deletedFloors, ...autoDeleted];
       const updatedFloors = [...activeFloors];
 
-      // Handle All Deletions (Firestore + Drive)
-      for (const item of finalDeletedQueue) {
-        // 1. Delete Units from Firestore
-        const floorPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${item.floorNumber}`;
-        const unitsRef = collection(db, floorPath);
-        const unitsSnap = await getDocs(unitsRef);
-        unitsSnap.forEach((unitDoc) => {
-          batch.delete(unitDoc.ref);
-          batch.delete(
-            doc(
-              db,
-              `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${unitDoc.id}`,
-            ),
-          );
-        });
+      // Handle Cleanup (Firestore + Drive)
+      for (const item of deletedFloors) {
+        // 1. Clear old Firestore location
+        const oldFloorPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${item.floorNumber}`;
+        const oldUnitsSnap = await getDocs(collection(db, oldFloorPath));
 
-        // 2. Delete Folder from Google Drive
-        if (item.driveFolderId) {
+        for (const unitDoc of oldUnitsSnap.docs) {
+          const unitData = unitDoc.data();
+
+          // ONLY delete Drive subfolders if this is a PERMANENT deletion (fullClear: true)
+          if (item.fullClear && unitData.driveFolderId && token) {
+            console.log(
+              `Cleaning up Drive: Deleting unit folder ${unitData.driveFolderId}`,
+            );
+            await deleteDriveFolder(unitData.driveFolderId, token);
+          }
+
+          batch.delete(unitDoc.ref);
+          // Only clear resident profile if it's a permanent deletion
+          if (item.fullClear) {
+            batch.delete(
+              doc(
+                db,
+                `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${unitDoc.id}`,
+              ),
+            );
+          }
+        }
+
+        // 2. Delete Floor Folder from Google Drive ONLY if permanent
+        if (item.fullClear && item.driveFolderId && token) {
           console.log(
-            `Cleaning up Drive: Deleting floor folder ${item.driveFolderId} for floor ${item.floorNumber}`,
+            `Cleaning up Drive: Deleting floor folder ${item.driveFolderId}`,
           );
-          await deleteDriveFolder(item.driveFolderId, token as string);
+          await deleteDriveFolder(item.driveFolderId, token);
         }
       }
 
@@ -645,6 +770,52 @@ export default function WingSetup() {
         .replace(/\s+/g, "_")
         .toUpperCase();
       let unitsGenerated = 0;
+
+      // PRE-MIGRATION DATA COLLECTION
+      // Collect all existing unit data from Floors being renumbered to avoid deletion loss
+      const migrationCache: Record<string, any> = {};
+      for (const floor of updatedFloors) {
+        const renumberedFrom = existingWingData?.floors?.find(
+          (f: any) => f.driveFolderId === floor.driveFolderId,
+        );
+        if (
+          renumberedFrom &&
+          renumberedFrom.floorNumber !== floor.floorNumber
+        ) {
+          console.log(
+            `Pre-collecting data from floor ${renumberedFrom.floorNumber} for migration...`,
+          );
+          const oldLocPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${renumberedFrom.floorNumber}`;
+          const oldUnitsSnap = await getDocs(collection(db, oldLocPath));
+
+          for (const unitDoc of oldUnitsSnap.docs) {
+            const wingUnitData = unitDoc.data();
+            const oldUnitId = unitDoc.id;
+
+            // FETCH FULL PROFILE from Residents collection to ensure NO data lost
+            const fullResidentDoc = await getDoc(
+              doc(
+                db,
+                `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${oldUnitId}`,
+              ),
+            );
+            const fullData = fullResidentDoc.exists()
+              ? fullResidentDoc.data()
+              : wingUnitData;
+
+            const unitIdx = oldUnitId.split("-").pop();
+            const baseNum = parseInt(unitIdx || "0") % 100;
+            const newUnitNum = floor.floorNumber * 100 + baseNum;
+            const newId = `${wingPrefix}-${floor.floorNumber}-${newUnitNum}`;
+
+            migrationCache[newId] = {
+              ...fullData,
+              id: newId,
+              oldId: oldUnitId,
+            };
+          }
+        }
+      }
 
       for (let i = 0; i < updatedFloors.length; i++) {
         const floor = updatedFloors[i];
@@ -663,14 +834,10 @@ export default function WingSetup() {
           );
           updatedFloors[i] = { ...floor, driveFolderId: floorFolderId };
         } else {
-          // Check if floor name changed and sync with Drive
           const oldFloor = existingWingData?.floors?.find(
-            (f: any) => f.floorNumber === floor.floorNumber,
+            (f: any) => f.driveFolderId === floor.driveFolderId,
           );
           if (oldFloor && oldFloor.floorName !== currentFloorName) {
-            console.log(
-              `Syncing Drive: Renaming floor from ${oldFloor.floorName} to ${currentFloorName}`,
-            );
             await renameDriveFolder(
               floorFolderId,
               currentFloorName,
@@ -679,36 +846,25 @@ export default function WingSetup() {
           }
         }
 
-        // FETCH ALL UNITS FOR THIS FLOOR IN ONE GO
-        const floorUnitsRef = collection(
-          db,
-          `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${floor.floorNumber}`,
-        );
-        const floorUnitsSnap = await getDocs(floorUnitsRef);
-        const existingUnitsMap: Record<string, any> = {};
-        floorUnitsSnap.forEach((doc) => {
-          existingUnitsMap[doc.id] = doc.data();
-        });
+        // Fetch current location units to merge with migration data
+        const newFloorPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${floor.floorNumber}`;
+        const currentUnitsSnap = await getDocs(collection(db, newFloorPath));
+        const floorDataCache: Record<string, any> = {};
+        currentUnitsSnap.forEach((d) => (floorDataCache[d.id] = d.data()));
 
         for (let unitIndex = 1; unitIndex <= floor.flatCount; unitIndex++) {
           const unitNumber = floor.floorNumber * 100 + unitIndex;
           const unitName = `${unitNumber}`;
-          // Consistently use underscores for unitId prefix
-          const wingPrefixForId = wingIdToUse
-            .replace(/\s+/g, "_")
-            .toUpperCase();
-          const unitId = `${wingPrefixForId}-${floor.floorNumber}-${unitNumber}`;
+          const unitId = `${wingPrefix}-${floor.floorNumber}-${unitNumber}`;
 
-          const existingData = existingUnitsMap[unitId];
+          const existingData = migrationCache[unitId] || floorDataCache[unitId];
           const societyUnitPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${floor.floorNumber}/${unitId}`;
           const residentPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${unitId}`;
 
           if (!existingData || !existingData.username) {
-            // GENERATE CREDENTIALS (for new units OR units missing credentials)
-
-            // Only create Drive folder if definitely needed
-            let flatFolderId = existingData?.driveFolderId;
-            if (!flatFolderId && floorFolderId) {
+            // Logic for a truly new unit
+            let flatFolderId = "";
+            if (floorFolderId) {
               try {
                 flatFolderId = await createDriveFolder(
                   unitName,
@@ -716,10 +872,6 @@ export default function WingSetup() {
                   token as string,
                 );
               } catch (err) {
-                console.warn(
-                  `Drive folder creation failed for unit ${unitName}:`,
-                  err,
-                );
                 flatFolderId = "";
               }
             }
@@ -735,58 +887,91 @@ export default function WingSetup() {
             const residentPassword = generatePassword(6);
 
             const unitPayload = {
-              ...existingData,
               id: unitId,
               societyName: societyData?.societyName || "",
               wingName: wingName,
               floorName: currentFloorName,
               unitName: unitName,
-              residenceType: existingData?.residenceType || "Residence",
-              residentName: existingData?.residentName || "",
-              residentMobile: existingData?.residentMobile || "",
-              residenceStatus: existingData?.residenceStatus || "Occupied",
-              familyMembers: existingData?.familyMembers || 0,
-              staffMembers: existingData?.staffMembers || 0,
               username: residentUsername,
               password: residentPassword,
               displayName: `${wingName} - ${unitName}`,
+              residenceType: "Residence",
+              residenceStatus: "Occupied",
+              status: "Occupied",
+              ownership: "SELF_OWNED",
               wingId: wingIdToUse,
               floorNumber: floor.floorNumber,
               unitNumber: unitNumber,
-              residentUID: existingData?.residentUID || null,
-              status: existingData?.residenceStatus || "Occupied",
-              driveFolderId: flatFolderId || "",
-              createdAt: existingData?.createdAt || new Date().toISOString(),
+              driveFolderId: flatFolderId,
+              createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
-              residentPassword: deleteField(),
-              residentUsername: deleteField(),
             };
 
             batch.set(doc(db, societyUnitPath), unitPayload, { merge: true });
             batch.set(doc(db, residentPath), unitPayload, { merge: true });
             unitsGenerated++;
           } else {
-            // ALWAYS update names to reflect current Wing/Floor names, keep credentials intact
-            const needsUpdate =
-              existingData.wingName !== wingName ||
-              existingData.floorName !== currentFloorName ||
-              existingData.displayName !==
-                `${wingName} - ${existingData.unitName}`;
+            // Sync existing/migrated unit
+            const updatedPayload = {
+              ...existingData,
+              id: unitId,
+              wingName: wingName,
+              floorName: currentFloorName,
+              displayName: `${wingName} - ${existingData.unitName || unitName}`,
+              floorNumber: floor.floorNumber,
+              unitNumber: unitNumber,
+              updatedAt: new Date().toISOString(),
+            };
 
-            if (needsUpdate) {
-              const updatedPayload = {
-                ...existingData,
-                wingName: wingName,
-                floorName: currentFloorName,
-                displayName: `${wingName} - ${existingData.unitName}`,
-                updatedAt: new Date().toISOString(),
-              };
-              batch.set(doc(db, societyUnitPath), updatedPayload, {
-                merge: true,
+            // If it was migrated, we need to handle staff migration too
+            if (existingData.oldId) {
+              const oldStaffRef = collection(
+                db,
+                `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${existingData.oldId}/StaffMembers`,
+              );
+              const staffSnap = await getDocs(oldStaffRef);
+              staffSnap.forEach((sDoc) => {
+                const newStaffPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${unitId}/StaffMembers/${sDoc.id}`;
+                batch.set(doc(db, newStaffPath), sDoc.data());
               });
-              batch.set(doc(db, residentPath), updatedPayload, { merge: true });
+              // Queue old resident doc for deletion AFTER migration
+              batch.delete(
+                doc(
+                  db,
+                  `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${existingData.oldId}`,
+                ),
+              );
             }
+
+            batch.set(doc(db, societyUnitPath), updatedPayload, {
+              merge: true,
+            });
+            batch.set(doc(db, residentPath), updatedPayload, { merge: true });
           }
+        }
+      }
+
+      // FINAL CLEANUP STEP: Delete old records that were either migrated or removed
+      for (const item of deletedFloors) {
+        const oldFloorPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${item.floorNumber}`;
+        const oldUnitsSnap = await getDocs(collection(db, oldFloorPath));
+        for (const unitDoc of oldUnitsSnap.docs) {
+          const unitData = unitDoc.data();
+          if (item.fullClear && unitData.driveFolderId && token) {
+            await deleteDriveFolder(unitData.driveFolderId, token);
+          }
+          batch.delete(unitDoc.ref); // Delete old structural wing unit
+          if (item.fullClear) {
+            batch.delete(
+              doc(
+                db,
+                `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${unitDoc.id}`,
+              ),
+            );
+          }
+        }
+        if (item.fullClear && item.driveFolderId && token) {
+          await deleteDriveFolder(item.driveFolderId, token);
         }
       }
 
@@ -835,6 +1020,74 @@ export default function WingSetup() {
     }
   };
 
+  const handleDownloadReport = async () => {
+    if (!user || !wingIdToUse) return;
+    setGeneratingReport(true);
+    try {
+      const isWeb = Platform.OS === "web";
+      const backendUrl = isWeb
+        ? window.location.origin + "/api"
+        : process.env.EXPO_PUBLIC_BACKEND_URL ||
+          "https://asia-south1-zonect-8d847.cloudfunctions.net/api";
+
+      const res = await fetch(`${backendUrl}/drive/generate-wing-report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminUID: user.uid,
+          wingId: wingIdToUse,
+          appId,
+          wingName: wingName,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Report generation failed");
+      }
+
+      const { data, fileName } = await res.json();
+
+      if (isWeb) {
+        const link = document.createElement("a");
+        link.href = `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${data}`;
+        link.download = fileName;
+        link.click();
+      } else {
+        const fileUri = `${documentDirectory}${fileName}`;
+        await writeAsStringAsync(fileUri, data, {
+          encoding: EncodingType.Base64,
+        });
+
+        if (await isAvailableAsync()) {
+          await shareAsync(fileUri, {
+            mimeType:
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            dialogTitle: "Download Wing Report",
+            UTI: "com.microsoft.word.doc",
+          });
+        } else {
+          Alert.alert("Error", "Sharing is not available on this device");
+        }
+      }
+
+      Toast.show({
+        type: "success",
+        text1: "Report Ready",
+        text2: "Wing report has been downloaded.",
+      });
+    } catch (error: any) {
+      console.error("Report Error:", error);
+      Toast.show({
+        type: "error",
+        text1: "Report Error",
+        text2: error.message || "Could not generate report.",
+      });
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
+
   const generatePassword = (length: number): string => {
     const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
     let password = "";
@@ -847,7 +1100,7 @@ export default function WingSetup() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color="#0E5D56" />
       </View>
     );
   }
@@ -867,7 +1120,24 @@ export default function WingSetup() {
           <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
             <Text style={styles.backBtnText}>← Back</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>Wing Structure</Text>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Image
+              source={require("../../assets/images/logo.png")}
+              style={{ width: 32, height: 32 }}
+              resizeMode="contain"
+            />
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: "900",
+                color: "#14B8A6",
+                marginLeft: 8,
+                letterSpacing: -0.5,
+              }}
+            >
+              Zonect
+            </Text>
+          </View>
         </View>
 
         <View style={styles.setupSection}>
@@ -905,7 +1175,7 @@ export default function WingSetup() {
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
-                  style={[styles.generateBtn, { backgroundColor: "#007AFF" }]}
+                  style={[styles.generateBtn, { backgroundColor: "#0E5D56" }]}
                   onPress={handleAddFloor}
                 >
                   <Text style={styles.generateBtnText}>Add Floor</Text>
@@ -1017,7 +1287,7 @@ export default function WingSetup() {
                       <Ionicons
                         name="trash-outline"
                         size={20}
-                        color="#EF4444"
+                        color="#C2413B"
                       />
                     </TouchableOpacity>
                   </View>
@@ -1041,6 +1311,29 @@ export default function WingSetup() {
             )}
           </TouchableOpacity>
         )}
+
+        {existingWingData && floors.length > 0 && (
+          <TouchableOpacity
+            style={[styles.reportBtn, generatingReport && styles.disabledBtn]}
+            onPress={handleDownloadReport}
+            disabled={generatingReport}
+          >
+            {generatingReport ? (
+              <ActivityIndicator color="#0E5D56" size="small" />
+            ) : (
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+              >
+                <Ionicons
+                  name="document-text-outline"
+                  size={20}
+                  color="#0E5D56"
+                />
+                <Text style={styles.reportBtnText}>Download Wing Report</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       <Modal
@@ -1052,8 +1345,19 @@ export default function WingSetup() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>
-              {selectedFloor === 0 ? "Ground Floor" : `Floor ${selectedFloor}`}
+              {floorNumberInput === "0"
+                ? "Ground Floor"
+                : `Floor ${floorNumberInput || "?"}`}
             </Text>
+
+            <Text style={styles.label}>Floor Number</Text>
+            <TextInput
+              style={[styles.modalInput, { marginBottom: 16 }]}
+              value={floorNumberInput}
+              onChangeText={handleFloorNumberInputChange}
+              keyboardType="numeric"
+              placeholder="e.g. 5"
+            />
 
             <Text style={styles.label}>Floor Name (Optional)</Text>
             <TextInput
@@ -1103,7 +1407,7 @@ export default function WingSetup() {
                   {isLocked && (
                     <Text
                       style={{
-                        color: "#94A3B8",
+                        color: "#8D8271",
                         fontSize: 11,
                         marginTop: 4,
                         fontStyle: "italic",
@@ -1140,7 +1444,7 @@ export default function WingSetup() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F0F2F5",
+    backgroundColor: "#F7F3EB",
   },
   loadingContainer: {
     flex: 1,
@@ -1158,14 +1462,14 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   backBtnText: {
-    color: "#007AFF",
+    color: "#0E5D56",
     fontSize: 16,
     fontWeight: "600",
   },
   title: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#1A1A1A",
+    color: "#1F2937",
   },
   setupSection: {
     padding: 20,
@@ -1182,23 +1486,23 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   input: {
-    backgroundColor: "#F8F9FA",
+    backgroundColor: "#F7F3EB",
     padding: 12,
     borderRadius: 8,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: "#DEE2E6",
+    borderColor: "#E3D8C6",
   },
   disabledInput: {
-    backgroundColor: "#E9ECEF",
-    color: "#6C757D",
+    backgroundColor: "#E3D8C6",
+    color: "#6F675B",
   },
   row: {
     flexDirection: "row",
     gap: 10,
   },
   generateBtn: {
-    backgroundColor: "#34C759",
+    backgroundColor: "#1E7A57",
     paddingHorizontal: 20,
     justifyContent: "center",
     borderRadius: 8,
@@ -1240,7 +1544,7 @@ const styles = StyleSheet.create({
     borderRightWidth: 40,
     borderRightColor: "transparent",
     borderBottomWidth: 30,
-    borderBottomColor: "#495057",
+    borderBottomColor: "#5A5349",
     marginBottom: -2,
   },
   floorBlock: {
@@ -1248,15 +1552,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     padding: 15,
     borderWidth: 2,
-    borderColor: "#DEE2E6",
+    borderColor: "#E3D8C6",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: -2,
   },
   floorBlockConfigured: {
-    borderColor: "#007AFF",
-    backgroundColor: "#F0F7FF",
+    borderColor: "#0E5D56",
+    backgroundColor: "#EEF7F4",
     zIndex: 1,
   },
   floorMainArea: {
@@ -1275,22 +1579,22 @@ const styles = StyleSheet.create({
   },
   moveBtn: {
     padding: 2,
-    backgroundColor: "#F8F9FA",
+    backgroundColor: "#F7F3EB",
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: "#DEE2E6",
+    borderColor: "#E3D8C6",
   },
   disabledMoveBtn: {
-    backgroundColor: "#F1F3F5",
-    borderColor: "#E9ECEF",
+    backgroundColor: "#EFE8DB",
+    borderColor: "#E3D8C6",
   },
   floorNumberText: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "#495057",
+    color: "#5A5349",
   },
   flatTag: {
-    backgroundColor: "#E9ECEF",
+    backgroundColor: "#E3D8C6",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
@@ -1301,7 +1605,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   viewDetailsBtn: {
-    backgroundColor: "#007AFF",
+    backgroundColor: "#0E5D56",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
@@ -1319,7 +1623,7 @@ const styles = StyleSheet.create({
   },
   deleteFloorBtn: {
     padding: 8,
-    backgroundColor: "#FEF2F2",
+    backgroundColor: "#FFF3F2",
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#FEE2E2",
@@ -1332,12 +1636,12 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   saveBtn: {
-    backgroundColor: "#007AFF",
+    backgroundColor: "#0E5D56",
     margin: 20,
     padding: 18,
     borderRadius: 12,
     alignItems: "center",
-    shadowColor: "#007AFF",
+    shadowColor: "#0E5D56",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -1379,7 +1683,7 @@ const styles = StyleSheet.create({
   },
   modalInput: {
     width: "100%",
-    backgroundColor: "#F1F3F5",
+    backgroundColor: "#EFE8DB",
     padding: 15,
     borderRadius: 12,
     fontSize: 24,
@@ -1387,7 +1691,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 25,
     borderWidth: 1,
-    borderColor: "#DEE2E6",
+    borderColor: "#E3D8C6",
   },
   modalButtons: {
     flexDirection: "row",
@@ -1400,17 +1704,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   cancelBtn: {
-    backgroundColor: "#F1F3F5",
+    backgroundColor: "#EFE8DB",
   },
   confirmBtn: {
-    backgroundColor: "#007AFF",
+    backgroundColor: "#0E5D56",
   },
   cancelBtnText: {
-    color: "#495057",
+    color: "#5A5349",
     fontWeight: "bold",
   },
   confirmBtnText: {
     color: "#fff",
     fontWeight: "bold",
+  },
+  reportBtn: {
+    backgroundColor: "#fff",
+    marginHorizontal: 20,
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#0E5D56",
+    flexDirection: "row",
+    justifyContent: "center",
+  },
+  reportBtnText: {
+    color: "#0E5D56",
+    fontSize: 16,
+    fontWeight: "700",
   },
 });
