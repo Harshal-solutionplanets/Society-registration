@@ -459,7 +459,33 @@ export default function ResidentStaff() {
         if (existingMember?.sourceRegistryId) {
           const registryId = existingMember.sourceRegistryId;
           const registryPath = `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff/${registryId}`;
+
+          // Fetch existing registry data for audit BEFORE updating
+          const prevRegSnap = await getDoc(doc(db, registryPath));
+          const prevRegData = prevRegSnap.exists() ? prevRegSnap.data() : {};
+
           await setDoc(doc(db, registryPath), updateObj, { merge: true });
+
+          // CREATE AUDIT LOG for immediate document change
+          try {
+            const previousValue = prevRegData[type] || "";
+            if (previousValue || newValue) {
+              const auditLogRef = collection(
+                db,
+                `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff_Audit/${registryId}/Logs`,
+              );
+              await addDoc(auditLogRef, {
+                editedBy: user.uid,
+                editedUnit: unitId,
+                editedAt: auditObj.lastEditedAt,
+                changedFields: type,
+                previousData: { [type]: previousValue },
+                timestamp: serverTimestamp(),
+              });
+            }
+          } catch (auditErr) {
+            console.warn("Immediate doc audit log failed:", auditErr);
+          }
 
           // CRITICAL SYNC: Propagate immediate file update to other linked units
           try {
@@ -495,35 +521,52 @@ export default function ResidentStaff() {
               : type === "idCard"
                 ? "ID_Card"
                 : "Address_Proof";
-          const staffFolderId = staffList.find(
-            (s) => s.id === editingId,
-          )?.driveFolderId;
-
-          // Exhaustive Cleanup: Clear ALL extensions (via backend)
-          await deleteResFile(
-            `${baseName}.jpg`,
-            flatFolderId,
-            staffFolderId,
-          ).catch(() => {});
-          await deleteResFile(
-            `${baseName}.pdf`,
-            flatFolderId,
-            staffFolderId,
-          ).catch(() => {});
-          await deleteResFile(
-            `${baseName}.png`,
-            flatFolderId,
-            staffFolderId,
-          ).catch(() => {});
-          await deleteResFile(
-            `${baseName}.jpeg`,
-            flatFolderId,
-            staffFolderId,
-          ).catch(() => {});
+          const currentStaffFolderId = existingMember?.driveFolderId;
 
           if (newValue) {
             // Upload new file (original form)
-            await uploadImageToDrive(newValue, fileName, flatFolderId);
+            const newFolderId = await uploadImageToDrive(
+              newValue,
+              fileName,
+              flatFolderId,
+            );
+
+            // If we just got a folder ID for the first time, persist it
+            if (newFolderId && !currentStaffFolderId) {
+              const driveUpdate = { driveFolderId: newFolderId };
+              await setDoc(doc(db, societyPath), driveUpdate, { merge: true });
+              await setDoc(doc(db, localPath), driveUpdate, { merge: true });
+              if (existingMember?.sourceRegistryId) {
+                const registryId = existingMember.sourceRegistryId;
+                const regRef = doc(
+                  db,
+                  `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff/${registryId}`,
+                );
+                await setDoc(regRef, driveUpdate, { merge: true });
+              }
+            }
+          } else {
+            // Delete mode
+            await deleteResFile(
+              `${baseName}.jpg`,
+              flatFolderId,
+              currentStaffFolderId,
+            ).catch(() => {});
+            await deleteResFile(
+              `${baseName}.pdf`,
+              flatFolderId,
+              currentStaffFolderId,
+            ).catch(() => {});
+            await deleteResFile(
+              `${baseName}.png`,
+              flatFolderId,
+              currentStaffFolderId,
+            ).catch(() => {});
+            await deleteResFile(
+              `${baseName}.jpeg`,
+              flatFolderId,
+              currentStaffFolderId,
+            ).catch(() => {});
           }
         }
 
@@ -611,7 +654,33 @@ export default function ResidentStaff() {
         if (existingMember?.sourceRegistryId) {
           const registryId = existingMember.sourceRegistryId;
           const registryPath = `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff/${registryId}`;
+
+          // Fetch existing registry data for audit BEFORE updating
+          const prevRegSnap = await getDoc(doc(db, registryPath));
+          const prevRegData = prevRegSnap.exists() ? prevRegSnap.data() : {};
+
           await setDoc(doc(db, registryPath), updateObj, { merge: true });
+
+          // CREATE AUDIT LOG for drag-drop document change
+          try {
+            const previousValue = prevRegData[type] || "";
+            if (previousValue || base64String) {
+              const auditLogRef = collection(
+                db,
+                `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff_Audit/${registryId}/Logs`,
+              );
+              await addDoc(auditLogRef, {
+                editedBy: user.uid,
+                editedUnit: unitId,
+                editedAt: auditObj.lastEditedAt,
+                changedFields: type,
+                previousData: { [type]: previousValue },
+                timestamp: serverTimestamp(),
+              });
+            }
+          } catch (auditErr) {
+            console.warn("DropZone audit log failed:", auditErr);
+          }
 
           // SYNC BACK: Update all other units linked to this registry profile
           try {
@@ -646,30 +715,28 @@ export default function ResidentStaff() {
               : type === "idCard"
                 ? "ID_Card"
                 : "Address_Proof";
-          const staffFolderId = staffList.find(
-            (s) => s.id === editingId,
-          )?.driveFolderId;
-          await deleteResFile(
-            `${baseName}.jpg`,
+          const currentStaffFolderId = existingMember?.driveFolderId;
+
+          const newFolderId = await uploadImageToDrive(
+            base64String,
+            fileName,
             flatFolderId,
-            staffFolderId,
-          ).catch(() => {});
-          await deleteResFile(
-            `${baseName}.pdf`,
-            flatFolderId,
-            staffFolderId,
-          ).catch(() => {});
-          await deleteResFile(
-            `${baseName}.png`,
-            flatFolderId,
-            staffFolderId,
-          ).catch(() => {});
-          await deleteResFile(
-            `${baseName}.jpeg`,
-            flatFolderId,
-            staffFolderId,
-          ).catch(() => {});
-          await uploadImageToDrive(base64String, fileName, flatFolderId);
+          );
+
+          // If we just got a folder ID for the first time, persist it
+          if (newFolderId && !currentStaffFolderId) {
+            const driveUpdate = { driveFolderId: newFolderId };
+            await setDoc(doc(db, societyPath), driveUpdate, { merge: true });
+            await setDoc(doc(db, localPath), driveUpdate, { merge: true });
+            if (existingMember?.sourceRegistryId) {
+              const registryId = existingMember.sourceRegistryId;
+              const regRef = doc(
+                db,
+                `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff/${registryId}`,
+              );
+              await setDoc(regRef, driveUpdate, { merge: true });
+            }
+          }
         }
         Toast.show({
           type: "success",
@@ -998,6 +1065,29 @@ export default function ResidentStaff() {
         console.warn(
           "No Flat Folder ID present in session. Check admin configuration.",
         );
+      }
+
+      // If staff name changed, rename the Drive folder to match
+      if (editingId && staffFolderId) {
+        const existingStaff = staffList.find((s) => s.id === editingId);
+        if (existingStaff && existingStaff.staffName !== staffName) {
+          try {
+            const backendUrl =
+              process.env.EXPO_PUBLIC_BACKEND_URL || "http://localhost:3001";
+            await fetch(`${backendUrl}/api/drive/rename-staff-folder`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                adminUID,
+                appId,
+                staffFolderId,
+                newName: staffName,
+              }),
+            });
+          } catch (renameErr) {
+            console.warn("Drive folder rename failed:", renameErr);
+          }
+        }
       }
 
       // Compute audit trail for edits

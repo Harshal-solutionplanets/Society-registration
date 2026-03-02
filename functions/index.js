@@ -491,7 +491,7 @@ router.post("/drive/upload-resident-staff", async (req, res) => {
       currentProfileFolderId = currentRes.data.id;
     }
 
-    // 3. Delete old file from "Current Profile" (previous versions are stored in Firestore audit logs)
+    // 3. Move old file OUT of "Current Profile" to staffFolder (preserves version history)
     const baseFileName = fileName.split(".")[0];
     const extensions = [".jpg", ".jpeg", ".pdf", ".png"];
 
@@ -499,11 +499,23 @@ router.post("/drive/upload-resident-staff", async (req, res) => {
       const searchName = `${baseFileName}${ext}`;
       const search = await drive.files.list({
         q: `name = '${searchName}' and '${currentProfileFolderId}' in parents and trashed = false`,
-        fields: "files(id)",
+        fields: "files(id, parents)",
       });
       if (search.data.files && search.data.files.length > 0) {
         for (const f of search.data.files) {
-          await drive.files.delete({ fileId: f.id });
+          // Move from Current Profile to Staff Folder
+          await drive.files.update({
+            fileId: f.id,
+            addParents: staffFolderId,
+            removeParents: currentProfileFolderId,
+            fields: "id, parents",
+          });
+          // Rename with timestamp prefix to avoid conflicts
+          const timestamp = new Date().getTime();
+          await drive.files.update({
+            fileId: f.id,
+            resource: { name: `v_${timestamp}_${searchName}` },
+          });
         }
       }
     }
@@ -572,10 +584,10 @@ router.post("/drive/delete-resident-file", async (req, res) => {
     }
     const currentProfileFolderId = currentFolderSearch.data.files[0].id;
 
-    // 2. Delete file from Current Profile (previous versions are in Firestore audit logs)
+    // 2. Move old file OUT of "Current Profile" to staff folder (preserves version history)
     const baseFileName = fileName.split(".")[0];
     const extensions = [".jpg", ".jpeg", ".pdf", ".png"];
-    let deletedCount = 0;
+    let movedCount = 0;
 
     for (const ext of extensions) {
       const searchName = `${baseFileName}${ext}`;
@@ -586,18 +598,69 @@ router.post("/drive/delete-resident-file", async (req, res) => {
 
       if (fileSearch.data.files && fileSearch.data.files.length > 0) {
         for (const file of fileSearch.data.files) {
-          await drive.files.delete({ fileId: file.id });
-          deletedCount++;
+          await drive.files.update({
+            fileId: file.id,
+            addParents: staffFolderId,
+            removeParents: currentProfileFolderId,
+          });
+          const timestamp = new Date().getTime();
+          await drive.files.update({
+            fileId: file.id,
+            resource: { name: `v_${timestamp}_${searchName}` },
+          });
+          movedCount++;
         }
       }
     }
 
     res.json({
       success: true,
-      message: `Deleted ${deletedCount} files from Current Profile.`,
+      message: `Moved ${movedCount} files to version archive.`,
     });
   } catch (error) {
     console.error("Delete Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Rename Staff Folder in Drive
+ * Called when staff name changes but no documents change (so upload isn't triggered)
+ */
+router.post("/drive/rename-staff-folder", async (req, res) => {
+  const { adminUID, appId, staffFolderId, newName } = req.body;
+  if (!adminUID || !staffFolderId || !newName) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    const tokenDoc = await db
+      .collection("artifacts")
+      .doc(appId || "dev-society-id")
+      .collection("secure")
+      .doc(adminUID)
+      .get();
+
+    if (!tokenDoc.exists || !tokenDoc.data().refreshToken) {
+      return res.status(404).json({ error: "Google Drive not linked." });
+    }
+
+    const client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI,
+    );
+    client.setCredentials({ refresh_token: tokenDoc.data().refreshToken });
+    const drive = google.drive({ version: "v3", auth: client });
+
+    await drive.files.update({
+      fileId: staffFolderId,
+      resource: { name: newName },
+    });
+
+    res.json({ success: true, message: `Folder renamed to ${newName}` });
+  } catch (error) {
+    console.error("Rename Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
