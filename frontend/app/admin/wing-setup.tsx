@@ -2,35 +2,35 @@ import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
 import { Ionicons } from "@expo/vector-icons";
 import {
-    documentDirectory,
-    EncodingType,
-    writeAsStringAsync,
+  documentDirectory,
+  EncodingType,
+  writeAsStringAsync,
 } from "expo-file-system";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { isAvailableAsync, shareAsync } from "expo-sharing";
 import {
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    writeBatch,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  writeBatch,
 } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    Easing,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -1003,6 +1003,7 @@ export default function WingSetup() {
       }
 
       await batch.commit();
+      await fetchWingData(); // Refresh to ensure existingWingData is populated
       Toast.show({
         type: "success",
         text1: "Wing structure Saved",
@@ -1100,7 +1101,7 @@ export default function WingSetup() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0E5D56" />
+        <ActivityIndicator size="large" color="#14B8A6" />
       </View>
     );
   }
@@ -1175,7 +1176,7 @@ export default function WingSetup() {
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
-                  style={[styles.generateBtn, { backgroundColor: "#0E5D56" }]}
+                  style={[styles.generateBtn, { backgroundColor: "#14B8A6" }]}
                   onPress={handleAddFloor}
                 >
                   <Text style={styles.generateBtnText}>Add Floor</Text>
@@ -1258,8 +1259,20 @@ export default function WingSetup() {
                   <View style={styles.floorActions}>
                     {floor.flatCount > 0 && (
                       <TouchableOpacity
-                        style={styles.viewDetailsBtn}
-                        onPress={() =>
+                        style={[
+                          styles.viewDetailsBtn,
+                          !existingWingData && styles.disabledBtn,
+                        ]}
+                        onPress={() => {
+                          if (!existingWingData) {
+                            Toast.show({
+                              type: "info",
+                              text1: "Structure Not Saved",
+                              text2:
+                                "Please save the wing structure before viewing floor details.",
+                            });
+                            return;
+                          }
                           router.push({
                             pathname: "/admin/floor",
                             params: {
@@ -1273,8 +1286,8 @@ export default function WingSetup() {
                                   ? "Ground Floor"
                                   : `Floor ${floor.floorNumber}`),
                             },
-                          })
-                        }
+                          });
+                        }}
                       >
                         <Text style={styles.viewDetailsBtnText}>→</Text>
                       </TouchableOpacity>
@@ -1287,7 +1300,7 @@ export default function WingSetup() {
                       <Ionicons
                         name="trash-outline"
                         size={20}
-                        color="#C2413B"
+                        color="#EF4444"
                       />
                     </TouchableOpacity>
                   </View>
@@ -1312,28 +1325,30 @@ export default function WingSetup() {
           </TouchableOpacity>
         )}
 
-        {existingWingData && floors.length > 0 && (
-          <TouchableOpacity
-            style={[styles.reportBtn, generatingReport && styles.disabledBtn]}
-            onPress={handleDownloadReport}
-            disabled={generatingReport}
-          >
-            {generatingReport ? (
-              <ActivityIndicator color="#0E5D56" size="small" />
-            ) : (
-              <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-              >
-                <Ionicons
-                  name="document-text-outline"
-                  size={20}
-                  color="#0E5D56"
-                />
-                <Text style={styles.reportBtnText}>Download Wing Report</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        )}
+        {existingWingData &&
+          existingWingData.floors?.some((f: any) => f.flatCount > 0) &&
+          floors.length > 0 && (
+            <TouchableOpacity
+              style={[styles.reportBtn, generatingReport && styles.disabledBtn]}
+              onPress={handleDownloadReport}
+              disabled={generatingReport}
+            >
+              {generatingReport ? (
+                <ActivityIndicator color="#14B8A6" size="small" />
+              ) : (
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                >
+                  <Ionicons
+                    name="document-text-outline"
+                    size={20}
+                    color="#14B8A6"
+                  />
+                  <Text style={styles.reportBtnText}>Download Wing Report</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
       </ScrollView>
 
       <Modal
@@ -1407,7 +1422,7 @@ export default function WingSetup() {
                   {isLocked && (
                     <Text
                       style={{
-                        color: "#8D8271",
+                        color: "#94A3B8",
                         fontSize: 11,
                         marginTop: 4,
                         fontStyle: "italic",
@@ -1444,7 +1459,7 @@ export default function WingSetup() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
   },
   loadingContainer: {
     flex: 1,
@@ -1462,14 +1477,14 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   backBtnText: {
-    color: "#0E5D56",
+    color: "#14B8A6",
     fontSize: 16,
     fontWeight: "600",
   },
   title: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#1F2937",
+    color: "#0F2A3D",
   },
   setupSection: {
     padding: 20,
@@ -1486,23 +1501,23 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   input: {
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     padding: 12,
     borderRadius: 8,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
   },
   disabledInput: {
-    backgroundColor: "#E3D8C6",
-    color: "#6F675B",
+    backgroundColor: "#E2E8F0",
+    color: "#64748B",
   },
   row: {
     flexDirection: "row",
     gap: 10,
   },
   generateBtn: {
-    backgroundColor: "#1E7A57",
+    backgroundColor: "#0F9B8E",
     paddingHorizontal: 20,
     justifyContent: "center",
     borderRadius: 8,
@@ -1544,7 +1559,7 @@ const styles = StyleSheet.create({
     borderRightWidth: 40,
     borderRightColor: "transparent",
     borderBottomWidth: 30,
-    borderBottomColor: "#5A5349",
+    borderBottomColor: "#334155",
     marginBottom: -2,
   },
   floorBlock: {
@@ -1552,15 +1567,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     padding: 15,
     borderWidth: 2,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: -2,
   },
   floorBlockConfigured: {
-    borderColor: "#0E5D56",
-    backgroundColor: "#EEF7F4",
+    borderColor: "#14B8A6",
+    backgroundColor: "#E6FFFA",
     zIndex: 1,
   },
   floorMainArea: {
@@ -1579,22 +1594,22 @@ const styles = StyleSheet.create({
   },
   moveBtn: {
     padding: 2,
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
   },
   disabledMoveBtn: {
-    backgroundColor: "#EFE8DB",
-    borderColor: "#E3D8C6",
+    backgroundColor: "#F1F5F9",
+    borderColor: "#E2E8F0",
   },
   floorNumberText: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "#5A5349",
+    color: "#334155",
   },
   flatTag: {
-    backgroundColor: "#E3D8C6",
+    backgroundColor: "#E2E8F0",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
@@ -1605,7 +1620,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   viewDetailsBtn: {
-    backgroundColor: "#0E5D56",
+    backgroundColor: "#14B8A6",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
@@ -1623,7 +1638,7 @@ const styles = StyleSheet.create({
   },
   deleteFloorBtn: {
     padding: 8,
-    backgroundColor: "#FFF3F2",
+    backgroundColor: "#FEF2F2",
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#FEE2E2",
@@ -1636,12 +1651,12 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   saveBtn: {
-    backgroundColor: "#0E5D56",
+    backgroundColor: "#14B8A6",
     margin: 20,
     padding: 18,
     borderRadius: 12,
     alignItems: "center",
-    shadowColor: "#0E5D56",
+    shadowColor: "#14B8A6",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -1683,7 +1698,7 @@ const styles = StyleSheet.create({
   },
   modalInput: {
     width: "100%",
-    backgroundColor: "#EFE8DB",
+    backgroundColor: "#F1F5F9",
     padding: 15,
     borderRadius: 12,
     fontSize: 24,
@@ -1691,7 +1706,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 25,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
   },
   modalButtons: {
     flexDirection: "row",
@@ -1704,13 +1719,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   cancelBtn: {
-    backgroundColor: "#EFE8DB",
+    backgroundColor: "#F1F5F9",
   },
   confirmBtn: {
-    backgroundColor: "#0E5D56",
+    backgroundColor: "#14B8A6",
   },
   cancelBtnText: {
-    color: "#5A5349",
+    color: "#334155",
     fontWeight: "bold",
   },
   confirmBtnText: {
@@ -1725,12 +1740,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     borderWidth: 2,
-    borderColor: "#0E5D56",
+    borderColor: "#14B8A6",
     flexDirection: "row",
     justifyContent: "center",
   },
   reportBtnText: {
-    color: "#0E5D56",
+    color: "#14B8A6",
     fontSize: 16,
     fontWeight: "700",
   },

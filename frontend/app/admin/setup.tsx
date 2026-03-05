@@ -4,27 +4,27 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { signInWithCustomToken } from "firebase/auth";
 import {
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    query,
-    setDoc,
-    where,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  setDoc,
+  where,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -671,7 +671,7 @@ export default function AdminSetup() {
         <Ionicons
           name={showDropdowns[field] ? "chevron-up" : "chevron-down"}
           size={12}
-          color="#6F675B"
+          color="#64748B"
         />
       </TouchableOpacity>
       {showDropdowns[field] && (
@@ -711,7 +711,7 @@ export default function AdminSetup() {
       <TextInput
         style={styles.compactInput}
         placeholder={placeholder}
-        placeholderTextColor="#8D8271"
+        placeholderTextColor="#94A3B8"
         value={advanceFormData[field as keyof typeof advanceFormData] as string}
         onChangeText={(val) => handleAdvanceInputChange(field, val)}
         keyboardType={keyboardType}
@@ -1129,7 +1129,7 @@ export default function AdminSetup() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0E5D56" />
+        <ActivityIndicator size="large" color="#14B8A6" />
         <Text style={styles.loadingText}>Fetching Society Data...</Text>
       </View>
     );
@@ -1146,7 +1146,7 @@ export default function AdminSetup() {
         showsVerticalScrollIndicator={false}
       >
         <TouchableOpacity style={styles.headerBackButton} onPress={handleBack}>
-          <Ionicons name="arrow-back" size={24} color="#1F2937" />
+          <Ionicons name="arrow-back" size={24} color="#0F2A3D" />
         </TouchableOpacity>
 
         <View style={styles.headerContainer}>
@@ -1222,7 +1222,7 @@ export default function AdminSetup() {
                   <TextInput
                     style={styles.input}
                     placeholder="e.g. Blue Ridge Society"
-                    placeholderTextColor="#8D8271"
+                    placeholderTextColor="#94A3B8"
                     value={formData.societyName}
                     onChangeText={(val) =>
                       handleInputChange("societyName", val)
@@ -1237,7 +1237,7 @@ export default function AdminSetup() {
                       formErrors.registrationNo ? styles.inputError : null,
                     ]}
                     placeholder="e.g. SR/12345/2026"
-                    placeholderTextColor="#8D8271"
+                    placeholderTextColor="#94A3B8"
                     value={formData.registrationNo}
                     onChangeText={(val) =>
                       handleInputChange("registrationNo", val)
@@ -1257,7 +1257,7 @@ export default function AdminSetup() {
                   <TextInput
                     style={[styles.input, styles.textArea]}
                     placeholder="e.g. 123 Street, Pune, India"
-                    placeholderTextColor="#8D8271"
+                    placeholderTextColor="#94A3B8"
                     value={formData.societyAddress}
                     onChangeText={(val) =>
                       handleInputChange("societyAddress", val)
@@ -1273,7 +1273,7 @@ export default function AdminSetup() {
                       formErrors.googleLocation ? styles.inputError : null,
                     ]}
                     placeholder="https://goo.gl/maps/..."
-                    placeholderTextColor="#8D8271"
+                    placeholderTextColor="#94A3B8"
                     value={formData.googleLocation}
                     onChangeText={(val) =>
                       handleInputChange("googleLocation", val)
@@ -1296,7 +1296,7 @@ export default function AdminSetup() {
                       formErrors.pincode ? styles.inputError : null,
                     ]}
                     placeholder="411057"
-                    placeholderTextColor="#8D8271"
+                    placeholderTextColor="#94A3B8"
                     value={formData.pincode}
                     onChangeText={(val) => handleInputChange("pincode", val)}
                     keyboardType="numeric"
@@ -1311,7 +1311,7 @@ export default function AdminSetup() {
                   <TextInput
                     style={[styles.input, isEditMode && styles.inputDisabled]}
                     placeholder="e.g. 5"
-                    placeholderTextColor="#8D8271"
+                    placeholderTextColor="#94A3B8"
                     value={formData.wingCount}
                     onChangeText={(val) => handleInputChange("wingCount", val)}
                     keyboardType="numeric"
@@ -1331,7 +1331,7 @@ export default function AdminSetup() {
                   <TextInput
                     style={styles.input}
                     placeholder="e.g. Harshal Patil"
-                    placeholderTextColor="#8D8271"
+                    placeholderTextColor="#94A3B8"
                     value={formData.adminName}
                     onChangeText={(val) => handleInputChange("adminName", val)}
                   />
@@ -1345,7 +1345,7 @@ export default function AdminSetup() {
                       formErrors.adminContact ? styles.inputError : null,
                     ]}
                     placeholder="e.g. 9876543210"
-                    placeholderTextColor="#8D8271"
+                    placeholderTextColor="#94A3B8"
                     value={formData.adminContact}
                     onChangeText={(val) =>
                       handleInputChange("adminContact", val)
@@ -1413,7 +1413,7 @@ export default function AdminSetup() {
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
-    backgroundColor: "#EFE8DB",
+    backgroundColor: "#F1F5F9",
   },
   scrollContent: {
     flexGrow: 1,
@@ -1428,8 +1428,8 @@ const styles = StyleSheet.create({
     zIndex: 10,
     padding: 8,
     borderRadius: 12,
-    backgroundColor: "#FFFCF6",
-    shadowColor: "#1F2937",
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#0F2A3D",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -1442,34 +1442,34 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: "800",
-    color: "#1F2937",
+    color: "#0F2A3D",
     marginBottom: 8,
     letterSpacing: -0.5,
   },
   description: {
     fontSize: 16,
-    color: "#6F675B",
+    color: "#64748B",
     textAlign: "center",
     lineHeight: 24,
     paddingHorizontal: 20,
   },
   card: {
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 24,
-    shadowColor: "#1F2937",
+    shadowColor: "#0F2A3D",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.05,
     shadowRadius: 20,
     elevation: 5,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     overflow: "visible", // Fix for dropdown clipping
   },
   sectionHeader: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#0E5D56",
+    color: "#14B8A6",
     letterSpacing: 1.5,
     marginBottom: 20,
     marginTop: 8,
@@ -1481,22 +1481,22 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#5A5349",
+    color: "#334155",
     marginBottom: 8,
     marginLeft: 4,
   },
   input: {
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     borderWidth: 1.5,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     padding: 16,
     borderRadius: 12,
     fontSize: 16,
-    color: "#1F2937",
+    color: "#0F2A3D",
   },
   inputDisabled: {
-    backgroundColor: "#EFE8DB",
-    color: "#8D8271",
+    backgroundColor: "#F1F5F9",
+    color: "#94A3B8",
   },
   textArea: {
     height: 100,
@@ -1514,7 +1514,7 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: "#EFE8DB",
+    backgroundColor: "#F1F5F9",
     marginVertical: 24,
   },
   buttonRow: {
@@ -1523,26 +1523,26 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   primaryButton: {
-    backgroundColor: "#1F2937",
+    backgroundColor: "#0F2A3D",
     padding: 20,
     borderRadius: 16,
     alignItems: "center",
-    shadowColor: "#1F2937",
+    shadowColor: "#0F2A3D",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 4,
   },
   secondaryButton: {
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     padding: 20,
     borderRadius: 16,
     alignItems: "center",
     borderWidth: 1.5,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
   },
   secondaryButtonText: {
-    color: "#5A5349",
+    color: "#334155",
     fontSize: 16,
     fontWeight: "600",
   },
@@ -1550,7 +1550,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   buttonText: {
-    color: "#FFFCF6",
+    color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "700",
   },
@@ -1560,14 +1560,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   backButtonText: {
-    color: "#6F675B",
+    color: "#64748B",
     fontSize: 15,
     fontWeight: "600",
     textDecorationLine: "underline",
   },
   tabContainer: {
     flexDirection: "row",
-    backgroundColor: "#E3D8C6",
+    backgroundColor: "#E2E8F0",
     borderRadius: 12,
     padding: 4,
     marginBottom: 20,
@@ -1579,7 +1579,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   activeTab: {
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -1589,15 +1589,15 @@ const styles = StyleSheet.create({
   tabText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#6F675B",
+    color: "#64748B",
   },
   activeTabText: {
-    color: "#0E5D56",
+    color: "#14B8A6",
   },
   dropdownButton: {
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     borderWidth: 1.5,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     padding: 16,
     borderRadius: 12,
     flexDirection: "row",
@@ -1606,21 +1606,21 @@ const styles = StyleSheet.create({
   },
   dropdownText: {
     fontSize: 16,
-    color: "#1F2937",
+    color: "#0F2A3D",
     fontWeight: "500",
   },
   placeholderText: {
-    color: "#8D8271",
+    color: "#94A3B8",
   },
   dropdownList: {
     position: "absolute",
     top: 78,
     left: 0,
     right: 0,
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     zIndex: 5000,
     elevation: 10,
     shadowColor: "#000",
@@ -1634,15 +1634,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#EFE8DB",
+    borderBottomColor: "#F1F5F9",
   },
   dropdownItemText: {
     fontSize: 15,
-    color: "#5A5349",
+    color: "#334155",
     fontWeight: "500",
   },
   activeDropdownText: {
-    color: "#0E5D56",
+    color: "#14B8A6",
     fontWeight: "700",
   },
   compactRow: {
@@ -1660,24 +1660,24 @@ const styles = StyleSheet.create({
   compactLabel: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#5A5349",
+    color: "#334155",
     marginBottom: 4,
     marginLeft: 2,
     height: 32, // Increased height to accommodate larger font for 2 lines
   },
   compactInput: {
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     padding: 8,
     borderRadius: 8,
     fontSize: 13,
-    color: "#1F2937",
+    color: "#0F2A3D",
   },
   compactDropdownButton: {
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     padding: 8,
     borderRadius: 8,
     flexDirection: "row",
@@ -1686,7 +1686,7 @@ const styles = StyleSheet.create({
   },
   compactDropdownText: {
     fontSize: 13,
-    color: "#1F2937",
+    color: "#0F2A3D",
     fontWeight: "500",
     maxWidth: "85%",
   },
@@ -1695,10 +1695,10 @@ const styles = StyleSheet.create({
     top: 40,
     left: 0,
     right: 0,
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     zIndex: 10000,
     elevation: 20,
     shadowColor: "#000",
@@ -1708,36 +1708,36 @@ const styles = StyleSheet.create({
   },
   compactDropdownItemText: {
     fontSize: 12,
-    color: "#5A5349",
+    color: "#334155",
     fontWeight: "500",
     padding: 8,
   },
   compactDivider: {
     height: 1.5,
-    backgroundColor: "#E3D8C6",
+    backgroundColor: "#E2E8F0",
     marginVertical: 16,
   },
   errorText: {
-    color: "#C2413B",
+    color: "#EF4444",
     fontSize: 11,
     marginTop: 4,
     marginLeft: 4,
     fontWeight: "600",
   },
   inputError: {
-    borderColor: "#C2413B",
-    backgroundColor: "#FFF3F2",
+    borderColor: "#EF4444",
+    backgroundColor: "#FEF2F2",
   },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
   },
   loadingText: {
     marginTop: 12,
     fontSize: 14,
-    color: "#6F675B",
+    color: "#64748B",
     fontWeight: "600",
   },
 });

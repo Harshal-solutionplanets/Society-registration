@@ -665,7 +665,7 @@ export default function FloorDetail() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color="#0E5D56" />
+            <Ionicons name="arrow-back" size={24} color="#14B8A6" />
           </TouchableOpacity>
           <Image
             source={require("../../assets/images/logo.png")}
@@ -722,7 +722,7 @@ export default function FloorDetail() {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#0E5D56" />
+          <ActivityIndicator size="large" color="#14B8A6" />
           <Text style={styles.loadingText}>Loading flats...</Text>
         </View>
       ) : (
@@ -908,7 +908,7 @@ export default function FloorDetail() {
                         fontWeight: "600",
                         color:
                           selectedFlat.status === "Occupied"
-                            ? "#1E7A57"
+                            ? "#0F9B8E"
                             : "#B8892D",
                       },
                     ]}
@@ -1229,13 +1229,13 @@ export default function FloorDetail() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
   },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
   },
   loadingText: {
     marginTop: 10,
@@ -1265,13 +1265,13 @@ const styles = StyleSheet.create({
   },
   backBtnText: {
     fontSize: 16,
-    color: "#0E5D56",
+    color: "#14B8A6",
     fontWeight: "600",
   },
   title: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#0E5D56",
+    color: "#14B8A6",
   },
   subtitle: {
     fontSize: 13,
@@ -1282,7 +1282,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#0E5D56",
+    backgroundColor: "#14B8A6",
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 10,
@@ -1306,7 +1306,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#2563EB",
+    backgroundColor: "#0F9B8E",
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 10,
@@ -1373,7 +1373,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   residenceTypeContainer: {
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     padding: 8,
     borderRadius: 6,
     marginBottom: 10,
@@ -1388,16 +1388,16 @@ const styles = StyleSheet.create({
   },
   residenceTypeValue: {
     fontSize: 12,
-    color: "#0E5D56",
+    color: "#14B8A6",
     fontWeight: "600",
   },
   residentInfoMini: {
     marginBottom: 10,
     padding: 8,
-    backgroundColor: "#EEF7F4",
+    backgroundColor: "#E6FFFA",
     borderRadius: 8,
     borderLeftWidth: 3,
-    borderLeftColor: "#0E5D56",
+    borderLeftColor: "#14B8A6",
   },
   residentNameMini: {
     fontSize: 13,
@@ -1418,7 +1418,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F2E2C1",
   },
   statusGenerated: {
-    backgroundColor: "#DFF3EF",
+    backgroundColor: "#B2DFDB",
   },
   statusText: {
     fontSize: 9,
@@ -1440,7 +1440,7 @@ const styles = StyleSheet.create({
     fontFamily: "monospace",
   },
   generateBtn: {
-    backgroundColor: "#0E5D56",
+    backgroundColor: "#14B8A6",
     padding: 12,
     borderRadius: 8,
     alignItems: "center",
@@ -1452,7 +1452,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   viewBtn: {
-    backgroundColor: "#1E7A57",
+    backgroundColor: "#0F9B8E",
     padding: 10,
     borderRadius: 8,
     alignItems: "center",
@@ -1464,7 +1464,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   editBtn: {
-    backgroundColor: "#0E5D56",
+    backgroundColor: "#14B8A6",
     padding: 10,
     borderRadius: 8,
     alignItems: "center",
@@ -1519,17 +1519,17 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   credentialValueBox: {
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
   },
   modalButtons: {
     gap: 12,
   },
   copyBtn: {
-    backgroundColor: "#1E7A57",
+    backgroundColor: "#0F9B8E",
     padding: 15,
     borderRadius: 12,
     alignItems: "center",
@@ -1540,13 +1540,13 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   closeBtn: {
-    backgroundColor: "#EFE8DB",
+    backgroundColor: "#F1F5F9",
     padding: 15,
     borderRadius: 12,
     alignItems: "center",
   },
   closeBtnText: {
-    color: "#5A5349",
+    color: "#334155",
     fontSize: 16,
     fontWeight: "bold",
   },
@@ -1563,19 +1563,19 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   formInput: {
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     padding: 12,
     borderRadius: 8,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
   },
   dropdownButton: {
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -1592,24 +1592,24 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     marginTop: 5,
     maxHeight: 200,
   },
   dropdownItem: {
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#EFE8DB",
+    borderBottomColor: "#F1F5F9",
   },
   dropdownItemSelected: {
-    backgroundColor: "#EEF7F4",
+    backgroundColor: "#E6FFFA",
   },
   dropdownItemText: {
     fontSize: 14,
     color: "#333",
   },
   dropdownItemTextSelected: {
-    color: "#0E5D56",
+    color: "#14B8A6",
     fontWeight: "600",
   },
   statusIndicator: {
@@ -1619,9 +1619,9 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusOccupied: {
-    backgroundColor: "#1E7A5720",
+    backgroundColor: "#0F9B8E20",
     borderWidth: 1,
-    borderColor: "#1E7A57",
+    borderColor: "#0F9B8E",
   },
   statusVacant: {
     backgroundColor: "#B8892D20",
@@ -1635,7 +1635,7 @@ const styles = StyleSheet.create({
   },
   familyMini: {
     fontSize: 11,
-    color: "#0E5D56",
+    color: "#14B8A6",
     marginTop: 4,
     fontWeight: "500",
   },
@@ -1649,13 +1649,13 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     alignItems: "center",
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
   },
   statusToggleBtnActive: {
-    backgroundColor: "#0E5D56",
-    borderColor: "#0E5D56",
+    backgroundColor: "#14B8A6",
+    borderColor: "#14B8A6",
   },
   statusToggleText: {
     fontSize: 14,
@@ -1680,7 +1680,7 @@ const styles = StyleSheet.create({
   selfOwnedBadge: {
     backgroundColor: "#E6F3F0",
     borderWidth: 1,
-    borderColor: "#0E5D56",
+    borderColor: "#14B8A6",
   },
   ownershipText: {
     fontSize: 10,
@@ -1689,10 +1689,10 @@ const styles = StyleSheet.create({
   },
   noCredsContainer: {
     padding: 12,
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     alignItems: "center",
   },
   noCredsText: {
@@ -1708,7 +1708,7 @@ const styles = StyleSheet.create({
   },
   helpText: {
     fontSize: 11,
-    color: "#6F675B",
+    color: "#64748B",
     marginTop: 4,
     fontStyle: "italic",
   },

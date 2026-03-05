@@ -1,25 +1,26 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
+import { ensureUnitDriveStructure } from "@/utils/driveHealthCheck";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
-    collection,
-    doc,
-    onSnapshot,
-    orderBy,
-    query,
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
 } from "firebase/firestore";
 import { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Image,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Image,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 export default function ResidentDashboard() {
@@ -63,6 +64,7 @@ export default function ResidentDashboard() {
             "residentName",
             "societyName",
             "displayName",
+            "staffMembers",
           ];
           let hasChanges = false;
           const updatedData = { ...residentData };
@@ -128,7 +130,19 @@ export default function ResidentDashboard() {
     try {
       const session = await AsyncStorage.getItem("resident_session");
       if (session) {
-        setResidentData(JSON.parse(session));
+        const data = JSON.parse(session);
+        setResidentData(data);
+
+        // Drive Health Check: Ensure folder structure exists
+        const restoredId = await ensureUnitDriveStructure(data);
+        if (restoredId && restoredId !== data.driveFolderId) {
+          const updated = { ...data, driveFolderId: restoredId };
+          setResidentData(updated);
+          await AsyncStorage.setItem(
+            "resident_session",
+            JSON.stringify(updated),
+          );
+        }
       }
     } catch (error) {
       console.error("Error fetching resident data:", error);
@@ -140,7 +154,7 @@ export default function ResidentDashboard() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0E5D56" />
+        <ActivityIndicator size="large" color="#14B8A6" />
       </View>
     );
   }
@@ -203,7 +217,7 @@ export default function ResidentDashboard() {
             <Text style={styles.sectionTitle}>Notifications</Text>
             {notifications.map((notif) => (
               <View key={notif.id} style={styles.notificationCard}>
-                <Ionicons name="notifications" size={20} color="#C2413B" />
+                <Ionicons name="notifications" size={20} color="#EF4444" />
                 <Text style={styles.notificationText}>{notif.message}</Text>
               </View>
             ))}
@@ -259,7 +273,7 @@ export default function ResidentDashboard() {
                   Add your contact details and family info
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#8D8271" />
+              <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
             </View>
           </TouchableOpacity>
         )}
@@ -281,8 +295,8 @@ export default function ResidentDashboard() {
             style={styles.actionCard}
             onPress={() => router.push("/resident/staff")}
           >
-            <View style={[styles.actionIcon, { backgroundColor: "#EEF7F4" }]}>
-              <Ionicons name="people" size={24} color="#0E5D56" />
+            <View style={[styles.actionIcon, { backgroundColor: "#E6FFFA" }]}>
+              <Ionicons name="people" size={24} color="#14B8A6" />
             </View>
             <Text style={styles.actionLabel}>Manage Staff</Text>
             <Text style={styles.actionSub}>Help & Helpers</Text>
@@ -323,7 +337,7 @@ export default function ResidentDashboard() {
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
   },
   container: {
     flex: 1,
@@ -337,10 +351,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
   },
   headerCard: {
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 16,
     flexDirection: "row",
@@ -372,7 +386,7 @@ const styles = StyleSheet.create({
   },
   welcomeText: {
     fontSize: 12,
-    color: "#6F675B",
+    color: "#64748B",
     marginTop: 2,
     fontWeight: "600",
   },
@@ -390,7 +404,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   logoutBtn: {
-    backgroundColor: "#FFF3F2",
+    backgroundColor: "#FEF2F2",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
@@ -398,7 +412,7 @@ const styles = StyleSheet.create({
     borderColor: "#F7D8D6",
   },
   logoutText: {
-    color: "#C2413B",
+    color: "#EF4444",
     fontWeight: "700",
     fontSize: 12,
   },
@@ -421,12 +435,12 @@ const styles = StyleSheet.create({
     width: 70,
     height: 70,
     borderRadius: 35,
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#DFF3EF",
+    borderColor: "#B2DFDB",
     shadowColor: "#0D4F49",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
@@ -436,7 +450,7 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#243444",
+    color: "#0F2A3D",
     textAlign: "center",
     lineHeight: 28,
   },
@@ -445,7 +459,7 @@ const styles = StyleSheet.create({
     color: "#0D4F49",
     marginTop: 8,
     fontWeight: "800",
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 20,
@@ -488,7 +502,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 17,
     fontWeight: "800",
-    color: "#243444",
+    color: "#0F2A3D",
     marginBottom: 16,
     marginLeft: 4,
     borderLeftWidth: 4,
@@ -534,11 +548,11 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     flex: 1,
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     padding: 16,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "#EFE8DB",
+    borderColor: "#F1F5F9",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.06,
@@ -559,33 +573,33 @@ const styles = StyleSheet.create({
   actionLabel: {
     fontSize: 14,
     fontWeight: "800",
-    color: "#243444",
+    color: "#0F2A3D",
     marginBottom: 2,
   },
   actionSub: {
     fontSize: 11,
-    color: "#6F675B",
+    color: "#64748B",
     fontWeight: "600",
   },
   infoBox: {
-    backgroundColor: "#EFE8DB",
+    backgroundColor: "#F1F5F9",
     borderRadius: 20,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     marginTop: 8,
   },
   infoTitle: {
     fontSize: 14,
     fontWeight: "800",
-    color: "#5A5349",
+    color: "#334155",
     marginBottom: 8,
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   infoText: {
     fontSize: 12,
-    color: "#6F675B",
+    color: "#64748B",
     lineHeight: 18,
     fontWeight: "600",
   },
@@ -595,7 +609,7 @@ const styles = StyleSheet.create({
   notificationCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFF3F2",
+    backgroundColor: "#FEF2F2",
     padding: 12,
     borderRadius: 12,
     borderWidth: 1,

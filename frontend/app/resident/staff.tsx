@@ -1,38 +1,43 @@
 ﻿import { appId, db } from "@/configs/firebaseConfig";
 import { COLLECTIONS } from "@/constants/Config";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  refreshDriveToken,
+  syncResidentStaffWithDrive,
+  syncStaffDocsWithDrive,
+} from "@/utils/driveHealthCheck";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import { useRouter } from "expo-router";
 import {
-    addDoc,
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    getDocs,
-    onSnapshot,
-    orderBy,
-    query,
-    serverTimestamp,
-    setDoc,
-    updateDoc,
-    where,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -119,7 +124,7 @@ export default function ResidentStaff() {
     guardianContact: "",
   });
 
-  // â”€â”€ Mode 2: Select Existing Staff â”€â”€
+  // ── Mode 2: Select Existing Staff ──
   const [addMode, setAddMode] = useState<"new" | "existing">("new");
   const [registryStaff, setRegistryStaff] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState("");
@@ -127,6 +132,7 @@ export default function ResidentStaff() {
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<any>(null);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
 
   const resetForm = () => {
     setStaffName("");
@@ -321,6 +327,62 @@ export default function ResidentStaff() {
           ...doc.data(),
         }));
         setStaffList(staff);
+
+        // Drive Health Check: Triggered by data change
+        if (staff.length > 0 && !isCheckingHealth) {
+          const performHealthCheck = async () => {
+            const adminUID = sessionData?.adminUID;
+            const unitId = sessionData?.id;
+            if (!adminUID || !unitId) return;
+
+            setIsCheckingHealth(true);
+            try {
+              let token = sessionData.driveAccessToken;
+              if (!token) {
+                token = await refreshDriveToken(adminUID);
+                if (token) {
+                  const updated = { ...sessionData, driveAccessToken: token };
+                  setSessionData(updated);
+                  await AsyncStorage.setItem(
+                    "resident_session",
+                    JSON.stringify(updated),
+                  );
+                }
+              }
+              if (!token) return;
+
+              // 1. Check for profile deletions
+              const staffNotifs = await syncResidentStaffWithDrive(
+                adminUID,
+                unitId,
+                staff,
+                token,
+              );
+
+              // 2. Check for individual document deletions
+              const docNotifs = await syncStaffDocsWithDrive(
+                adminUID,
+                unitId,
+                staff,
+                token,
+              );
+
+              // Combined notifications
+              const allNotifs = [...staffNotifs, ...docNotifs];
+              allNotifs.forEach((n) => {
+                Toast.show({
+                  type: n.type === "DOC_DELETED" ? "info" : "error",
+                  text1: n.title,
+                  text2: n.message,
+                  visibilityTime: 5000,
+                });
+              });
+            } finally {
+              setIsCheckingHealth(false);
+            }
+          };
+          performHealthCheck();
+        }
 
         // SYNC: Update staffMembers count in Unit document & Session
         try {
@@ -749,7 +811,7 @@ export default function ResidentStaff() {
     }
   };
 
-  // Web-only: Wrapper to support drag-and-drop on upload boxes
+  // Web-only: Wrapper for upload boxes (Drag & drop removed as requested)
   const DropZoneWrapper = ({
     type,
     children,
@@ -757,26 +819,7 @@ export default function ResidentStaff() {
     type: "photo" | "idCard" | "addressProof";
     children: React.ReactNode;
   }) => {
-    if (Platform.OS !== "web") {
-      return <View style={styles.uploadWrapper}>{children}</View>;
-    }
-    return (
-      <div
-        onDragOver={(e: any) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        onDrop={(e: any) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const file = e.dataTransfer?.files?.[0];
-          if (file) handleFileDrop(file, type);
-        }}
-        style={styles.uploadWrapper as any}
-      >
-        {children}
-      </div>
-    );
+    return <View style={styles.uploadWrapper}>{children}</View>;
   };
 
   const handleContactChange = (val: string) => {
@@ -807,7 +850,7 @@ export default function ResidentStaff() {
     }
   };
 
-  // â”€â”€ Mode 2: Fetch registry staff by category â”€â”€
+  // ── Mode 2: Fetch registry staff by category ──
   const fetchRegistryByCategory = async (category: string) => {
     if (!sessionData) return;
     setIsLoadingProfiles(true);
@@ -829,7 +872,7 @@ export default function ResidentStaff() {
     }
   };
 
-  // â”€â”€ Mode 2: Link existing profile to this resident â”€â”€
+  // ── Mode 2: Link existing profile to this resident ──
   const handleLinkExisting = async () => {
     if (!selectedProfile || !user || !sessionData) return;
 
@@ -1222,7 +1265,7 @@ export default function ResidentStaff() {
           ...auditFields,
         };
 
-        // CREATE AUDIT LOG ENTRY (History) — Only store CHANGED values
+        // CREATE AUDIT LOG ENTRY (History) � Only store CHANGED values
         if (auditFields.lastEditedAt) {
           const changedFieldList = (auditFields.lastEditField || "").split(
             ", ",
@@ -1435,7 +1478,7 @@ export default function ResidentStaff() {
     <View style={styles.mainContainer}>
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color="#3B82F6" />
+          <Ionicons name="arrow-back" size={24} color="#14B8A6" />
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
         <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -1531,7 +1574,7 @@ export default function ResidentStaff() {
                   : "Select from Registered Staff"}
             </Text>
 
-            {/* â•â•â•â•â•â• MODE 2: Select Existing Staff â•â•â•â•â•â• */}
+            {/* ══════ MODE 2: Select Existing Staff ══════ */}
             {addMode === "existing" && !editingId && (
               <View>
                 {/* Dropdown 1: Staff Category */}
@@ -1592,7 +1635,7 @@ export default function ResidentStaff() {
                                 <Ionicons
                                   name="checkmark"
                                   size={18}
-                                  color="#3B82F6"
+                                  color="#14B8A6"
                                 />
                               )}
                             </TouchableOpacity>
@@ -1614,7 +1657,7 @@ export default function ResidentStaff() {
                     <Text style={styles.label}>Select Staff Profile *</Text>
                     {isLoadingProfiles ? (
                       <ActivityIndicator
-                        color="#3B82F6"
+                        color="#14B8A6"
                         style={{ marginVertical: 12 }}
                       />
                     ) : registryStaff.length === 0 ? (
@@ -1687,7 +1730,7 @@ export default function ResidentStaff() {
                                     >
                                       <Ionicons name="call-outline" size={12} />{" "}
                                       {profile.contact}
-                                      {profile.nativePlace ? ` • ` : ""}
+                                      {profile.nativePlace ? ` � ` : ""}
                                       {profile.nativePlace && (
                                         <Ionicons
                                           name="location-outline"
@@ -1703,7 +1746,7 @@ export default function ResidentStaff() {
                                     <Ionicons
                                       name="checkmark-circle"
                                       size={20}
-                                      color="#3B82F6"
+                                      color="#14B8A6"
                                     />
                                   )}
                                 </TouchableOpacity>
@@ -1759,7 +1802,7 @@ export default function ResidentStaff() {
                       style={[
                         styles.submitBtn,
                         isUploading && styles.disabledBtn,
-                        { backgroundColor: "#10B981" },
+                        { backgroundColor: "#14B8A6" },
                       ]}
                       onPress={handleLinkExisting}
                       disabled={isUploading}
@@ -1785,7 +1828,7 @@ export default function ResidentStaff() {
               </View>
             )}
 
-            {/* â•â•â•â•â••â• MODE 1: Add New Staff (existing form) â•â•â•â•â•â• */}
+            {/* ════╕═ MODE 1: Add New Staff (existing form) ══════ */}
             {(addMode === "new" || editingId) && (
               <View>
                 <View style={styles.row}>
@@ -1864,7 +1907,7 @@ export default function ResidentStaff() {
                                 <Ionicons
                                   name="checkmark"
                                   size={18}
-                                  color="#3B82F6"
+                                  color="#14B8A6"
                                 />
                               )}
                             </TouchableOpacity>
@@ -1991,7 +2034,7 @@ export default function ResidentStaff() {
                           )
                         ) : (
                           <View style={styles.uploadPlaceholder}>
-                            <Ionicons name="person" size={24} color="#6366F1" />
+                            <Ionicons name="person" size={24} color="#14B8A6" />
                             <Text style={styles.uploadLabel}>Photo</Text>
                           </View>
                         )}
@@ -2249,7 +2292,7 @@ export default function ResidentStaff() {
                         ]}
                       >
                         <Text
-                          style={[styles.typeBadgeText, { color: "#16A34A" }]}
+                          style={[styles.typeBadgeText, { color: "#0F9B8E" }]}
                         >
                           Linked
                         </Text>
@@ -2264,7 +2307,7 @@ export default function ResidentStaff() {
                     <Ionicons
                       name="location-outline"
                       size={12}
-                      color="#3B82F6"
+                      color="#14B8A6"
                     />{" "}
                     {staff.nativePlace || "N/A"}
                   </Text>
@@ -2287,7 +2330,7 @@ export default function ResidentStaff() {
                         ? new Date(staff.lastEditedAt).toLocaleDateString()
                         : "N/A"}
                       {staff.lastEditField
-                        ? ` — Changed: ${staff.lastEditField}`
+                        ? ` � Changed: ${staff.lastEditField}`
                         : ""}
                     </Text>
                   )}
@@ -2298,7 +2341,7 @@ export default function ResidentStaff() {
                   onPress={() => handleEdit(staff)}
                   style={styles.editBtn}
                 >
-                  <Ionicons name="create-outline" size={20} color="#0E5D56" />
+                  <Ionicons name="create-outline" size={20} color="#14B8A6" />
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => handleDelete(staff.id)}
@@ -2336,7 +2379,7 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   backBtnText: {
-    color: "#3B82F6",
+    color: "#14B8A6",
     fontSize: 16,
     fontWeight: "600",
     marginLeft: 4,
@@ -2344,7 +2387,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#0F172A",
+    color: "#0F2A3D",
   },
   scrollContent: {
     padding: 20,
@@ -2353,7 +2396,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "900",
-    color: "#0F172A",
+    color: "#0F2A3D",
     marginBottom: 16,
     marginTop: 8,
   },
@@ -2370,7 +2413,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 24,
     marginBottom: 30,
-    shadowColor: "#0F172A",
+    shadowColor: "#0F2A3D",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.05,
     shadowRadius: 20,
@@ -2393,7 +2436,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
     fontSize: 15,
-    color: "#0F172A",
+    color: "#0F2A3D",
     borderWidth: 1,
     borderColor: "#E2E8F0",
   },
@@ -2409,7 +2452,7 @@ const styles = StyleSheet.create({
   },
   dropdownText: {
     fontSize: 15,
-    color: "#0F172A",
+    color: "#0F2A3D",
     fontWeight: "600",
   },
   dropdownListContainer: {
@@ -2424,7 +2467,7 @@ const styles = StyleSheet.create({
     maxHeight: 250,
     zIndex: 2000,
     elevation: 8,
-    shadowColor: "#0F172A",
+    shadowColor: "#0F2A3D",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 15,
@@ -2445,7 +2488,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   activeDropdownText: {
-    color: "#3B82F6",
+    color: "#14B8A6",
     fontWeight: "700",
   },
   row: {
@@ -2466,6 +2509,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
+  uploadWrapper: {
+    flex: 1,
+    position: "relative",
+    aspectRatio: 1,
+  },
   uploadBox: {
     flex: 1,
     backgroundColor: "#F8FAFC",
@@ -2477,7 +2525,7 @@ const styles = StyleSheet.create({
     position: "relative",
     justifyContent: "center",
     alignItems: "center",
-    minHeight: 180,
+    height: 180,
   },
   uploadPlaceholder: {
     alignItems: "center",
@@ -2502,11 +2550,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   submitBtn: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#14B8A6",
     padding: 16,
     borderRadius: 14,
     alignItems: "center",
-    shadowColor: "#3B82F6",
+    shadowColor: "#14B8A6",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
@@ -2538,7 +2586,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#F1F5F9",
-    shadowColor: "#0F172A",
+    shadowColor: "#0F2A3D",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.03,
     shadowRadius: 10,
@@ -2583,16 +2631,16 @@ const styles = StyleSheet.create({
   staffName: {
     fontWeight: "800",
     fontSize: 15,
-    color: "#0F172A",
+    color: "#0F2A3D",
   },
   typeBadge: {
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "#E6FFFA",
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
   },
   typeBadgeText: {
-    color: "#3B82F6",
+    color: "#14B8A6",
     fontSize: 10,
     fontWeight: "800",
     textTransform: "uppercase",
@@ -2602,7 +2650,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   staffNative: {
-    color: "#3B82F6",
+    color: "#14B8A6",
     fontSize: 12,
     marginTop: 2,
     fontWeight: "600",
@@ -2617,7 +2665,7 @@ const styles = StyleSheet.create({
   },
   editBtn: {
     padding: 8,
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "#E6FFFA",
     borderRadius: 10,
   },
   deleteBtn: {
@@ -2640,11 +2688,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
   },
-  uploadWrapper: {
-    flex: 1,
-    position: "relative",
-    aspectRatio: 1,
-  },
+
   overlayControls: {
     position: "absolute",
     top: 5,
@@ -2665,7 +2709,7 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   editOverlay: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#14B8A6",
   },
   deleteOverlay: {
     backgroundColor: "#EF4444",
@@ -2692,7 +2736,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 16,
   },
-  // â”€â”€ Mode Toggle Styles â”€â”€
+  // ── Mode Toggle Styles ──
   modeTabs: {
     flexDirection: "row",
     backgroundColor: "#F1F5F9",
@@ -2711,8 +2755,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   modeTabActive: {
-    backgroundColor: "#3B82F6",
-    shadowColor: "#3B82F6",
+    backgroundColor: "#14B8A6",
+    shadowColor: "#14B8A6",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -2726,7 +2770,7 @@ const styles = StyleSheet.create({
   modeTabTextActive: {
     color: "#FFFFFF",
   },
-  // â”€â”€ Empty Registry â”€â”€
+  // ── Empty Registry ──
   emptyRegistry: {
     alignItems: "center",
     padding: 20,
@@ -2749,9 +2793,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: "center",
   },
-  // â”€â”€ Profile Preview â”€â”€
+  // ── Profile Preview ──
   profilePreview: {
-    backgroundColor: "#F0FDF4",
+    backgroundColor: "#E6FFFA",
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
@@ -2783,17 +2827,17 @@ const styles = StyleSheet.create({
   previewAvatarText: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#16A34A",
+    color: "#0F9B8E",
   },
   previewName: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#0F172A",
+    color: "#0F2A3D",
     marginBottom: 2,
   },
   previewDetail: {
     fontSize: 13,
-    color: "#1E293B",
+    color: "#0F2A3D",
     marginTop: 2,
     flexDirection: "row",
     alignItems: "center",

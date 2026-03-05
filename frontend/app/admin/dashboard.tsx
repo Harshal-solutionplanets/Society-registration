@@ -1,5 +1,6 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
+import { syncStaffWithDrive } from "@/utils/driveHealthCheck";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
     collection,
@@ -57,6 +58,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = React.useState(true);
   const [societyData, setSocietyData] = React.useState<any>(null);
   const [wings, setWings] = React.useState<Wing[]>([]);
+  const [isDriveSyncing, setIsDriveSyncing] = React.useState(false);
 
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
@@ -92,6 +94,37 @@ export default function AdminDashboard() {
       unsubscribeWings();
     };
   }, [user]);
+
+  // Drive sync logic to detect manual deletions
+  React.useEffect(() => {
+    const performDriveSync = async () => {
+      if (!user?.uid || !societyData?.driveAccessToken || isDriveSyncing)
+        return;
+
+      setIsDriveSyncing(true);
+      try {
+        const deletedStaff = await syncStaffWithDrive(
+          user.uid,
+          societyData.driveAccessToken,
+        );
+        if (deletedStaff.length > 0) {
+          Alert.alert(
+            "Drive Sync Update",
+            `Detected manual deletion of folders for: ${deletedStaff.join(", ")}. \n\nRelated Firestore data and audit logs have been cleaned up to maintain system integrity.`,
+            [{ text: "Understood" }],
+          );
+        }
+      } catch (error) {
+        console.warn("[DriveSync] Background check failed:", error);
+      } finally {
+        setIsDriveSyncing(false);
+      }
+    };
+
+    if (societyData) {
+      performDriveSync();
+    }
+  }, [societyData?.driveAccessToken]);
 
   // Handle migrations or initial data fetch if needed
   const fetchData = React.useCallback(async () => {
@@ -400,7 +433,7 @@ export default function AdminDashboard() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0E5D56" />
+        <ActivityIndicator size="large" color="#14B8A6" />
       </View>
     );
   }
@@ -662,7 +695,7 @@ export default function AdminDashboard() {
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
   },
   container: {
     flex: 1,
@@ -676,23 +709,23 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
   },
   headerCard: {
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 20,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    shadowColor: "#0E5D56",
+    shadowColor: "#14B8A6",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 20,
     elevation: 5,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
   },
   headerCardMobile: {
     flexDirection: "column",
@@ -725,25 +758,25 @@ const styles = StyleSheet.create({
   societyName: {
     fontSize: 22,
     fontWeight: "900",
-    color: "#1F2937",
+    color: "#0F2A3D",
     letterSpacing: -0.5,
     textTransform: "uppercase",
   },
   welcomeText: {
     fontSize: 13,
-    color: "#6F675B",
+    color: "#64748B",
     marginTop: 2,
   },
   headerBtn: {
-    backgroundColor: "#EEF7F4",
+    backgroundColor: "#E6FFFA",
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#DFF3EF",
+    borderColor: "#B2DFDB",
   },
   headerBtnText: {
-    color: "#0E5D56",
+    color: "#14B8A6",
     fontWeight: "700",
     fontSize: 12,
   },
@@ -756,7 +789,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   logoutBtn: {
-    backgroundColor: "#FFF3F2",
+    backgroundColor: "#FEF2F2",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
@@ -766,7 +799,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   logoutText: {
-    color: "#C2413B",
+    color: "#EF4444",
     fontWeight: "700",
     fontSize: 13,
   },
@@ -780,26 +813,26 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     padding: 20,
     borderRadius: 20,
     alignItems: "center",
-    shadowColor: "#1F2937",
+    shadowColor: "#0F2A3D",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 12,
     elevation: 2,
     borderWidth: 1,
-    borderColor: "#EFE8DB",
+    borderColor: "#F1F5F9",
   },
   statValue: {
     fontSize: 24,
     fontWeight: "800",
-    color: "#0E5D56",
+    color: "#14B8A6",
   },
   statLabel: {
     fontSize: 12,
-    color: "#6F675B",
+    color: "#64748B",
     fontWeight: "600",
     marginTop: 4,
     textTransform: "uppercase",
@@ -808,7 +841,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#1F2937",
+    color: "#0F2A3D",
     marginBottom: 16,
     marginLeft: 4,
   },
@@ -820,36 +853,36 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   wingCard: {
-    backgroundColor: "#FFFCF6",
+    backgroundColor: "#FFFFFF",
     borderRadius: 20,
     padding: 16,
     paddingTop: 35,
     borderWidth: 2,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     minHeight: 200,
     maxWidth: 320,
     minWidth: 260,
     position: "relative",
     overflow: "hidden",
-    shadowColor: "#6F675B",
+    shadowColor: "#64748B",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 15,
     elevation: 4,
   },
   wingCardConfigured: {
-    backgroundColor: "#F0FDF4",
-    borderColor: "#2C8A64",
+    backgroundColor: "#E6FFFA",
+    borderColor: "#14B8A6",
     borderStyle: "solid",
-    shadowColor: "#2C8A64",
+    shadowColor: "#14B8A6",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 2,
   },
   wingCardPending: {
-    backgroundColor: "#EEF7F4",
-    borderColor: "#0E5D56",
+    backgroundColor: "#E6FFFA",
+    borderColor: "#14B8A6",
     borderStyle: "dashed",
   },
   wingCardContent: {
@@ -860,10 +893,10 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   wingLetterConfigured: {
-    color: "#1E7A57",
+    color: "#0F9B8E",
   },
   wingLetterPending: {
-    color: "#0E5D56",
+    color: "#14B8A6",
   },
   wingName: {
     fontSize: 14,
@@ -872,10 +905,10 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   wingNameConfigured: {
-    color: "#145A3E",
+    color: "#0F9B8E",
   },
   wingNamePending: {
-    color: "#1E40AF",
+    color: "#0F9B8E",
   },
   badge: {
     marginTop: 12,
@@ -884,41 +917,41 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   badgeSuccess: {
-    backgroundColor: "#1E7A57",
+    backgroundColor: "#0F9B8E",
   },
   badgeInfo: {
-    backgroundColor: "#0E5D56",
+    backgroundColor: "#14B8A6",
   },
   badgeText: {
     fontSize: 10,
     fontWeight: "900",
     textTransform: "uppercase",
-    color: "#FFFCF6",
+    color: "#FFFFFF",
     letterSpacing: 0.5,
   },
   badgeTextSuccess: {
-    color: "#FFFCF6",
+    color: "#FFFFFF",
   },
   badgeTextInfo: {
-    color: "#FFFCF6",
+    color: "#FFFFFF",
   },
   infoBox: {
-    backgroundColor: "#F7F3EB",
+    backgroundColor: "#F8FAFC",
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
-    borderColor: "#E3D8C6",
+    borderColor: "#E2E8F0",
     marginTop: 8,
   },
   infoTitle: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#5A5349",
+    color: "#334155",
     marginBottom: 10,
   },
   infoText: {
     fontSize: 13,
-    color: "#6F675B",
+    color: "#64748B",
     lineHeight: 20,
   },
   towerTop: {
@@ -931,10 +964,10 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 10,
   },
   towerTopConfigured: {
-    backgroundColor: "#2C8A64",
+    backgroundColor: "#0F9B8E",
   },
   towerTopPending: {
-    backgroundColor: "#0E5D56",
+    backgroundColor: "#14B8A6",
   },
   windowGrid: {
     position: "absolute",
@@ -949,7 +982,7 @@ const styles = StyleSheet.create({
   window: {
     width: 6,
     height: 6,
-    backgroundColor: "#E3D8C6",
+    backgroundColor: "#E2E8F0",
     borderRadius: 1,
   },
   sectionHeader: {
@@ -960,15 +993,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   addWingBtn: {
-    backgroundColor: "#F0FDF4",
+    backgroundColor: "#E6FFFA",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#2C8A64",
+    borderColor: "#14B8A6",
   },
   addWingBtnText: {
-    color: "#145A3E",
+    color: "#0F9B8E",
     fontSize: 12,
     fontWeight: "700",
   },
@@ -987,7 +1020,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(239, 68, 68, 0.2)",
   },
   deleteWingIconText: {
-    color: "#C2413B",
+    color: "#EF4444",
     fontSize: 18,
     fontWeight: "800",
     lineHeight: 20,

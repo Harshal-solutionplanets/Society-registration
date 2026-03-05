@@ -6,17 +6,17 @@ import { Redirect, useRouter } from "expo-router";
 import { signInAnonymously } from "firebase/auth";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -95,7 +95,7 @@ export default function ResidentAuth() {
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <ActivityIndicator size="large" color="#14B8A6" />
       </View>
     );
   }
@@ -117,7 +117,7 @@ export default function ResidentAuth() {
         style={styles.backButton}
         onPress={() => router.replace("/")}
       >
-        <Ionicons name="arrow-back" size={24} color="#3B82F6" />
+        <Ionicons name="arrow-back" size={24} color="#14B8A6" />
         <Text style={styles.backButtonText}>Back</Text>
       </TouchableOpacity>
 
@@ -248,12 +248,15 @@ const styles = StyleSheet.create({
   headerSection: {
     alignItems: "center",
     marginBottom: 28,
+    maxWidth: 400,
+    width: "100%",
+    alignSelf: "center",
   },
   iconContainer: {
     width: 64,
     height: 64,
     borderRadius: 20,
-    backgroundColor: "#ECFDF5",
+    backgroundColor: "#E6FFFA",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 12,
@@ -261,7 +264,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#0F172A",
+    color: "#0F2A3D",
   },
   subtitle: {
     fontSize: 13,
@@ -277,11 +280,14 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: "#F1F5F9",
-    shadowColor: "#0F172A",
+    shadowColor: "#0F2A3D",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
     shadowRadius: 10,
     elevation: 3,
+    maxWidth: 400,
+    width: "100%",
+    alignSelf: "center",
   },
   inputGroup: {
     marginBottom: 20,
@@ -289,7 +295,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#1E293B",
+    color: "#0F2A3D",
     marginBottom: 8,
     marginLeft: 4,
   },
@@ -298,7 +304,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
     fontSize: 13,
-    color: "#0F172A",
+    color: "#0F2A3D",
   },
   passwordContainer: {
     flexDirection: "row",
@@ -310,12 +316,12 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   button: {
-    backgroundColor: "#059669",
+    backgroundColor: "#14B8A6",
     padding: 12,
     borderRadius: 10,
     alignItems: "center",
     marginTop: 8,
-    shadowColor: "#059669",
+    shadowColor: "#14B8A6",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -343,7 +349,7 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   backButtonText: {
-    color: "#3B82F6",
+    color: "#14B8A6",
     fontSize: 15,
     fontWeight: "700",
     marginLeft: 4,

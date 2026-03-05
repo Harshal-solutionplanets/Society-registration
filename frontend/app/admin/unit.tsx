@@ -1,32 +1,34 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
+import { refreshDriveToken } from "@/utils/driveHealthCheck";
+import { checkDriveItemExists } from "@/utils/driveUtils";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
-  orderBy,
-  query,
-  setDoc,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    onSnapshot,
+    orderBy,
+    query,
+    setDoc,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Image,
-  KeyboardAvoidingView,
-  Linking,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Image,
+    KeyboardAvoidingView,
+    Linking,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -86,6 +88,7 @@ export default function UnitDetails() {
   const [auditHistory, setAuditHistory] = useState<any[]>([]);
   const [isFetchingAudit, setIsFetchingAudit] = useState(false);
   const [selectedStaffName, setSelectedStaffName] = useState("");
+  const [driveToken, setDriveToken] = useState<string | null>(null);
 
   // Document preview modal state
   const [previewModal, setPreviewModal] = useState<{
@@ -122,6 +125,20 @@ export default function UnitDetails() {
         setEditOwnerName(data.ownerName || "");
         setEditOwnerContact(data.ownerContact || "");
         setEditPassword(data.password || "");
+
+        // 3. Get Drive Token for health checks
+        const adminUID = user?.uid;
+        if (adminUID) {
+          const societyDoc = await getDoc(
+            doc(db, `artifacts/${appId}/public/data/societies`, adminUID),
+          );
+          if (societyDoc.exists()) {
+            const sData = societyDoc.data();
+            let token = sData.driveAccessToken;
+            if (!token) token = await refreshDriveToken(adminUID);
+            setDriveToken(token);
+          }
+        }
       }
     } catch (error) {
       console.error("Error fetching unit data:", error);
@@ -335,8 +352,26 @@ export default function UnitDetails() {
     }
   };
 
-  const handlePreview = (url: string, label: string) => {
+  const handlePreview = async (url: string, label: string) => {
     if (!url) return;
+
+    // 1. If it's a Drive ID (or looks like one/contains ID), verify existence
+    // In this app, document fields are either Base64 or Drive IDs
+    const isBase64 = url.startsWith("data:");
+
+    if (!isBase64 && driveToken) {
+      // Check if the Drive ID exists (not trashed)
+      const exists = await checkDriveItemExists(url, driveToken);
+      if (!exists) {
+        Toast.show({
+          type: "error",
+          text1: "Access Error",
+          text2: "This document is manually deleted by admin",
+        });
+        return;
+      }
+    }
+
     const isPdf = url.startsWith("data:application/pdf");
     const isImage = url.startsWith("data:image");
 
@@ -362,8 +397,11 @@ export default function UnitDetails() {
       // Show image in modal overlay
       setPreviewModal({ visible: true, uri: url, label });
     } else {
-      // Fallback: try to open externally
-      Linking.openURL(url).catch(() => {
+      // Fallback: try to open externally (e.g. if it's a drive view link)
+      const finalUrl = isBase64
+        ? url
+        : `https://drive.google.com/uc?id=${url}&export=download`;
+      Linking.openURL(finalUrl).catch(() => {
         Toast.show({
           type: "error",
           text1: "Error",
@@ -407,7 +445,7 @@ export default function UnitDetails() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <ActivityIndicator size="large" color="#14B8A6" />
       </View>
     );
   }
@@ -430,7 +468,7 @@ export default function UnitDetails() {
           <View>
             <View style={styles.header}>
               <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
-                <Ionicons name="arrow-back" size={24} color="#0F172A" />
+                <Ionicons name="arrow-back" size={24} color="#0F2A3D" />
               </TouchableOpacity>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <Image
@@ -682,7 +720,7 @@ export default function UnitDetails() {
               onPress={() => setExpandedFamily(!expandedFamily)}
             >
               <View style={styles.expandLeft}>
-                <Ionicons name="people" size={20} color="#3B82F6" />
+                <Ionicons name="people" size={20} color="#14B8A6" />
                 <Text style={styles.expandTitle}>
                   Family Members ({unitData?.familyMembers || 0})
                 </Text>
@@ -722,7 +760,7 @@ export default function UnitDetails() {
               onPress={() => setExpandedVehicles(!expandedVehicles)}
             >
               <View style={styles.expandLeft}>
-                <Ionicons name="car" size={20} color="#10B981" />
+                <Ionicons name="car" size={20} color="#14B8A6" />
                 <Text style={styles.expandTitle}>
                   Vehicles ({unitData?.vehicleCount || 0})
                 </Text>
@@ -796,7 +834,7 @@ export default function UnitDetails() {
                                 style={{
                                   fontSize: 9,
                                   fontWeight: "700",
-                                  color: "#1E7A57",
+                                  color: "#0F9B8E",
                                 }}
                               >
                                 Linked
@@ -1011,7 +1049,7 @@ export default function UnitDetails() {
               {isFetchingAudit ? (
                 <ActivityIndicator
                   size="large"
-                  color="#3B82F6"
+                  color="#14B8A6"
                   style={{ marginVertical: 40 }}
                 />
               ) : auditHistory.length === 0 ? (
@@ -1047,7 +1085,7 @@ export default function UnitDetails() {
                       </View>
                       <Text style={styles.auditFields}>
                         Changed:{" "}
-                        <Text style={{ fontWeight: "700", color: "#0F172A" }}>
+                        <Text style={{ fontWeight: "700", color: "#0F2A3D" }}>
                           {log.changedFields}
                         </Text>
                       </Text>
@@ -1184,7 +1222,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 24,
     fontWeight: "900",
-    color: "#0F172A",
+    color: "#0F2A3D",
     letterSpacing: -0.5,
   },
   headerSubtitle: { fontSize: 13, color: "#64748B", fontWeight: "600" },
@@ -1202,7 +1240,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 17,
     fontWeight: "800",
-    color: "#1E293B",
+    color: "#0F2A3D",
     marginBottom: 18,
   },
   row: {
@@ -1227,7 +1265,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    color: "#0F172A",
+    color: "#0F2A3D",
     fontWeight: "500",
     minHeight: 45,
     justifyContent: "center",
@@ -1236,7 +1274,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F1F5F9",
     borderColor: "#CBD5E1",
   },
-  inputText: { fontSize: 14, color: "#0F172A", fontWeight: "600" },
+  inputText: { fontSize: 14, color: "#0F2A3D", fontWeight: "600" },
   dropdownBtn: {
     backgroundColor: "#F8FAFC",
     padding: 12,
@@ -1268,7 +1306,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-  dropdownText: { fontSize: 14, color: "#0F172A", fontWeight: "500" },
+  dropdownText: { fontSize: 14, color: "#0F2A3D", fontWeight: "500" },
   toggleRow: { flexDirection: "row", gap: 4 },
   toggleBtn: {
     flex: 1,
@@ -1281,7 +1319,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E2E8F0",
   },
-  toggleBtnActive: { backgroundColor: "#3B82F6", borderColor: "#2563EB" },
+  toggleBtnActive: { backgroundColor: "#14B8A6", borderColor: "#0F9B8E" },
   toggleText: { fontWeight: "700", color: "#64748B", fontSize: 11 },
   toggleTextActive: { color: "#fff" },
   whatsappPlaceholder: {
@@ -1293,7 +1331,7 @@ const styles = StyleSheet.create({
   },
   whatsappPlaceholderText: {
     fontSize: 10,
-    color: "#059669",
+    color: "#14B8A6",
     fontWeight: "600",
   },
   actionButtonsRow: {
@@ -1303,7 +1341,7 @@ const styles = StyleSheet.create({
   },
   copyBtn: {
     flex: 1,
-    backgroundColor: "#6366F1",
+    backgroundColor: "#14B8A6",
     padding: 15,
     borderRadius: 14,
     flexDirection: "row",
@@ -1314,7 +1352,7 @@ const styles = StyleSheet.create({
   },
   saveBtnTop: {
     flex: 1,
-    backgroundColor: "#10B981",
+    backgroundColor: "#14B8A6",
     padding: 15,
     borderRadius: 14,
     flexDirection: "row",
@@ -1352,7 +1390,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginBottom: 8,
     borderLeftWidth: 4,
-    borderLeftColor: "#3B82F6",
+    borderLeftColor: "#14B8A6",
     elevation: 1,
   },
   staffCard: {
@@ -1427,7 +1465,7 @@ const styles = StyleSheet.create({
     borderColor: "#C7D2FE",
   },
   docBtnText: { fontSize: 11, fontWeight: "700", color: "#4F46E5" },
-  itemName: { fontSize: 14, fontWeight: "800", color: "#0F172A" },
+  itemName: { fontSize: 14, fontWeight: "800", color: "#0F2A3D" },
   itemDetail: {
     fontSize: 12,
     color: "#64748B",
@@ -1471,7 +1509,7 @@ const styles = StyleSheet.create({
   previewTitle: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#0F172A",
+    color: "#0F2A3D",
   },
   previewCloseBtn: {
     padding: 4,
@@ -1501,7 +1539,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: "800",
-    color: "#0F172A",
+    color: "#0F2A3D",
   },
   closeBtn: {
     padding: 4,
@@ -1520,7 +1558,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#14B8A6",
     marginTop: 6,
   },
   markerLine: {
@@ -1541,7 +1579,7 @@ const styles = StyleSheet.create({
   auditEditor: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#0F172A",
+    color: "#0F2A3D",
   },
   auditDate: {
     fontSize: 11,
