@@ -1,5 +1,4 @@
 ﻿import { appId, db } from "@/configs/firebaseConfig";
-import { COLLECTIONS } from "@/constants/Config";
 import { useAuth } from "@/hooks/useAuth";
 import {
   refreshDriveToken,
@@ -14,7 +13,6 @@ import { useRouter } from "expo-router";
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -499,7 +497,6 @@ export default function ResidentStaff() {
 
       try {
         const societyPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${editingId}`;
-        const localPath = `users/${user.uid}/${COLLECTIONS.STAFF}/${editingId}`;
 
         const existingMember = staffList.find((s) => s.id === editingId);
         const auditObj = {
@@ -516,7 +513,6 @@ export default function ResidentStaff() {
         };
 
         await setDoc(doc(db, societyPath), updateObj, { merge: true });
-        await setDoc(doc(db, localPath), updateObj, { merge: true });
 
         // 1.5 Update Registry if linked
         if (existingMember?.sourceRegistryId) {
@@ -598,7 +594,6 @@ export default function ResidentStaff() {
             if (newFolderId && !currentStaffFolderId) {
               const driveUpdate = { driveFolderId: newFolderId };
               await setDoc(doc(db, societyPath), driveUpdate, { merge: true });
-              await setDoc(doc(db, localPath), driveUpdate, { merge: true });
               if (existingMember?.sourceRegistryId) {
                 const registryId = existingMember.sourceRegistryId;
                 const regRef = doc(
@@ -709,9 +704,7 @@ export default function ResidentStaff() {
           ...auditObj,
         };
         const societyPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${editingId}`;
-        const localPath = `users/${user.uid}/${COLLECTIONS.STAFF}/${editingId}`;
         await setDoc(doc(db, societyPath), updateObj, { merge: true });
-        await setDoc(doc(db, localPath), updateObj, { merge: true });
 
         // Sync to registry
         if (existingMember?.sourceRegistryId) {
@@ -790,7 +783,6 @@ export default function ResidentStaff() {
           if (newFolderId && !currentStaffFolderId) {
             const driveUpdate = { driveFolderId: newFolderId };
             await setDoc(doc(db, societyPath), driveUpdate, { merge: true });
-            await setDoc(doc(db, localPath), driveUpdate, { merge: true });
             if (existingMember?.sourceRegistryId) {
               const registryId = existingMember.sourceRegistryId;
               const regRef = doc(
@@ -1286,10 +1278,6 @@ export default function ResidentStaff() {
       const societyStaffPath = `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}/StaffMembers/${staffId}`;
       await setDoc(doc(db, societyStaffPath), staffData, { merge: true });
 
-      // 2. Keep local copy for user (Optional, maintained for redundancy)
-      const localStaffPath = `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`;
-      await setDoc(doc(db, localStaffPath), staffData, { merge: true });
-
       // 3. Upsert into Resident_Staff registry (source of truth for cross-resident reuse)
       try {
         const societyAdminUID = adminUID || sessionData.adminUID;
@@ -1547,15 +1535,6 @@ export default function ResidentStaff() {
           errorMsg = `Request failed with status ${res.status}`;
         }
         throw new Error(errorMsg);
-      }
-
-      // Also delete from local personal user records if exists
-      try {
-        await deleteDoc(
-          doc(db, `users/${user.uid}/${COLLECTIONS.STAFF}/${staffId}`),
-        );
-      } catch (e) {
-        console.log("Local record delete failed or not found (non-critical)");
       }
 
       // Decrement staff count on Resident doc and Wing doc

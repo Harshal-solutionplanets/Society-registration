@@ -1056,34 +1056,30 @@ export default function ResidentForm() {
 
                   {formData.ownership === "RENTAL" && (
                     <View
-                      style={[
-                        {
-                          flexDirection: "row",
-                          gap: 10,
-                          marginTop: 16,
-                          zIndex: 5,
-                          width: "100%",
-                        },
-                      ]}
+                      style={{
+                        flexDirection: "row",
+                        gap: 12,
+                        marginTop: 16,
+                        zIndex: 5,
+                        width: "100%",
+                      }}
                     >
-                      <View style={[styles.inputGroup, { flex: 1 }]}>
-                        <Text style={styles.label}>Flat owner name</Text>
+                      <View style={{ flex: 1.2 }}>
+                        <Text style={styles.label}>Owner Name</Text>
                         <TextInput
                           style={styles.input}
-                          placeholder="Enter owner name"
+                          placeholder="Full name"
                           value={formData.ownerName}
                           onChangeText={(val) =>
                             handleInputChange("ownerName", val)
                           }
                         />
                       </View>
-                      <View style={[styles.inputGroup, { flex: 1 }]}>
-                        <Text style={styles.label}>
-                          Flat owner contact number
-                        </Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.label}>Owner Contact</Text>
                         <TextInput
                           style={styles.input}
-                          placeholder="Enter owner contact"
+                          placeholder="10 digits"
                           value={formData.ownerContact}
                           onChangeText={(val) =>
                             handleInputChange("ownerContact", val)

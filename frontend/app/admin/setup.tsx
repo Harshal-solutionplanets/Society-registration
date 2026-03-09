@@ -1,5 +1,6 @@
 import { appId, auth, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
+import { useTour } from "@/hooks/useTour";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { signInWithCustomToken } from "firebase/auth";
@@ -27,6 +28,8 @@ import {
   View,
 } from "react-native";
 import Toast from "react-native-toast-message";
+import AppTour from "./AppTour";
+import { setupTourSteps } from "./tourSteps";
 
 export default function AdminSetup() {
   const router = useRouter();
@@ -40,6 +43,13 @@ export default function AdminSetup() {
   const [loading, setLoading] = useState(true);
   const [isEditMode, setIsEditMode] = useState(false);
   const [activeTab, setActiveTab] = useState<"basic" | "advance">("basic");
+
+  const tour = useTour({
+    tourId: "admin-setup",
+    steps: setupTourSteps,
+    delay: 1000,
+  });
+
   const [formData, setFormData] = useState({
     societyName: "",
     societyAddress: "",
@@ -357,7 +367,15 @@ export default function AdminSetup() {
   };
 
   const toggleDropdown = (field: string) => {
-    setShowDropdowns((prev) => ({ ...prev, [field]: !prev[field] }));
+    setShowDropdowns((prev) => {
+      const isOpen = prev[field];
+      // Close other dropdowns when opening a new one to prevent overlaps
+      return isOpen ? {} : { [field]: true };
+    });
+  };
+
+  const closeAllDropdowns = () => {
+    setShowDropdowns({});
   };
 
   const handleSetup = async () => {
@@ -530,7 +548,7 @@ export default function AdminSetup() {
 
             if (token) {
               // 2. Patch Folder Name - Standardize drive folder name
-              const driveFormattedName = `${societyName.toUpperCase().replace(/\s+/g, "_")}-ZONECT`;
+              const driveFormattedName = `${societyName.trim().toUpperCase().replace(/\s+/g, "_")}-DRIVE`;
               const renameRes = await fetch(
                 `https://www.googleapis.com/drive/v3/files/${driveData.driveFolderId}`,
                 {
@@ -812,7 +830,7 @@ export default function AdminSetup() {
         {renderAdvanceInput(
           "Last Structural Audit Date",
           "lastStructuralAuditDate",
-          "DD/MM/Y",
+          "DD/MM/YYYY",
         )}
         {renderAdvanceDropdown(
           "Is your society Conveyance Deed complete?",
@@ -1146,270 +1164,326 @@ export default function AdminSetup() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        <TouchableOpacity style={styles.headerBackButton} onPress={handleBack}>
-          <Ionicons name="arrow-back" size={24} color="#0F2A3D" />
-        </TouchableOpacity>
-
-        <View style={styles.headerContainer}>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              marginBottom: 15,
-            }}
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={closeAllDropdowns}
+          style={{ flex: 1 }}
+        >
+          <TouchableOpacity
+            style={styles.headerBackButton}
+            onPress={handleBack}
           >
-            <Image
-              source={require("../../assets/images/logo.png")}
-              style={{ width: 40, height: 40 }}
-              resizeMode="contain"
-            />
-            <Text
+            <Ionicons name="arrow-back" size={24} color="#0F2A3D" />
+          </TouchableOpacity>
+
+          <View style={styles.headerContainer}>
+            <View
               style={{
-                fontSize: 24,
-                fontWeight: "900",
-                color: "#14B8A6",
-                marginLeft: 10,
-                letterSpacing: -0.5,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 15,
               }}
             >
-              Zonect
+              <Image
+                source={require("../../assets/images/logo.png")}
+                style={{ width: 40, height: 40 }}
+                resizeMode="contain"
+              />
+              <Text
+                style={{
+                  fontSize: 24,
+                  fontWeight: "900",
+                  color: "#14B8A6",
+                  marginLeft: 10,
+                  letterSpacing: -0.5,
+                }}
+              >
+                Zonect
+              </Text>
+            </View>
+            <Text style={styles.description}>
+              {isEditMode
+                ? "Update your society details and administration information."
+                : "Register your society to start managing staff documentation."}
             </Text>
           </View>
-          <Text style={styles.description}>
-            {isEditMode
-              ? "Update your society details and administration information."
-              : "Register your society to start managing staff documentation."}
-          </Text>
-        </View>
 
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "basic" && styles.activeTab]}
-            onPress={() => setActiveTab("basic")}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "basic" && styles.activeTabText,
-              ]}
-            >
-              Basic
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "advance" && styles.activeTab]}
-            onPress={() => setActiveTab("advance")}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "advance" && styles.activeTabText,
-              ]}
-            >
-              Advance
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.card}>
-          {activeTab === "basic" ? (
-            <>
-              <Text style={styles.sectionHeader}>SOCIETY INFORMATION</Text>
-
-              <View style={styles.row}>
-                <View style={styles.flex1}>
-                  <Text style={styles.label}>Society Name *</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. Blue Ridge Society"
-                    placeholderTextColor="#94A3B8"
-                    value={formData.societyName}
-                    onChangeText={(val) =>
-                      handleInputChange("societyName", val)
-                    }
-                  />
-                </View>
-                <View style={styles.flex1}>
-                  <Text style={styles.label}>Society Registration No. *</Text>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      formErrors.registrationNo ? styles.inputError : null,
-                    ]}
-                    placeholder="e.g. SR/12345/2026"
-                    placeholderTextColor="#94A3B8"
-                    value={formData.registrationNo}
-                    onChangeText={(val) =>
-                      handleInputChange("registrationNo", val)
-                    }
-                  />
-                  {formErrors.registrationNo ? (
-                    <Text style={styles.errorText}>
-                      {formErrors.registrationNo}
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
-
-              <View style={styles.row}>
-                <View style={styles.flex1}>
-                  <Text style={styles.label}>Society Address</Text>
-                  <TextInput
-                    style={[styles.input, styles.textArea]}
-                    placeholder="e.g. 123 Street, Pune, India"
-                    placeholderTextColor="#94A3B8"
-                    value={formData.societyAddress}
-                    onChangeText={(val) =>
-                      handleInputChange("societyAddress", val)
-                    }
-                    multiline
-                  />
-                </View>
-                <View style={styles.flex1}>
-                  <Text style={styles.label}>
-                    Google Maps Location URL(Optional)
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      formErrors.googleLocation ? styles.inputError : null,
-                    ]}
-                    placeholder="https://goo.gl/maps/..."
-                    placeholderTextColor="#94A3B8"
-                    value={formData.googleLocation}
-                    onChangeText={(val) =>
-                      handleInputChange("googleLocation", val)
-                    }
-                  />
-                  {formErrors.googleLocation ? (
-                    <Text style={styles.errorText}>
-                      {formErrors.googleLocation}
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
-
-              <View style={styles.row}>
-                <View style={styles.flex1}>
-                  <Text style={styles.label}>Pincode *</Text>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      formErrors.pincode ? styles.inputError : null,
-                    ]}
-                    placeholder="411057"
-                    placeholderTextColor="#94A3B8"
-                    value={formData.pincode}
-                    onChangeText={(val) => handleInputChange("pincode", val)}
-                    keyboardType="numeric"
-                    maxLength={6}
-                  />
-                  {formErrors.pincode ? (
-                    <Text style={styles.errorText}>{formErrors.pincode}</Text>
-                  ) : null}
-                </View>
-                <View style={styles.flex1}>
-                  <Text style={styles.label}>Wings/Buildings *</Text>
-                  <TextInput
-                    style={[styles.input, isEditMode && styles.inputDisabled]}
-                    placeholder="e.g. 5"
-                    placeholderTextColor="#94A3B8"
-                    value={formData.wingCount}
-                    onChangeText={(val) => handleInputChange("wingCount", val)}
-                    keyboardType="numeric"
-                    maxLength={3}
-                    editable={!isEditMode}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.divider} />
-
-              <Text style={styles.sectionHeader}>ADMIN DETAILS</Text>
-
-              <View style={styles.row}>
-                <View style={styles.flex1}>
-                  <Text style={styles.label}>Admin Name *</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="e.g. Harshal Patil"
-                    placeholderTextColor="#94A3B8"
-                    value={formData.adminName}
-                    onChangeText={(val) => handleInputChange("adminName", val)}
-                  />
-                </View>
-
-                <View style={styles.flex1}>
-                  <Text style={styles.label}>Admin Contact</Text>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      formErrors.adminContact ? styles.inputError : null,
-                    ]}
-                    placeholder="e.g. 9876543210"
-                    placeholderTextColor="#94A3B8"
-                    value={formData.adminContact}
-                    onChangeText={(val) =>
-                      handleInputChange("adminContact", val)
-                    }
-                    keyboardType="phone-pad"
-                    maxLength={10}
-                  />
-                  {formErrors.adminContact ? (
-                    <Text style={styles.errorText}>
-                      {formErrors.adminContact}
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
-            </>
-          ) : (
-            renderAdvanceForm()
-          )}
-
-          <View style={styles.buttonRow}>
-            {isEditMode ? (
-              <TouchableOpacity
-                style={[styles.secondaryButton, styles.flex1]}
-                onPress={() => router.back()}
-                disabled={isSubmitting}
-              >
-                <Text style={styles.secondaryButtonText}>Cancel Updates</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={[styles.secondaryButton, styles.flex1]}
-                onPress={handleBackToLogin}
-                disabled={isSubmitting}
-              >
-                <Text style={styles.secondaryButtonText}>Back to Login</Text>
-              </TouchableOpacity>
-            )}
-
+          <View style={styles.tabContainer}>
             <TouchableOpacity
-              style={[
-                styles.primaryButton,
-                styles.flex1,
-                isSubmitting && styles.buttonDisabled,
-              ]}
-              onPress={handleSetup}
-              disabled={isSubmitting}
+              style={[styles.tab, activeTab === "basic" && styles.activeTab]}
+              onPress={() => setActiveTab("basic")}
             >
-              <Text style={styles.buttonText}>
-                {isSubmitting
-                  ? isEditMode
-                    ? "Updating..."
-                    : "Registering..."
-                  : isEditMode
-                    ? "Update Profile"
-                    : "Complete Setup"}
+              <Text
+                style={[
+                  styles.tabText,
+                  activeTab === "basic" && styles.activeTabText,
+                ]}
+              >
+                Basic
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "advance" && styles.activeTab]}
+              onPress={() => setActiveTab("advance")}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  activeTab === "advance" && styles.activeTabText,
+                ]}
+              >
+                Advance
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
+
+          <View style={styles.card}>
+            {activeTab === "basic" ? (
+              <>
+                <Text style={styles.sectionHeader}>SOCIETY INFORMATION</Text>
+
+                <View style={styles.row}>
+                  <View style={styles.flex1}>
+                    <Text style={styles.label}>Society Name *</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g. Blue Ridge Society"
+                      placeholderTextColor="#94A3B8"
+                      value={formData.societyName}
+                      onChangeText={(val) =>
+                        handleInputChange("societyName", val)
+                      }
+                    />
+                  </View>
+                  <View style={styles.flex1}>
+                    <Text style={styles.label}>Society Registration No. *</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        formErrors.registrationNo ? styles.inputError : null,
+                      ]}
+                      placeholder="e.g. SR/12345/2026"
+                      placeholderTextColor="#94A3B8"
+                      value={formData.registrationNo}
+                      onChangeText={(val) =>
+                        handleInputChange("registrationNo", val)
+                      }
+                    />
+                    {formErrors.registrationNo ? (
+                      <Text style={styles.errorText}>
+                        {formErrors.registrationNo}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+
+                <View style={styles.row}>
+                  <View style={styles.flex1}>
+                    <Text style={styles.label}>Society Address</Text>
+                    <TextInput
+                      style={[styles.input, styles.textArea]}
+                      placeholder="e.g. 123 Street, Pune, India"
+                      placeholderTextColor="#94A3B8"
+                      value={formData.societyAddress}
+                      onChangeText={(val) =>
+                        handleInputChange("societyAddress", val)
+                      }
+                      multiline
+                    />
+                  </View>
+                  <View style={styles.flex1}>
+                    <Text style={styles.label}>
+                      Google Maps Location URL(Optional)
+                    </Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        formErrors.googleLocation ? styles.inputError : null,
+                      ]}
+                      placeholder="https://goo.gl/maps/..."
+                      placeholderTextColor="#94A3B8"
+                      value={formData.googleLocation}
+                      onChangeText={(val) =>
+                        handleInputChange("googleLocation", val)
+                      }
+                    />
+                    {formErrors.googleLocation ? (
+                      <Text style={styles.errorText}>
+                        {formErrors.googleLocation}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+
+                <View style={styles.row}>
+                  <View style={styles.flex1}>
+                    <Text style={styles.label}>Pincode *</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        formErrors.pincode ? styles.inputError : null,
+                      ]}
+                      placeholder="411057"
+                      placeholderTextColor="#94A3B8"
+                      value={formData.pincode}
+                      onChangeText={(val) => handleInputChange("pincode", val)}
+                      keyboardType="numeric"
+                      maxLength={6}
+                    />
+                    {formErrors.pincode ? (
+                      <Text style={styles.errorText}>{formErrors.pincode}</Text>
+                    ) : null}
+                  </View>
+                  <View style={styles.flex1}>
+                    <Text style={styles.label}>Wings/Buildings *</Text>
+                    <TextInput
+                      style={[styles.input, isEditMode && styles.inputDisabled]}
+                      placeholder="e.g. 5"
+                      placeholderTextColor="#94A3B8"
+                      value={formData.wingCount}
+                      onChangeText={(val) =>
+                        handleInputChange("wingCount", val)
+                      }
+                      keyboardType="numeric"
+                      maxLength={3}
+                      editable={!isEditMode}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <Text style={styles.sectionHeader}>ADMIN DETAILS</Text>
+
+                <View style={styles.row}>
+                  <View style={styles.flex1}>
+                    <Text style={styles.label}>Admin Name *</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g. Harshal Patil"
+                      placeholderTextColor="#94A3B8"
+                      value={formData.adminName}
+                      onChangeText={(val) =>
+                        handleInputChange("adminName", val)
+                      }
+                    />
+                  </View>
+
+                  <View style={styles.flex1}>
+                    <Text style={styles.label}>Admin Contact</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        formErrors.adminContact ? styles.inputError : null,
+                      ]}
+                      placeholder="e.g. 9876543210"
+                      placeholderTextColor="#94A3B8"
+                      value={formData.adminContact}
+                      onChangeText={(val) =>
+                        handleInputChange("adminContact", val)
+                      }
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                    />
+                    {formErrors.adminContact ? (
+                      <Text style={styles.errorText}>
+                        {formErrors.adminContact}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              </>
+            ) : (
+              renderAdvanceForm()
+            )}
+
+            <View style={styles.buttonRow}>
+              {isEditMode ? (
+                <TouchableOpacity
+                  style={[styles.secondaryButton, styles.flex1]}
+                  onPress={() => router.back()}
+                  disabled={isSubmitting}
+                >
+                  <Text style={styles.secondaryButtonText}>Cancel Updates</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.secondaryButton, styles.flex1]}
+                  onPress={handleBackToLogin}
+                  disabled={isSubmitting}
+                >
+                  <Text style={styles.secondaryButtonText}>Back to Login</Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                style={[
+                  styles.primaryButton,
+                  styles.flex1,
+                  isSubmitting && styles.buttonDisabled,
+                ]}
+                onPress={handleSetup}
+                disabled={isSubmitting}
+              >
+                <Text style={styles.buttonText}>
+                  {isSubmitting
+                    ? isEditMode
+                      ? "Updating..."
+                      : "Registering..."
+                    : isEditMode
+                      ? "Update Profile"
+                      : "Complete Setup"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
       </ScrollView>
+
+      {/* Walkthrough Tour */}
+      <AppTour
+        isActive={tour.isActive}
+        step={tour.activeStep}
+        stepNumber={tour.stepNumber}
+        totalSteps={tour.totalSteps}
+        isFirst={tour.isFirst}
+        isLast={tour.isLast}
+        onNext={tour.next}
+        onPrev={tour.prev}
+        onSkip={tour.skip}
+        onFinish={tour.finish}
+      />
+
+      {/* Floating Help Button */}
+      {tour.hasSeenTour && (
+        <TouchableOpacity
+          style={{
+            position: "absolute",
+            bottom: 24,
+            right: 24,
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: "#14B8A6",
+            justifyContent: "center",
+            alignItems: "center",
+            shadowColor: "#14B8A6",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+            elevation: 6,
+            zIndex: 100,
+          }}
+          onPress={tour.restart}
+        >
+          <Text style={{ color: "#fff", fontSize: 20, fontWeight: "900" }}>
+            ?
+          </Text>
+        </TouchableOpacity>
+      )}
     </KeyboardAvoidingView>
   );
 }

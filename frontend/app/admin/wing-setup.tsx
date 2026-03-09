@@ -1,5 +1,6 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
+import { useTour } from "@/hooks/useTour";
 import { Ionicons } from "@expo/vector-icons";
 import {
   documentDirectory,
@@ -33,6 +34,8 @@ import {
   View,
 } from "react-native";
 import Toast from "react-native-toast-message";
+import AppTour from "./AppTour";
+import { wingSetupTourSteps } from "./tourSteps";
 
 interface FloorData {
   floorNumber: number;
@@ -109,6 +112,12 @@ export default function WingSetup() {
   const initialWingName = params.wingName as string;
   const router = useRouter();
   const { user } = useAuth();
+
+  const tour = useTour({
+    tourId: "admin-wing-setup",
+    steps: wingSetupTourSteps,
+    delay: 1000,
+  });
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -650,6 +659,32 @@ export default function WingSetup() {
       return;
     }
 
+    // Duplicate wing name check - prevent renaming to an existing wing name
+    const newWingIdCheck = wingName.trim().replace(/\s+/g, "_");
+    if (newWingIdCheck !== activeWingId) {
+      // Name has changed, check for duplicates
+      try {
+        const wingsRef = collection(
+          db,
+          `artifacts/${appId}/public/data/societies/${user?.uid}/wings`,
+        );
+        const wingsSnap = await getDocs(wingsRef);
+        const existingWingIds = wingsSnap.docs.map((d) => d.id);
+
+        if (existingWingIds.includes(newWingIdCheck)) {
+          Toast.show({
+            type: "error",
+            text1: "Duplicate Wing Name",
+            text2: `A wing named "${wingName.trim()}" already exists. Please choose a different name.`,
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn("Error checking duplicate wing names:", err);
+      }
+    }
+
+    const wingIdToUse = activeWingId || newWingIdCheck;
     setSaving(true);
     try {
       const societyDoc = await getDoc(
@@ -1147,44 +1182,91 @@ export default function WingSetup() {
           <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
             <Text style={styles.backBtnText}>← Back</Text>
           </TouchableOpacity>
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Image
-              source={require("../../assets/images/logo.png")}
-              style={{ width: 32, height: 32 }}
-              resizeMode="contain"
-            />
-            <Text
-              style={{
-                fontSize: 18,
-                fontWeight: "900",
-                color: "#14B8A6",
-                marginLeft: 8,
-                letterSpacing: -0.5,
-              }}
-            >
-              Zonect
-            </Text>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flex: 1,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Image
+                source={require("../../assets/images/logo.png")}
+                style={{ width: 32, height: 32 }}
+                resizeMode="contain"
+              />
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "900",
+                  color: "#14B8A6",
+                  marginLeft: 8,
+                  letterSpacing: -0.5,
+                }}
+              >
+                Zonect
+              </Text>
+            </View>
+            {existingWingData &&
+              existingWingData.floors?.some((f: any) => f.flatCount > 0) &&
+              floors.length > 0 && (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    backgroundColor: "#F0FDFA",
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                    borderWidth: 1.5,
+                    borderColor: "#14B8A6",
+                  }}
+                  onPress={handleDownloadReport}
+                  disabled={generatingReport}
+                >
+                  {generatingReport ? (
+                    <ActivityIndicator color="#14B8A6" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="download-outline"
+                        size={16}
+                        color="#14B8A6"
+                      />
+                      <Text
+                        style={{
+                          color: "#14B8A6",
+                          fontSize: 13,
+                          fontWeight: "700",
+                        }}
+                      >
+                        Report
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
           </View>
         </View>
 
         <View style={styles.setupSection}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Wing Name</Text>
-            <TextInput
-              style={styles.input}
-              value={wingName}
-              onChangeText={setWingName}
-              placeholder="e.g. Wing A"
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Total Floors</Text>
-            <View style={styles.row}>
+          <View style={styles.inlineSetupRow}>
+            <View style={{ flex: 1, marginRight: 10 }}>
+              <Text style={styles.label}>Wing Name</Text>
+              <TextInput
+                style={styles.input}
+                value={wingName}
+                onChangeText={setWingName}
+                placeholder="e.g. Wing A"
+              />
+            </View>
+            <View style={{ flex: 1, marginRight: 10 }}>
+              <Text style={styles.label}>Total Floors</Text>
               <TextInput
                 style={[
                   styles.input,
-                  { flex: 1, marginBottom: 0 },
                   floors.length > 0 && styles.disabledInput,
                 ]}
                 value={floorCount}
@@ -1193,28 +1275,41 @@ export default function WingSetup() {
                 keyboardType="numeric"
                 editable={floors.length === 0}
               />
+            </View>
+            <View style={{ justifyContent: "flex-end" }}>
+              <Text style={[styles.label, { opacity: 0 }]}>Action</Text>
               {floors.length === 0 ? (
                 <TouchableOpacity
-                  style={styles.generateBtn}
+                  style={[
+                    styles.generateBtn,
+                    { paddingHorizontal: 16, paddingVertical: 12 },
+                  ]}
                   onPress={handleGenerateStructure}
                 >
                   <Text style={styles.generateBtnText}>Generate</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
-                  style={[styles.generateBtn, { backgroundColor: "#14B8A6" }]}
+                  style={[
+                    styles.generateBtn,
+                    {
+                      backgroundColor: "#14B8A6",
+                      paddingHorizontal: 16,
+                      paddingVertical: 12,
+                    },
+                  ]}
                   onPress={handleAddFloor}
                 >
                   <Text style={styles.generateBtnText}>Add Floor</Text>
                 </TouchableOpacity>
               )}
             </View>
-            {floors.length > 0 && (
-              <Text style={styles.helpText}>
-                Floor count is locked. Use Add Floor or delete buttons below.
-              </Text>
-            )}
           </View>
+          {floors.length > 0 && (
+            <Text style={styles.helpText}>
+              Floor count is locked. Use Add Floor or delete buttons below.
+            </Text>
+          )}
         </View>
 
         {floors.length > 0 && (
@@ -1362,31 +1457,6 @@ export default function WingSetup() {
             )}
           </TouchableOpacity>
         )}
-
-        {existingWingData &&
-          existingWingData.floors?.some((f: any) => f.flatCount > 0) &&
-          floors.length > 0 && (
-            <TouchableOpacity
-              style={[styles.reportBtn, generatingReport && styles.disabledBtn]}
-              onPress={handleDownloadReport}
-              disabled={generatingReport}
-            >
-              {generatingReport ? (
-                <ActivityIndicator color="#14B8A6" size="small" />
-              ) : (
-                <View
-                  style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-                >
-                  <Ionicons
-                    name="document-text-outline"
-                    size={20}
-                    color="#14B8A6"
-                  />
-                  <Text style={styles.reportBtnText}>Download Wing Report</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          )}
       </ScrollView>
 
       <Modal
@@ -1490,6 +1560,48 @@ export default function WingSetup() {
           </View>
         </View>
       </Modal>
+
+      {/* Walkthrough Tour */}
+      <AppTour
+        isActive={tour.isActive}
+        step={tour.activeStep}
+        stepNumber={tour.stepNumber}
+        totalSteps={tour.totalSteps}
+        isFirst={tour.isFirst}
+        isLast={tour.isLast}
+        onNext={tour.next}
+        onPrev={tour.prev}
+        onSkip={tour.skip}
+        onFinish={tour.finish}
+      />
+
+      {/* Floating Help Button */}
+      {tour.hasSeenTour && (
+        <TouchableOpacity
+          style={{
+            position: "absolute",
+            bottom: 24,
+            right: 24,
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: "#14B8A6",
+            justifyContent: "center",
+            alignItems: "center",
+            shadowColor: "#14B8A6",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+            elevation: 6,
+            zIndex: 100,
+          }}
+          onPress={tour.restart}
+        >
+          <Text style={{ color: "#fff", fontSize: 20, fontWeight: "900" }}>
+            ?
+          </Text>
+        </TouchableOpacity>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -1531,6 +1643,12 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     marginBottom: 15,
+  },
+  inlineSetupRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 0,
+    flexWrap: "wrap",
   },
   label: {
     fontSize: 14,

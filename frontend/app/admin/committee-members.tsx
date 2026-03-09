@@ -1,31 +1,34 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
+import { useTour } from "@/hooks/useTour";
 import { useRouter } from "expo-router";
 import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    setDoc,
 } from "firebase/firestore";
 import * as React from "react";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  useWindowDimensions,
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+    useWindowDimensions,
 } from "react-native";
 import Toast from "react-native-toast-message";
+import AppTour from "./AppTour";
+import { committeeTourSteps } from "./tourSteps";
 
 interface Wing {
   id: string;
@@ -62,6 +65,12 @@ export default function CommitteeMembers() {
   const router = useRouter();
   const { user } = useAuth();
   const { width } = useWindowDimensions();
+
+  const tour = useTour({
+    tourId: "admin-committee",
+    steps: committeeTourSteps,
+    delay: 1000,
+  });
 
   const handleBack = () => {
     if (!user) {
@@ -1229,6 +1238,47 @@ export default function CommitteeMembers() {
           )}
         </View>
       </ScrollView>
+
+      {/* Walkthrough Tour */}
+      <AppTour
+        isActive={tour.isActive}
+        step={tour.activeStep}
+        stepNumber={tour.stepNumber}
+        totalSteps={tour.totalSteps}
+        isFirst={tour.isFirst}
+        isLast={tour.isLast}
+        onNext={tour.next}
+        onPrev={tour.prev}
+        onSkip={tour.skip}
+        onFinish={tour.finish}
+      />
+
+      {tour.hasSeenTour && (
+        <TouchableOpacity
+          style={{
+            position: "absolute",
+            bottom: 24,
+            right: 24,
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: "#14B8A6",
+            justifyContent: "center",
+            alignItems: "center",
+            shadowColor: "#14B8A6",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+            elevation: 6,
+            zIndex: 100,
+          }}
+          onPress={tour.restart}
+        >
+          <Text style={{ color: "#fff", fontSize: 20, fontWeight: "900" }}>
+            ?
+          </Text>
+        </TouchableOpacity>
+      )}
     </KeyboardAvoidingView>
   );
 }

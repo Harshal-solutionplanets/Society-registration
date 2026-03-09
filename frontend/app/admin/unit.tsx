@@ -1,5 +1,6 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
+import { useTour } from "@/hooks/useTour";
 import { refreshDriveToken } from "@/utils/driveHealthCheck";
 import { checkDriveItemExists } from "@/utils/driveUtils";
 import { Ionicons } from "@expo/vector-icons";
@@ -31,6 +32,8 @@ import {
   View,
 } from "react-native";
 import Toast from "react-native-toast-message";
+import AppTour from "./AppTour";
+import { unitTourSteps } from "./tourSteps";
 
 const RESIDENCE_TYPES = [
   "Residence",
@@ -46,12 +49,19 @@ const RESIDENCE_TYPES = [
   "Gym",
   "Restaurant",
   "Hostel",
+  "Cloud Kitchen",
   "Guest House",
   "Other",
 ];
 export default function UnitDetails() {
   const router = useRouter();
   const { user } = useAuth();
+
+  const tour = useTour({
+    tourId: "admin-unit",
+    steps: unitTourSteps,
+    delay: 1000,
+  });
   const {
     unitId,
     wingId,
@@ -1205,6 +1215,47 @@ export default function UnitDetails() {
           </View>
         </View>
       </Modal>
+
+      {/* Walkthrough Tour */}
+      <AppTour
+        isActive={tour.isActive}
+        step={tour.activeStep}
+        stepNumber={tour.stepNumber}
+        totalSteps={tour.totalSteps}
+        isFirst={tour.isFirst}
+        isLast={tour.isLast}
+        onNext={tour.next}
+        onPrev={tour.prev}
+        onSkip={tour.skip}
+        onFinish={tour.finish}
+      />
+
+      {tour.hasSeenTour && (
+        <TouchableOpacity
+          style={{
+            position: "absolute",
+            bottom: 24,
+            right: 24,
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: "#14B8A6",
+            justifyContent: "center",
+            alignItems: "center",
+            shadowColor: "#14B8A6",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+            elevation: 6,
+            zIndex: 100,
+          }}
+          onPress={tour.restart}
+        >
+          <Text style={{ color: "#fff", fontSize: 20, fontWeight: "900" }}>
+            ?
+          </Text>
+        </TouchableOpacity>
+      )}
     </KeyboardAvoidingView>
   );
 }

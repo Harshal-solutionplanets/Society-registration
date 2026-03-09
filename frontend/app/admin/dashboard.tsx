@@ -1,5 +1,6 @@
 import { appId, db } from "@/configs/firebaseConfig";
 import { useAuth } from "@/hooks/useAuth";
+import { useTour } from "@/hooks/useTour";
 import { syncStaffWithDrive } from "@/utils/driveHealthCheck";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
@@ -29,6 +30,8 @@ import {
   View,
 } from "react-native";
 import Toast from "react-native-toast-message";
+import AppTour from "./AppTour";
+import { dashboardTourSteps } from "./tourSteps";
 
 interface Wing {
   id: string;
@@ -63,6 +66,12 @@ export default function AdminDashboard() {
 
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
+
+  const tour = useTour({
+    tourId: "admin-dashboard",
+    steps: dashboardTourSteps,
+    delay: 1200,
+  });
 
   React.useEffect(() => {
     if (!user?.uid) return;
@@ -280,17 +289,38 @@ export default function AdminDashboard() {
         wings.length > 0
           ? Math.max(...wings.map((w) => w.wingIndex || 0)) + 1
           : 0;
-      const nextLetter = String.fromCharCode(65 + nextIndex);
-      const wingName = `Wing ${nextLetter}`;
-      const wingId = wingName.replace(/\s+/g, "_");
 
+      // Find a unique wing name - skip letters that already exist
       const societyPath = `artifacts/${appId}/public/data/societies`;
+      const existingIds = wings.map((w) => w.id);
+      let letterIndex = nextIndex;
+      let wingName = "";
+      let wingId = "";
+
+      // Try sequential letters until we find one that doesn't exist
+      while (letterIndex < 26) {
+        const letter = String.fromCharCode(65 + letterIndex);
+        wingName = `Wing ${letter}`;
+        wingId = wingName.replace(/\s+/g, "_");
+        if (!existingIds.includes(wingId)) break;
+        letterIndex++;
+      }
+
+      if (letterIndex >= 26) {
+        Toast.show({
+          type: "error",
+          text1: "Limit Reached",
+          text2: "All wing letter slots (A-Z) have been used.",
+        });
+        return;
+      }
+
       const wingRef = doc(db, `${societyPath}/${user.uid}/wings`, wingId);
 
       await setDoc(wingRef, {
         id: wingId,
         name: wingName,
-        wingIndex: nextIndex,
+        wingIndex: letterIndex,
         floorCount: 0,
         floors: [],
         updatedAt: new Date().toISOString(),
@@ -716,6 +746,48 @@ export default function AdminDashboard() {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Walkthrough Tour */}
+      <AppTour
+        isActive={tour.isActive}
+        step={tour.activeStep}
+        stepNumber={tour.stepNumber}
+        totalSteps={tour.totalSteps}
+        isFirst={tour.isFirst}
+        isLast={tour.isLast}
+        onNext={tour.next}
+        onPrev={tour.prev}
+        onSkip={tour.skip}
+        onFinish={tour.finish}
+      />
+
+      {/* Floating Help Button */}
+      {tour.hasSeenTour && (
+        <TouchableOpacity
+          style={{
+            position: "absolute",
+            bottom: 24,
+            right: 24,
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: "#14B8A6",
+            justifyContent: "center",
+            alignItems: "center",
+            shadowColor: "#14B8A6",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+            elevation: 6,
+            zIndex: 100,
+          }}
+          onPress={tour.restart}
+        >
+          <Text style={{ color: "#fff", fontSize: 20, fontWeight: "900" }}>
+            ?
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
