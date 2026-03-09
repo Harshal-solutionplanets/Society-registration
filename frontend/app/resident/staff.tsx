@@ -18,6 +18,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  increment,
   onSnapshot,
   orderBy,
   query,
@@ -922,6 +923,13 @@ export default function ResidentStaff() {
         unitId,
         driveFolderId: selectedProfile.driveFolderId || "",
         uploadedAt: new Date().toISOString(),
+        // Migration/Consistency: Carry forward original creation info
+        createdAt: selectedProfile.createdAt || new Date().toISOString(),
+        createdUnitName: selectedProfile.createdUnitName || "N/A",
+        createdWingName: selectedProfile.createdWingName || "N/A",
+        createdFloorName: selectedProfile.createdFloorName || "N/A",
+        createdInUnit:
+          selectedProfile.createdInUnit || selectedProfile.unitId || "N/A",
       };
 
       // Write to resident's StaffMembers
@@ -942,6 +950,22 @@ export default function ResidentStaff() {
           });
         }
       }
+
+      // Increment staff count on Resident doc and Wing doc
+      const residentRef = doc(
+        db,
+        `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}`,
+      );
+      const wingDocPath = `artifacts/${appId}/public/data/societies/${adminUID}/wings/${sessionData.wingId}/${sessionData.floorNumber}/${unitId}`;
+      const wingRef = doc(db, wingDocPath);
+
+      const countUpdate = { staffMembers: increment(1) };
+      await updateDoc(residentRef, countUpdate).catch((e) =>
+        console.warn("Failed to update resident count:", e),
+      );
+      await updateDoc(wingRef, countUpdate).catch((e) =>
+        console.warn("Failed to update wing count:", e),
+      );
 
       Toast.show({
         type: "success",
@@ -1169,6 +1193,38 @@ export default function ResidentStaff() {
         }
       }
 
+      // IDENTITY PERSISTENCE:
+      // Check if a profile with this contact already exists in the registry to preserve creation info
+      let registryIdToSync = editingId
+        ? staffList.find((s) => s.id === editingId)?.sourceRegistryId
+        : null;
+      let registryExistingData: any = {};
+
+      if (!registryIdToSync) {
+        const globalRegistryRef = collection(
+          db,
+          `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff`,
+        );
+        const contactQuery = query(
+          globalRegistryRef,
+          where("contact", "==", contact),
+        );
+        const contactSnap = await getDocs(contactQuery);
+        if (!contactSnap.empty) {
+          const matchedDoc = contactSnap.docs[0];
+          registryIdToSync = matchedDoc.id;
+          registryExistingData = matchedDoc.data();
+        }
+      } else {
+        const regDoc = await getDoc(
+          doc(
+            db,
+            `artifacts/${appId}/public/data/societies/${adminUID}/Resident_Staff/${registryIdToSync}`,
+          ),
+        );
+        if (regDoc.exists()) registryExistingData = regDoc.data();
+      }
+
       const staffData = {
         id: staffId,
         staffName,
@@ -1189,6 +1245,40 @@ export default function ResidentStaff() {
           ? staffList.find((s) => s.id === editingId)?.uploadedAt ||
             new Date().toISOString()
           : new Date().toISOString(),
+        // Capture original creation metadata - Prefer existing registry data
+        createdAt:
+          registryExistingData?.createdAt ||
+          (editingId
+            ? staffList.find((s) => s.id === editingId)?.createdAt ||
+              new Date().toISOString()
+            : new Date().toISOString()),
+        createdUnitName:
+          registryExistingData?.createdUnitName ||
+          (editingId
+            ? staffList.find((s) => s.id === editingId)?.createdUnitName ||
+              sessionData.unitName ||
+              "N/A"
+            : sessionData.unitName || "N/A"),
+        createdWingName:
+          registryExistingData?.createdWingName ||
+          (editingId
+            ? staffList.find((s) => s.id === editingId)?.createdWingName ||
+              sessionData.wingName ||
+              "N/A"
+            : sessionData.wingName || "N/A"),
+        createdFloorName:
+          registryExistingData?.createdFloorName ||
+          (editingId
+            ? staffList.find((s) => s.id === editingId)?.createdFloorName ||
+              sessionData.floorName ||
+              "N/A"
+            : sessionData.floorName || "N/A"),
+        createdInUnit:
+          registryExistingData?.createdInUnit ||
+          (editingId
+            ? staffList.find((s) => s.id === editingId)?.createdInUnit || unitId
+            : unitId),
+        sourceRegistryId: registryIdToSync || "",
         ...auditFields,
       };
 
@@ -1202,46 +1292,24 @@ export default function ResidentStaff() {
 
       // 3. Upsert into Resident_Staff registry (source of truth for cross-resident reuse)
       try {
-        // Use the adminUID from sessionData to ensure society-wide scope
         const societyAdminUID = adminUID || sessionData.adminUID;
+        let registryId = staffData.sourceRegistryId;
         const registryRef = collection(
           db,
           `artifacts/${appId}/public/data/societies/${societyAdminUID}/Resident_Staff`,
         );
 
-        // IDENTITY PERSISTENCE:
-        // 1. If we are editing a linked member, use their existing registry ID.
-        // 2. Otherwise, check if a profile with this contact already exists.
-        // 3. Fallback: Create a new ID.
-        const existingMember = editingId
-          ? staffList.find((s) => s.id === editingId)
-          : null;
-        let registryId = existingMember?.sourceRegistryId;
-        let existingData: any = {};
-
         if (!registryId) {
-          const existingQuery = query(
-            registryRef,
-            where("contact", "==", contact),
-          );
-          const existingSnap = await getDocs(existingQuery);
-          if (!existingSnap.empty) {
-            const doc = existingSnap.docs[0];
-            registryId = doc.id;
-            existingData = doc.data();
-          } else {
-            registryId = `reg_${contact}_${societyAdminUID}`;
-          }
-        } else {
-          // Fetch existing data for merge
-          const regDoc = await getDoc(
-            doc(
-              db,
-              `artifacts/${appId}/public/data/societies/${societyAdminUID}/Resident_Staff/${registryId}`,
-            ),
-          );
-          if (regDoc.exists()) existingData = regDoc.data();
+          registryId = `reg_${contact}_${societyAdminUID}`;
         }
+
+        // Fetch existing data again to ensure updated linkedUnits
+        const regDocRef = doc(
+          db,
+          `artifacts/${appId}/public/data/societies/${societyAdminUID}/Resident_Staff/${registryId}`,
+        );
+        const regDocSnap = await getDoc(regDocRef);
+        const existingData = regDocSnap.exists() ? regDocSnap.data() : {};
 
         const currentLinked = existingData.linkedUnits || [];
         const updatedLinked = currentLinked.includes(unitId)
@@ -1262,10 +1330,16 @@ export default function ResidentStaff() {
           addressProof: addressProof || "",
           driveFolderId: staffFolderId,
           linkedUnits: updatedLinked,
+          // Sync creation info to registry for all to see
+          createdAt: staffData.createdAt,
+          createdInUnit: staffData.createdInUnit,
+          createdUnitName: staffData.createdUnitName,
+          createdWingName: staffData.createdWingName,
+          createdFloorName: staffData.createdFloorName,
           ...auditFields,
         };
 
-        // CREATE AUDIT LOG ENTRY (History) � Only store CHANGED values
+        // CREATE AUDIT LOG ENTRY (History)  Only store CHANGED values
         if (auditFields.lastEditedAt) {
           const changedFieldList = (auditFields.lastEditField || "").split(
             ", ",
@@ -1291,19 +1365,14 @@ export default function ResidentStaff() {
           });
         }
 
-        await setDoc(
-          doc(
-            db,
-            `artifacts/${appId}/public/data/societies/${societyAdminUID}/Resident_Staff/${registryId}`,
-          ),
-          registryData,
-          { merge: true },
-        );
+        await setDoc(regDocRef, registryData, { merge: true });
 
-        // Store the sourceRegistryId back on the resident's copy
-        await updateDoc(doc(db, societyStaffPath), {
-          sourceRegistryId: registryId,
-        });
+        // Store the sourceRegistryId back on the resident's copy if it was freshly generated
+        if (!staffData.sourceRegistryId) {
+          await updateDoc(doc(db, societyStaffPath), {
+            sourceRegistryId: registryId,
+          });
+        }
 
         // CRITICAL SYNC: Propagate shared profile data to ALL linked units
         // IMPORTANT: Only sync shared fields, never overwrite unit-specific fields (id, unitId, linkedBy, uploadedBy)
@@ -1321,6 +1390,12 @@ export default function ResidentStaff() {
             idCard: idCard || "",
             addressProof: addressProof || "",
             driveFolderId: staffFolderId,
+            // Propagate creation info to all linked units
+            createdAt: staffData.createdAt,
+            createdInUnit: staffData.createdInUnit,
+            createdUnitName: staffData.createdUnitName,
+            createdWingName: staffData.createdWingName,
+            createdFloorName: staffData.createdFloorName,
             ...auditFields,
             updatedAt: new Date().toISOString(),
           };
@@ -1352,6 +1427,24 @@ export default function ResidentStaff() {
         );
       } catch (regErr) {
         console.error("CRITICAL: Registry upsert failed:", regErr);
+      }
+
+      if (!editingId) {
+        // Increment staff count in both Resident and Wing documents
+        const residentRef = doc(
+          db,
+          `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}`,
+        );
+        const wingDocPath = `artifacts/${appId}/public/data/societies/${adminUID}/wings/${sessionData.wingId}/${sessionData.floorNumber}/${unitId}`;
+        const wingRef = doc(db, wingDocPath);
+
+        const countUpdate = { staffMembers: increment(1) };
+        await updateDoc(residentRef, countUpdate).catch((e) =>
+          console.warn("Failed to update resident count:", e),
+        );
+        await updateDoc(wingRef, countUpdate).catch((e) =>
+          console.warn("Failed to update wing count:", e),
+        );
       }
 
       Toast.show({
@@ -1464,6 +1557,22 @@ export default function ResidentStaff() {
       } catch (e) {
         console.log("Local record delete failed or not found (non-critical)");
       }
+
+      // Decrement staff count on Resident doc and Wing doc
+      const residentRef = doc(
+        db,
+        `artifacts/${appId}/public/data/societies/${adminUID}/Residents/${unitId}`,
+      );
+      const wingDocPath = `artifacts/${appId}/public/data/societies/${adminUID}/wings/${sessionData.wingId}/${sessionData.floorNumber}/${unitId}`;
+      const wingRef = doc(db, wingDocPath);
+
+      const countUpdate = { staffMembers: increment(-1) };
+      await updateDoc(residentRef, countUpdate).catch((e) =>
+        console.warn("Failed to update resident count:", e),
+      );
+      await updateDoc(wingRef, countUpdate).catch((e) =>
+        console.warn("Failed to update wing count:", e),
+      );
 
       Toast.show({ type: "info", text1: "Staff Removed Successfully" });
     } catch (error: any) {

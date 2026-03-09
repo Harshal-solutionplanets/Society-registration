@@ -80,7 +80,12 @@ export default function LandingPage() {
       >
         {/* Hero Section */}
         <View style={styles.heroSection}>
-          <View style={styles.heroContent}>
+          <View
+            style={[
+              styles.heroContent,
+              { alignItems: "center", paddingRight: 0 },
+            ]}
+          >
             <View style={styles.badge}>
               <Text style={styles.badgeText}>
                 Society Management Made Simple
@@ -101,6 +106,7 @@ export default function LandingPage() {
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 6,
+                  alignSelf: "center",
                 },
               ]}
             >
@@ -197,26 +203,40 @@ export default function LandingPage() {
             },
           ]}
         >
-          <View style={styles.heroContent}>
+          <View
+            style={[
+              styles.heroContent,
+              { alignItems: "center", paddingRight: 0 },
+            ]}
+          >
             <Text
               style={[
                 styles.sectionTitle,
-                { textAlign: "left", marginBottom: 10 },
+                { textAlign: "center", marginBottom: 10 },
               ]}
             >
               🔐 Society-Owned Data. Full Control.
             </Text>
             <Text
-              style={[styles.heroSubtitle, { textAlign: "left", fontSize: 16 }]}
+              style={[
+                styles.heroSubtitle,
+                { textAlign: "center", fontSize: 16, alignSelf: "center" },
+              ]}
             >
               Unlike most platforms where sensitive staff documents are stored
               on third-party servers, Zonect ensures all helper documents are
               stored directly in your society’s own Google Drive.
             </Text>
 
-            <View style={{ gap: 12, marginTop: 10 }}>
+            <View style={{ gap: 12, marginTop: 10, alignItems: "center" }}>
               <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  width: isDesktop ? "auto" : "100%",
+                  justifyContent: "center",
+                }}
               >
                 <Ionicons name="checkmark-circle" size={20} color="#14B8A6" />
                 <Text
@@ -226,7 +246,13 @@ export default function LandingPage() {
                 </Text>
               </View>
               <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  width: isDesktop ? "auto" : "100%",
+                  justifyContent: "center",
+                }}
               >
                 <Ionicons name="checkmark-circle" size={20} color="#14B8A6" />
                 <Text
@@ -236,7 +262,13 @@ export default function LandingPage() {
                 </Text>
               </View>
               <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  width: isDesktop ? "auto" : "100%",
+                  justifyContent: "center",
+                }}
               >
                 <Ionicons name="checkmark-circle" size={20} color="#14B8A6" />
                 <Text
@@ -246,7 +278,13 @@ export default function LandingPage() {
                 </Text>
               </View>
               <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  width: isDesktop ? "auto" : "100%",
+                  justifyContent: "center",
+                }}
               >
                 <Ionicons name="checkmark-circle" size={20} color="#14B8A6" />
                 <Text
@@ -261,11 +299,12 @@ export default function LandingPage() {
               style={[
                 styles.heroSubtitle,
                 {
-                  textAlign: "left",
+                  textAlign: "center",
                   fontSize: 16,
                   marginTop: 30,
                   fontWeight: "700",
                   color: "#0F2A3D",
+                  alignSelf: "center",
                 },
               ]}
             >
@@ -637,7 +676,7 @@ const getStyles = (isDesktop: boolean) =>
       fontWeight: "900",
       color: "#0F2A3D",
       lineHeight: isDesktop ? 72 : 44,
-      textAlign: isDesktop ? "left" : "center",
+      textAlign: "center",
       marginBottom: 10,
     },
     heroTitleHighlight: {
@@ -647,13 +686,15 @@ const getStyles = (isDesktop: boolean) =>
       fontSize: 18,
       color: "#334155",
       lineHeight: 28,
-      textAlign: isDesktop ? "left" : "center",
+      textAlign: "center",
       marginBottom: 32,
       maxWidth: 600,
     },
     heroButtons: {
       flexDirection: "row",
       gap: 16,
+      justifyContent: "center",
+      width: "100%",
     },
     primaryButton: {
       backgroundColor: "#14B8A6",

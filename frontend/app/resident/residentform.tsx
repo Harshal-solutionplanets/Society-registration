@@ -23,6 +23,7 @@ import Toast from "react-native-toast-message";
 const PROFESSIONS = [
   "Doctor",
   "Engineer",
+  "Student",
   "Teacher",
   "Lawyer",
   "Architect",
@@ -31,8 +32,10 @@ const PROFESSIONS = [
   "IT Professional",
   "Government Employee",
   "Artist",
-  "Student",
   "Home Maker",
+  "Influencer",
+  "Unemployed",
+  "Retired",
   "Other",
 ];
 
@@ -96,6 +99,8 @@ export default function ResidentForm() {
     vehicleCount: "0",
     vehicleDetails: [],
     hobbies: "",
+    staffMembers: 0,
+    familyMembers: 0,
   });
   const [newPassword, setNewPassword] = useState("");
   const [showPasswordChange, setShowPasswordChange] = useState(false);
@@ -104,6 +109,7 @@ export default function ResidentForm() {
   const [formErrors, setFormErrors] = useState<any>({
     residentMobile: "",
     alternateMobile: "",
+    familyContacts: {},
   });
 
   const [showDropdowns, setShowDropdowns] = useState<any>({
@@ -183,6 +189,31 @@ export default function ResidentForm() {
               syncedSession.wingName = existingData.wingName;
               sessionChanged = true;
             }
+            if (existingData.wingId && existingData.wingId !== data.wingId) {
+              syncedSession.wingId = existingData.wingId;
+              sessionChanged = true;
+            }
+            if (
+              existingData.floorNumber !== undefined &&
+              existingData.floorNumber !== data.floorNumber
+            ) {
+              syncedSession.floorNumber = existingData.floorNumber;
+              sessionChanged = true;
+            }
+            if (
+              existingData.staffMembers !== undefined &&
+              existingData.staffMembers !== data.staffMembers
+            ) {
+              syncedSession.staffMembers = existingData.staffMembers;
+              sessionChanged = true;
+            }
+            if (
+              existingData.familyMembers !== undefined &&
+              existingData.familyMembers !== data.familyMembers
+            ) {
+              syncedSession.familyMembers = existingData.familyMembers;
+              sessionChanged = true;
+            }
             if (sessionChanged) {
               setSessionData(syncedSession);
               await AsyncStorage.setItem(
@@ -237,6 +268,18 @@ export default function ResidentForm() {
       return;
     }
 
+    if (field === "residentAge") {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      if (sanitized === "") {
+        setFormData((prev: any) => ({ ...prev, [field]: "" }));
+        return;
+      }
+      const num = parseInt(sanitized);
+      if (num > 150) return;
+      setFormData((prev: any) => ({ ...prev, [field]: num.toString() }));
+      return;
+    }
+
     setFormData((prev: any) => ({ ...prev, [field]: value }));
   };
 
@@ -258,6 +301,7 @@ export default function ResidentForm() {
           otherRelation: "",
           bloodGroup: "",
           otherBloodGroup: "",
+          contact: "",
           profession: "",
           companyName: "",
           otherProfession: "",
@@ -290,6 +334,7 @@ export default function ResidentForm() {
         otherRelation: "",
         bloodGroup: "",
         otherBloodGroup: "",
+        contact: "",
         profession: "",
         companyName: "",
         otherProfession: "",
@@ -328,11 +373,53 @@ export default function ResidentForm() {
       blood: newBlood,
       familyProfession: newProfession,
     });
+
+    // Clear family contact error for that index
+    const newFamilyErrors = { ...formErrors.familyContacts };
+    delete newFamilyErrors[index];
+    // Shift errors for remaining members
+    const shiftedErrors: any = {};
+    Object.keys(newFamilyErrors).forEach((key) => {
+      const k = parseInt(key);
+      if (k > index) {
+        shiftedErrors[k - 1] = newFamilyErrors[key];
+      } else {
+        shiftedErrors[k] = newFamilyErrors[key];
+      }
+    });
+    setFormErrors((prev: any) => ({
+      ...prev,
+      familyContacts: shiftedErrors,
+    }));
   };
 
   const updateFamilyMember = (index: number, field: string, value: string) => {
     const newDetails = [...formData.familyDetails];
-    newDetails[index] = { ...newDetails[index], [field]: value };
+    if (field === "age") {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      if (sanitized === "") {
+        newDetails[index] = { ...newDetails[index], [field]: "" };
+      } else {
+        const num = parseInt(sanitized);
+        if (num > 150) return;
+        newDetails[index] = { ...newDetails[index], [field]: num.toString() };
+      }
+    } else if (field === "contact") {
+      const sanitized = value.replace(/[^0-9]/g, "");
+      if (sanitized.length > 10) return;
+      newDetails[index] = { ...newDetails[index], [field]: sanitized };
+      setFormErrors((prev: any) => {
+        const newFamilyErrors = { ...prev.familyContacts };
+        if (sanitized.length > 0 && sanitized.length < 10) {
+          newFamilyErrors[index] = "Mobile must be 10 digits";
+        } else {
+          delete newFamilyErrors[index];
+        }
+        return { ...prev, familyContacts: newFamilyErrors };
+      });
+    } else {
+      newDetails[index] = { ...newDetails[index], [field]: value };
+    }
     setFormData((prev: any) => ({ ...prev, familyDetails: newDetails }));
   };
 
@@ -419,6 +506,51 @@ export default function ResidentForm() {
       return;
     }
 
+    // Filter out "empty" profiles:
+    // Family member mandatory field: name
+    // Vehicle mandatory field: plateNumber
+    const filteredFamily = formData.familyDetails.filter(
+      (m: any) => m.name && m.name.trim() !== "",
+    );
+    const filteredVehicles = formData.vehicleDetails.filter(
+      (v: any) => v.plateNumber && v.plateNumber.trim() !== "",
+    );
+
+    // Update state to reflect filtered lists on UI
+    setFormData((prev: any) => ({
+      ...prev,
+      familyDetails: filteredFamily,
+      familyMemberCount: filteredFamily.length.toString(),
+      vehicleDetails: filteredVehicles,
+      vehicleCount: filteredVehicles.length.toString(),
+    }));
+
+    // Validate family contact inputs ONLY for the filtered members
+    const familyContactErrors: any = {};
+    let hasFamilyError = false;
+    filteredFamily.forEach((member: any, index: number) => {
+      if (member.contact && member.contact.length !== 10) {
+        familyContactErrors[index] = "Mobile must be 10 digits";
+        hasFamilyError = true;
+      }
+    });
+
+    if (hasFamilyError) {
+      setFormErrors((prev: any) => ({
+        ...prev,
+        familyContacts: familyContactErrors,
+      }));
+      Toast.show({
+        type: "error",
+        text1: "Validation Error",
+        text2: "Some family contact numbers are invalid.",
+      });
+      return;
+    } else {
+      // Clear family errors if none found for valid members
+      setFormErrors((prev: any) => ({ ...prev, familyContacts: {} }));
+    }
+
     if (!formData.residentName || !formData.residentMobile) {
       Toast.show({
         type: "error",
@@ -460,7 +592,11 @@ export default function ResidentForm() {
 
       const updateData = {
         ...formData,
-        familyMembers: parseInt(formData.familyMemberCount) || 0,
+        familyDetails: filteredFamily,
+        familyMemberCount: filteredFamily.length.toString(),
+        familyMembers: filteredFamily.length,
+        vehicleDetails: filteredVehicles,
+        vehicleCount: filteredVehicles.length.toString(),
         residenceStatus: formData.status, // Ensure admin side reflects this
         updatedAt: new Date().toISOString(),
       };
@@ -718,7 +854,7 @@ export default function ResidentForm() {
                         }
                         placeholder="Age"
                         keyboardType="numeric"
-                        maxLength={2}
+                        maxLength={3}
                       />
                     </View>
                     {renderDropdown(
@@ -921,11 +1057,16 @@ export default function ResidentForm() {
                   {formData.ownership === "RENTAL" && (
                     <View
                       style={[
-                        styles.rowInputsContainer,
-                        { marginTop: 16, zIndex: 5 },
+                        {
+                          flexDirection: "row",
+                          gap: 10,
+                          marginTop: 16,
+                          zIndex: 5,
+                          width: "100%",
+                        },
                       ]}
                     >
-                      <View style={styles.inputGroup}>
+                      <View style={[styles.inputGroup, { flex: 1 }]}>
                         <Text style={styles.label}>Flat owner name</Text>
                         <TextInput
                           style={styles.input}
@@ -936,7 +1077,7 @@ export default function ResidentForm() {
                           }
                         />
                       </View>
-                      <View style={styles.inputGroup}>
+                      <View style={[styles.inputGroup, { flex: 1 }]}>
                         <Text style={styles.label}>
                           Flat owner contact number
                         </Text>
@@ -1032,7 +1173,7 @@ export default function ResidentForm() {
                           <View style={{ flex: 1.5 }}>
                             <TextInput
                               style={styles.rowInput}
-                              placeholder="Full Name"
+                              placeholder="Full Name *"
                               value={member.name}
                               onChangeText={(val) =>
                                 updateFamilyMember(index, "name", val)
@@ -1106,6 +1247,28 @@ export default function ResidentForm() {
                                 },
                               }),
                           )}
+                          <View style={{ flex: 1.2 }}>
+                            <TextInput
+                              style={[
+                                styles.rowInput,
+                                formErrors.familyContacts?.[index]
+                                  ? styles.inputError
+                                  : null,
+                              ]}
+                              placeholder="Contact Number"
+                              value={member.contact}
+                              onChangeText={(val) =>
+                                updateFamilyMember(index, "contact", val)
+                              }
+                              keyboardType="numeric"
+                              maxLength={10}
+                            />
+                            {formErrors.familyContacts?.[index] ? (
+                              <Text style={styles.errorText}>
+                                {formErrors.familyContacts[index]}
+                              </Text>
+                            ) : null}
+                          </View>
                           {renderRowDropdown(
                             "Blood",
                             member.bloodGroup,
@@ -1192,7 +1355,7 @@ export default function ResidentForm() {
                           <View style={{ flex: 1 }}>
                             <TextInput
                               style={styles.rowInput}
-                              placeholder="Company/Buissness/School"
+                              placeholder="Company/School"
                               value={member.companyName}
                               onChangeText={(val) =>
                                 updateFamilyMember(index, "companyName", val)
@@ -1356,7 +1519,7 @@ export default function ResidentForm() {
                           <View style={{ flex: 1 }}>
                             <TextInput
                               style={styles.rowInput}
-                              placeholder="Number (MH12...)"
+                              placeholder="Plate Number *"
                               value={v.plateNumber}
                               onChangeText={(val) =>
                                 updateVehicle(index, "plateNumber", val)

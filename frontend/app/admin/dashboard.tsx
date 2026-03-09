@@ -3,31 +3,32 @@ import { useAuth } from "@/hooks/useAuth";
 import { syncStaffWithDrive } from "@/utils/driveHealthCheck";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    getDocs,
-    onSnapshot,
-    setDoc,
-    updateDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import * as React from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    GestureResponderEvent,
-    Image,
-    Linking,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    useWindowDimensions,
-    View,
+  ActivityIndicator,
+  Alert,
+  GestureResponderEvent,
+  Image,
+  Linking,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
 } from "react-native";
+import Toast from "react-native-toast-message";
 
 interface Wing {
   id: string;
@@ -86,6 +87,12 @@ export default function AdminDashboard() {
         ...doc.data(),
       })) as Wing[];
       setWings(fetchedWings);
+
+      // Self-healing: Update society wingCount if it gets out of sync
+      if (societyData && fetchedWings.length !== societyData.wingCount) {
+        updateDoc(societyDocRef, { wingCount: fetchedWings.length });
+      }
+
       setLoading(false);
     });
 
@@ -257,6 +264,17 @@ export default function AdminDashboard() {
 
   const handleAddWing = async () => {
     if (!user?.uid || !societyData) return;
+
+    // Enforce max 25 wings limit
+    if (wings.length >= 25) {
+      Toast.show({
+        type: "error",
+        text1: "Limit Reached",
+        text2: "Maximum 25 wings allowed per society.",
+      });
+      return;
+    }
+
     try {
       const nextIndex =
         wings.length > 0
@@ -391,6 +409,16 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteWing = async (wingId: string) => {
+    // Enforce minimum 1 wing requirement
+    if (wings.length <= 1) {
+      Toast.show({
+        type: "error",
+        text1: "Operation Denied",
+        text2: "At least one wing must remain in the society configuration.",
+      });
+      return;
+    }
+
     if (Platform.OS === "web") {
       const confirmed = window.confirm(
         "Are you sure you want to delete this wing? All its configuration will be removed.",
@@ -438,7 +466,7 @@ export default function AdminDashboard() {
     );
   }
 
-  const wingCount = societyData?.wingCount || 0;
+  const wingCount = wings.length;
   const sortedWings = [...wings].sort(
     (a, b) => (a.wingIndex ?? 0) - (b.wingIndex ?? 0),
   );

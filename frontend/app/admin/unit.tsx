@@ -6,29 +6,29 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    onSnapshot,
-    orderBy,
-    query,
-    setDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  setDoc,
 } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Image,
-    KeyboardAvoidingView,
-    Linking,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Toast from "react-native-toast-message";
 
@@ -742,6 +742,11 @@ export default function UnitDetails() {
                       <Text style={styles.itemDetail}>
                         Age: {m.age} | Blood: {m.bloodGroup}
                       </Text>
+                      {m.contact && (
+                        <Text style={styles.itemDetail}>
+                          Contact: {m.contact}
+                        </Text>
+                      )}
                       <Text style={styles.itemDetail}>
                         Profession: {m.profession || "N/A"} -{" "}
                         {m.companyName || ""}
@@ -899,21 +904,26 @@ export default function UnitDetails() {
                           </View>
                         )}
                       </View>
-                      {/* Edit audit trail */}
-                      {s.lastEditedUnit && (
-                        <View style={styles.auditRow}>
-                          <Ionicons name="pencil" size={11} color="#94A3B8" />
-                          <Text style={styles.auditText}>
-                            Updated by {s.lastEditedUnit} on{" "}
-                            {s.lastEditedAt
-                              ? new Date(s.lastEditedAt).toLocaleDateString()
-                              : "N/A"}
-                            {s.lastEditField
-                              ? ` — Changed: ${s.lastEditField}`
-                              : ""}
-                          </Text>
-                        </View>
-                      )}
+                      {/* Creation Info and Document Location */}
+                      <View style={styles.auditRow}>
+                        <Ionicons
+                          name="information-circle-outline"
+                          size={11}
+                          color="#14B8A6"
+                        />
+                        <Text style={styles.auditText}>
+                          Staff Created by {s.createdWingName || "N/A"}-
+                          {s.createdUnitName || "N/A"} on{" "}
+                          {s.createdAt
+                            ? new Date(s.createdAt).toLocaleDateString()
+                            : "N/A"}
+                          {"\n"}
+                          Drive Location : {societyName}-Drive {"->"}{" "}
+                          {s.createdWingName || "N/A"} {"->"}{" "}
+                          {s.createdFloorName || "N/A"} {"->"}{" "}
+                          {s.createdUnitName || "N/A"}
+                        </Text>
+                      </View>
                       {/* Document preview buttons */}
                       <View style={styles.staffDocs}>
                         {s.photo && (
@@ -1439,19 +1449,19 @@ const styles = StyleSheet.create({
   },
   auditRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 4,
-    paddingTop: 4,
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 8,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
   },
   auditText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "600",
-    color: "#94A3B8",
-    fontStyle: "italic",
+    color: "#64748B",
     flex: 1,
+    lineHeight: 16,
   },
   docBtn: {
     flexDirection: "row",

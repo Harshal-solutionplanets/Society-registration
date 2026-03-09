@@ -105,7 +105,7 @@ const BuildingLoader = () => {
 export default function WingSetup() {
   const params = useLocalSearchParams();
   const wingIndex = params.wingIndex as string;
-  const wingId = params.wingId as string;
+  const [activeWingId, setActiveWingId] = useState(params.wingId as string);
   const initialWingName = params.wingName as string;
   const router = useRouter();
   const { user } = useAuth();
@@ -154,7 +154,7 @@ export default function WingSetup() {
   };
 
   // Stable ID for database paths - consistently use underscores for spaces
-  const wingIdToUse = wingId || wingName.trim().replace(/\s+/g, "_");
+  const wingIdToUse = activeWingId || wingName.trim().replace(/\s+/g, "_");
 
   const [selectedFloor, setSelectedFloor] = useState<number | null>(null);
   const [flatInput, setFlatInput] = useState("");
@@ -195,7 +195,7 @@ export default function WingSetup() {
   const fetchWingData = async () => {
     if (!user) return;
     try {
-      const wingPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingId}`;
+      const wingPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${activeWingId}`;
       const wingDoc = await getDoc(doc(db, wingPath));
 
       if (wingDoc.exists()) {
@@ -709,7 +709,6 @@ export default function WingSetup() {
       } else if (initialName !== wingName) {
         // Rename Wing Folder if name changed
         await renameDriveFolder(wingFolderId, wingName, token as string);
-        setInitialName(wingName);
       }
 
       const batch = writeBatch(db);
@@ -764,11 +763,11 @@ export default function WingSetup() {
         }
       }
 
-      const isRenaming = wingId && initialName !== wingName;
+      const newWingId = wingName.trim().replace(/\s+/g, "_");
+      const isRenaming = !!activeWingId && initialName !== wingName;
       // Standardize wingIdToUse - use underscores consistently
-      const wingPrefix = (wingIdToUse as string)
-        .replace(/\s+/g, "_")
-        .toUpperCase();
+      const wingPrefix = newWingId.toUpperCase();
+      const oldWingPrefix = (activeWingId || "").toUpperCase();
       let unitsGenerated = 0;
 
       // PRE-MIGRATION DATA COLLECTION
@@ -780,7 +779,7 @@ export default function WingSetup() {
         );
         if (
           renumberedFrom &&
-          renumberedFrom.floorNumber !== floor.floorNumber
+          (renumberedFrom.floorNumber !== floor.floorNumber || isRenaming)
         ) {
           console.log(
             `Pre-collecting data from floor ${renumberedFrom.floorNumber} for migration...`,
@@ -847,7 +846,7 @@ export default function WingSetup() {
         }
 
         // Fetch current location units to merge with migration data
-        const newFloorPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${floor.floorNumber}`;
+        const newFloorPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${newWingId}/${floor.floorNumber}`;
         const currentUnitsSnap = await getDocs(collection(db, newFloorPath));
         const floorDataCache: Record<string, any> = {};
         currentUnitsSnap.forEach((d) => (floorDataCache[d.id] = d.data()));
@@ -858,7 +857,7 @@ export default function WingSetup() {
           const unitId = `${wingPrefix}-${floor.floorNumber}-${unitNumber}`;
 
           const existingData = migrationCache[unitId] || floorDataCache[unitId];
-          const societyUnitPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${floor.floorNumber}/${unitId}`;
+          const societyUnitPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${newWingId}/${floor.floorNumber}/${unitId}`;
           const residentPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${unitId}`;
 
           if (!existingData || !existingData.username) {
@@ -903,6 +902,8 @@ export default function WingSetup() {
               floorNumber: floor.floorNumber,
               unitNumber: unitNumber,
               driveFolderId: flatFolderId,
+              familyMembers: 0,
+              staffMembers: 0,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             };
@@ -912,48 +913,66 @@ export default function WingSetup() {
             unitsGenerated++;
           } else {
             // Sync existing/migrated unit
-            const updatedPayload = {
+            const unitPayload = {
               ...existingData,
               id: unitId,
               wingName: wingName,
               floorName: currentFloorName,
               displayName: `${wingName} - ${existingData.unitName || unitName}`,
+              wingId: newWingId, // Update to new ID
               floorNumber: floor.floorNumber,
               unitNumber: unitNumber,
+              familyMembers: existingData.familyMembers || 0,
+              staffMembers: existingData.staffMembers || 0,
               updatedAt: new Date().toISOString(),
             };
 
-            // If it was migrated, we need to handle staff migration too
-            if (existingData.oldId) {
+            // If it was migrated due to renumbering or WING RENAME
+            if (
+              existingData.oldId ||
+              (isRenaming && existingData.id !== unitId)
+            ) {
+              const sourceId = existingData.oldId || existingData.id;
+              console.log(`Migrating unit ${sourceId} -> ${unitId}`);
               const oldStaffRef = collection(
                 db,
-                `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${existingData.oldId}/StaffMembers`,
+                `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${sourceId}/StaffMembers`,
               );
               const staffSnap = await getDocs(oldStaffRef);
               staffSnap.forEach((sDoc) => {
                 const newStaffPath = `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${unitId}/StaffMembers/${sDoc.id}`;
                 batch.set(doc(db, newStaffPath), sDoc.data());
               });
-              // Queue old resident doc for deletion AFTER migration
+              // Queue old resident doc for deletion
               batch.delete(
                 doc(
                   db,
-                  `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${existingData.oldId}`,
+                  `artifacts/${appId}/public/data/societies/${user?.uid}/Residents/${sourceId}`,
                 ),
               );
             }
 
-            batch.set(doc(db, societyUnitPath), updatedPayload, {
+            batch.set(doc(db, societyUnitPath), unitPayload, {
               merge: true,
             });
-            batch.set(doc(db, residentPath), updatedPayload, { merge: true });
+            batch.set(doc(db, residentPath), unitPayload, { merge: true });
           }
         }
       }
 
       // FINAL CLEANUP STEP: Delete old records that were either migrated or removed
+      if (isRenaming && activeWingId) {
+        // Delete the old wing document itself
+        batch.delete(
+          doc(
+            db,
+            `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${activeWingId}`,
+          ),
+        );
+      }
+
       for (const item of deletedFloors) {
-        const oldFloorPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}/${item.floorNumber}`;
+        const oldFloorPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${isRenaming ? activeWingId : wingIdToUse}/${item.floorNumber}`;
         const oldUnitsSnap = await getDocs(collection(db, oldFloorPath));
         for (const unitDoc of oldUnitsSnap.docs) {
           const unitData = unitDoc.data();
@@ -975,8 +994,8 @@ export default function WingSetup() {
         }
       }
 
-      // Use the ORIGINAL wingId for the path - don't create new collection
-      const wingPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${wingIdToUse}`;
+      // Use the NEW wingId for the path
+      const wingPath = `artifacts/${appId}/public/data/societies/${user?.uid}/wings/${newWingId}`;
       const totalFlatsInWing = updatedFloors.reduce(
         (sum, f) => sum + f.flatCount,
         0,
@@ -986,7 +1005,7 @@ export default function WingSetup() {
         wingRef,
         {
           name: wingName, // Updated display name
-          wingId: wingIdToUse, // Keep original ID
+          wingId: newWingId, // Support ID change
           wingIndex: parseInt(wingIndex as string),
           driveFolderId: wingFolderId,
           floorCount: updatedFloors.length,
@@ -1003,6 +1022,13 @@ export default function WingSetup() {
       }
 
       await batch.commit();
+
+      // Update local state to reflect new identity
+      if (isRenaming) {
+        setActiveWingId(newWingId);
+        setInitialName(wingName);
+      }
+
       await fetchWingData(); // Refresh to ensure existingWingData is populated
       Toast.show({
         type: "success",
@@ -1257,41 +1283,53 @@ export default function WingSetup() {
                   </TouchableOpacity>
 
                   <View style={styles.floorActions}>
-                    {floor.flatCount > 0 && (
-                      <TouchableOpacity
-                        style={[
-                          styles.viewDetailsBtn,
-                          !existingWingData && styles.disabledBtn,
-                        ]}
-                        onPress={() => {
-                          if (!existingWingData) {
-                            Toast.show({
-                              type: "info",
-                              text1: "Structure Not Saved",
-                              text2:
-                                "Please save the wing structure before viewing floor details.",
-                            });
-                            return;
-                          }
-                          router.push({
-                            pathname: "/admin/floor",
-                            params: {
-                              wingId: wingIdToUse,
-                              wingName: wingName,
-                              floorNumber: floor.floorNumber.toString(),
-                              flatCount: floor.flatCount.toString(),
-                              floorName:
-                                floor.floorName ||
-                                (floor.floorNumber === 0
-                                  ? "Ground Floor"
-                                  : `Floor ${floor.floorNumber}`),
-                            },
-                          });
-                        }}
-                      >
-                        <Text style={styles.viewDetailsBtnText}>→</Text>
-                      </TouchableOpacity>
-                    )}
+                    {floor.flatCount > 0 &&
+                      (() => {
+                        const isFloorSaved =
+                          existingWingData &&
+                          wingName === initialName &&
+                          existingWingData.floors?.some(
+                            (f: any) =>
+                              f.floorNumber === floor.floorNumber &&
+                              f.flatCount === floor.flatCount,
+                          );
+
+                        return (
+                          <TouchableOpacity
+                            style={[
+                              styles.viewDetailsBtn,
+                              !isFloorSaved && styles.disabledBtn,
+                            ]}
+                            onPress={() => {
+                              if (!isFloorSaved) {
+                                Toast.show({
+                                  type: "info",
+                                  text1: "Changes Unsaved",
+                                  text2:
+                                    "Please save the wing structure to enable viewing floor details.",
+                                });
+                                return;
+                              }
+                              router.push({
+                                pathname: "/admin/floor",
+                                params: {
+                                  wingId: wingIdToUse,
+                                  wingName: wingName,
+                                  floorNumber: floor.floorNumber.toString(),
+                                  flatCount: floor.flatCount.toString(),
+                                  floorName:
+                                    floor.floorName ||
+                                    (floor.floorNumber === 0
+                                      ? "Ground Floor"
+                                      : `Floor ${floor.floorNumber}`),
+                                },
+                              });
+                            }}
+                          >
+                            <Text style={styles.viewDetailsBtnText}>→</Text>
+                          </TouchableOpacity>
+                        );
+                      })()}
                     <TouchableOpacity
                       style={styles.deleteFloorBtn}
                       onPress={() => handleDeleteFloor(floor.floorNumber)}

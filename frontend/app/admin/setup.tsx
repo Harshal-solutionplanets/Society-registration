@@ -285,7 +285,7 @@ export default function AdminSetup() {
       return;
     }
 
-    // Wings/Blocks - strictly integer range 1 to 30
+    // Wings/Blocks - strictly integer range 1 to 25
     if (field === "wingCount") {
       const sanitized = value.replace(/[^0-9]/g, "");
       if (sanitized === "") {
@@ -301,11 +301,11 @@ export default function AdminSetup() {
         });
         return;
       }
-      if (numValue > 30) {
+      if (numValue > 25) {
         Toast.show({
           type: "error",
           text1: "Invalid Wing Count",
-          text2: "Maximum 30 wings allowed.",
+          text2: "Maximum 25 wings allowed.",
         });
         return;
       }
@@ -420,11 +420,11 @@ export default function AdminSetup() {
     }
 
     const wings = parseInt(formData.wingCount);
-    if (isNaN(wings) || wings < 1 || wings > 30) {
+    if (isNaN(wings) || wings < 1 || wings > 25) {
       Toast.show({
         type: "error",
         text1: "Invalid Wing Count",
-        text2: "Please enter a value between 1 and 30.",
+        text2: "Please enter a value between 1 and 25.",
       });
       return;
     }
@@ -529,7 +529,8 @@ export default function AdminSetup() {
             }
 
             if (token) {
-              // 2. Patch Folder Name
+              // 2. Patch Folder Name - Standardize drive folder name
+              const driveFormattedName = `${societyName.toUpperCase().replace(/\s+/g, "_")}-ZONECT`;
               const renameRes = await fetch(
                 `https://www.googleapis.com/drive/v3/files/${driveData.driveFolderId}`,
                 {
@@ -538,12 +539,13 @@ export default function AdminSetup() {
                     Authorization: `Bearer ${token}`,
                     "Content-Type": "application/json",
                   },
-                  body: JSON.stringify({ name: societyName }),
+                  body: JSON.stringify({ name: driveFormattedName }),
                 },
               );
 
               if (renameRes.ok) {
                 console.log("[Setup] Drive folder renamed successfully.");
+                setOriginalSocietyName(societyName); // Update local state to avoid repeat rename
               } else {
                 const err = await renameRes.json();
                 console.warn("[Setup] Drive rename failed:", err);
@@ -1266,7 +1268,9 @@ export default function AdminSetup() {
                   />
                 </View>
                 <View style={styles.flex1}>
-                  <Text style={styles.label}>Google Maps Location URL</Text>
+                  <Text style={styles.label}>
+                    Google Maps Location URL(Optional)
+                  </Text>
                   <TextInput
                     style={[
                       styles.input,

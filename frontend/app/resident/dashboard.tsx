@@ -65,11 +65,18 @@ export default function ResidentDashboard() {
             "societyName",
             "displayName",
             "staffMembers",
+            "familyMembers",
+            "familyMemberCount",
+            "wingId",
+            "floorNumber",
           ];
           let hasChanges = false;
           const updatedData = { ...residentData };
           for (const field of fieldsToSync) {
-            if (data[field] && data[field] !== residentData[field]) {
+            if (
+              data[field] !== undefined &&
+              data[field] !== residentData[field]
+            ) {
               updatedData[field] = data[field];
               hasChanges = true;
             }

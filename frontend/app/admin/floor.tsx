@@ -149,8 +149,12 @@ export default function FloorDetail() {
           ownership: data.ownership || "SELF_OWNED",
           ownerName: data.ownerName || "",
           ownerContact: data.ownerContact || "",
-          familyMembers: data.familyMembers?.toString() || "0",
-          staffMembers: data.staffMembers?.toString() || "0",
+          familyMembers: (
+            data.familyMembers ||
+            data.familyMemberCount ||
+            0
+          ).toString(),
+          staffMembers: (data.staffMembers || 0).toString(),
           hasCredentials: !!(data.username || data.residentUsername),
           username: data.username || data.residentUsername,
           password: data.password || data.residentPassword,
@@ -794,12 +798,12 @@ export default function FloorDetail() {
                     <Text style={styles.residentMobileMini}>
                       {flat.residentMobile || "No Mobile Set"}
                     </Text>
-                    {flat.familyMembers ? (
+                    {parseInt(flat.familyMembers?.toString() || "0") > 0 ? (
                       <Text style={styles.familyMini}>
                         👨‍👩‍👧‍👦 {flat.familyMembers} Family Members
                       </Text>
                     ) : null}
-                    {flat.staffMembers ? (
+                    {parseInt(flat.staffMembers?.toString() || "0") > 0 ? (
                       <Text style={styles.familyMini}>
                         👮 {flat.staffMembers} Staff Members
                       </Text>
